@@ -10,6 +10,7 @@ const METADATA_KEY = `${EXTENSION_ID}/card`;
 const DECK_METADATA_KEY = `${EXTENSION_ID}/deck`;
 const LEGACY_METADATA_KEY = `${LEGACY_EXTENSION_ID}/card`;
 const LEGACY_DECK_METADATA_KEY = `${LEGACY_EXTENSION_ID}/deck`;
+const COMMANDS_CHANNEL = `${EXTENSION_ID}/commands`;
 
 function isCardMetadata(value) {
   return Boolean(
@@ -3989,12 +3990,14 @@ async function setupContextMenu() {
     ];
   }
 
-  rememberCardSelection(await OBR.player.getSelection()).catch((error) => {
-    console.warn("Unable to read initial card selection", error);
-  });
-  rememberDeckSelection(await OBR.player.getSelection()).catch((error) => {
-    console.warn("Unable to read initial deck selection", error);
-  });
+  OBR.player
+    .getSelection()
+    .then(async (selection) => {
+      await Promise.all([rememberCardSelection(selection), rememberDeckSelection(selection)]);
+    })
+    .catch((error) => {
+      console.warn("Unable to read initial selection", error);
+    });
 
   OBR.player.onChange((player) => {
     rememberCardSelection(player.selection).catch((error) => {
@@ -4004,204 +4007,243 @@ async function setupContextMenu() {
       console.warn("Unable to update deck selection", error);
     });
   });
-  syncDeckDisplays(OBR, await OBR.scene.items.getItems()).catch((error) => {
-    console.warn("Unable to sync deck counters", error);
-  });
+  OBR.scene.items
+    .getItems()
+    .then((items) => syncDeckDisplays(OBR, items))
+    .catch((error) => {
+      console.warn("Unable to sync deck counters", error);
+    });
   OBR.scene.items.onChange((items) => {
     syncDeckDisplays(OBR, items).catch((error) => {
       console.warn("Unable to sync changed deck counters", error);
     });
   });
 
-  await removePreviousRegistrations(OBR);
+  async function registerCommands() {
+    await removePreviousRegistrations(OBR);
 
-  await createContextMenu(OBR, {
-    id: `${EXTENSION_ID}/flip`,
-    icons: [
-      {
-        icon: assetUrl("icons/flip.svg"),
-        label: "Virar carta",
-        filter: {
-          permissions: ["UPDATE"],
-          every: [{ key: "type", value: "IMAGE" }],
-          some: cardMetadataFilter(),
+    await createContextMenu(OBR, {
+      id: `${EXTENSION_ID}/flip`,
+      icons: [
+        {
+          icon: assetUrl("icons/flip.svg"),
+          label: "Virar carta",
+          filter: {
+            permissions: ["UPDATE"],
+            every: [{ key: "type", value: "IMAGE" }],
+            some: cardMetadataFilter(),
+          },
         },
+      ],
+      async onClick(context) {
+        const count = await flipItems(OBR, context.items);
+        await showActionResult(
+          count,
+          "Carta virada.",
+          (total) => `${total} cartas viradas.`,
+          "Selecione uma carta dupla para virar.",
+          context.items,
+        );
       },
-    ],
-    async onClick(context) {
-      const count = await flipItems(OBR, context.items);
-      await showActionResult(
-        count,
-        "Carta virada.",
-        (total) => `${total} cartas viradas.`,
-        "Selecione uma carta dupla para virar.",
-        context.items,
-      );
-    },
-  });
+    });
 
-  await createContextMenu(OBR, {
-    id: `${EXTENSION_ID}/draw-from-deck`,
-    icons: [
-      {
-        icon: assetUrl("icons/draw.svg"),
-        label: "Comprar carta",
-        filter: {
-          permissions: ["UPDATE"],
-          every: [{ key: "type", value: "IMAGE" }],
-          some: deckMetadataFilter(),
+    await createContextMenu(OBR, {
+      id: `${EXTENSION_ID}/draw-from-deck`,
+      icons: [
+        {
+          icon: assetUrl("icons/draw.svg"),
+          label: "Comprar carta",
+          filter: {
+            permissions: ["UPDATE"],
+            every: [{ key: "type", value: "IMAGE" }],
+            some: deckMetadataFilter(),
+          },
         },
+      ],
+      async onClick(context) {
+        const count = await drawFromDecks(OBR, sdk.buildImage, context.items);
+        await showActionResult(
+          count,
+          "Carta comprada.",
+          (total) => `${total} cartas compradas.`,
+          "A pilha esta vazia.",
+          context.items,
+        );
       },
-    ],
-    async onClick(context) {
-      const count = await drawFromDecks(OBR, sdk.buildImage, context.items);
-      await showActionResult(
-        count,
-        "Carta comprada.",
-        (total) => `${total} cartas compradas.`,
-        "A pilha esta vazia.",
-        context.items,
-      );
-    },
-  });
+    });
 
-  await createContextMenu(OBR, {
-    id: `${EXTENSION_ID}/shuffle-deck`,
-    icons: [
-      {
-        icon: assetUrl("icons/shuffle.svg"),
-        label: "Embaralhar pilha",
-        filter: {
-          permissions: ["UPDATE"],
-          every: [{ key: "type", value: "IMAGE" }],
-          some: deckMetadataFilter(),
+    await createContextMenu(OBR, {
+      id: `${EXTENSION_ID}/shuffle-deck`,
+      icons: [
+        {
+          icon: assetUrl("icons/shuffle.svg"),
+          label: "Embaralhar pilha",
+          filter: {
+            permissions: ["UPDATE"],
+            every: [{ key: "type", value: "IMAGE" }],
+            some: deckMetadataFilter(),
+          },
         },
+      ],
+      async onClick(context) {
+        const count = await shuffleDecks(OBR, context.items);
+        await showActionResult(
+          count,
+          "Pilha embaralhada.",
+          (total) => `${total} pilhas embaralhadas.`,
+          "A pilha precisa ter pelo menos duas cartas.",
+          context.items,
+        );
       },
-    ],
-    async onClick(context) {
-      const count = await shuffleDecks(OBR, context.items);
-      await showActionResult(
-        count,
-        "Pilha embaralhada.",
-        (total) => `${total} pilhas embaralhadas.`,
-        "A pilha precisa ter pelo menos duas cartas.",
-        context.items,
-      );
-    },
-  });
+    });
 
-  await createContextMenu(OBR, {
-    id: `${EXTENSION_ID}/return-to-deck`,
-    icons: [
-      {
-        icon: assetUrl("icons/return.svg"),
-        label: "Devolver para pilha",
-        filter: {
-          permissions: ["UPDATE", "DELETE"],
-          every: [{ key: "type", value: "IMAGE" }],
-          some: cardMetadataFilter(),
+    await createContextMenu(OBR, {
+      id: `${EXTENSION_ID}/return-to-deck`,
+      icons: [
+        {
+          icon: assetUrl("icons/return.svg"),
+          label: "Devolver para pilha",
+          filter: {
+            permissions: ["UPDATE", "DELETE"],
+            every: [{ key: "type", value: "IMAGE" }],
+            some: cardMetadataFilter(),
+          },
         },
+      ],
+      async onClick(context) {
+        const count = await returnCardsToDeck(OBR, context.items, lastDeckSelection);
+        await showActionResult(
+          count,
+          "Carta devolvida para a pilha.",
+          (total) => `${total} cartas devolvidas para a pilha.`,
+          "Selecione uma carta e tenha uma pilha alvo selecionada recentemente.",
+          context.items,
+        );
       },
-    ],
-    async onClick(context) {
-      const count = await returnCardsToDeck(OBR, context.items, lastDeckSelection);
-      await showActionResult(
-        count,
-        "Carta devolvida para a pilha.",
-        (total) => `${total} cartas devolvidas para a pilha.`,
-        "Selecione uma carta e tenha uma pilha alvo selecionada recentemente.",
-        context.items,
-      );
-    },
+    });
+
+    await createToolAction(OBR, {
+      id: `${EXTENSION_ID}/flip-action`,
+      icons: [
+        {
+          icon: assetUrl("icons/flip.svg"),
+          label: "Virar carta",
+        },
+      ],
+      shortcut: "V",
+      async onClick() {
+        const anchors = await getAnchorItems(lastCardSelection);
+        const count = await flipSelectedItems(OBR, lastCardSelection);
+        await showActionResult(
+          count,
+          "Carta virada.",
+          (total) => `${total} cartas viradas.`,
+          "Selecione uma carta dupla para virar.",
+          anchors,
+        );
+      },
+    });
+
+    await createToolAction(OBR, {
+      id: `${EXTENSION_ID}/draw-action`,
+      icons: [
+        {
+          icon: assetUrl("icons/draw.svg"),
+          label: "Comprar carta",
+        },
+      ],
+      async onClick() {
+        const anchors = await getAnchorItems(lastDeckSelection);
+        const count = await drawSelectedDecks(OBR, sdk.buildImage, lastDeckSelection);
+        await showActionResult(
+          count,
+          "Carta comprada.",
+          (total) => `${total} cartas compradas.`,
+          "Selecione uma pilha com cartas para comprar.",
+          anchors,
+        );
+      },
+    });
+
+    await createToolAction(OBR, {
+      id: `${EXTENSION_ID}/shuffle-action`,
+      icons: [
+        {
+          icon: assetUrl("icons/shuffle.svg"),
+          label: "Embaralhar pilha",
+        },
+      ],
+      async onClick() {
+        const anchors = await getAnchorItems(lastDeckSelection);
+        const count = await shuffleSelectedDecks(OBR, lastDeckSelection);
+        await showActionResult(
+          count,
+          "Pilha embaralhada.",
+          (total) => `${total} pilhas embaralhadas.`,
+          "Selecione uma pilha com pelo menos duas cartas.",
+          anchors,
+        );
+      },
+    });
+
+    await createToolAction(OBR, {
+      id: `${EXTENSION_ID}/return-action`,
+      icons: [
+        {
+          icon: assetUrl("icons/return.svg"),
+          label: "Devolver para pilha",
+        },
+      ],
+      async onClick() {
+        const anchors = await getAnchorItems(lastCardSelection);
+        const count = await returnSelectedCardsToDeck(
+          OBR,
+          lastCardSelection,
+          lastDeckSelection,
+        );
+        await showActionResult(
+          count,
+          "Carta devolvida para a pilha.",
+          (total) => `${total} cartas devolvidas para a pilha.`,
+          "Selecione uma carta comprada e uma pilha alvo.",
+          anchors,
+        );
+      },
+    });
+  }
+
+  let commandRegistration = Promise.resolve();
+  function queueCommandRegistration(reason) {
+    commandRegistration = commandRegistration
+      .catch(() => {})
+      .then(() => registerCommands())
+      .catch((error) => {
+        console.warn(`Unable to register Double-Sided Cards commands (${reason})`, error);
+      });
+
+    return commandRegistration;
+  }
+
+  OBR.broadcast.onMessage(COMMANDS_CHANNEL, () => {
+    queueCommandRegistration("panel request");
   });
 
-  await createToolAction(OBR, {
-    id: `${EXTENSION_ID}/flip-action`,
-    icons: [
-      {
-        icon: assetUrl("icons/flip.svg"),
-        label: "Virar carta",
-      },
-    ],
-    shortcut: "V",
-    async onClick() {
-      const anchors = await getAnchorItems(lastCardSelection);
-      const count = await flipSelectedItems(OBR, lastCardSelection);
-      await showActionResult(
-        count,
-        "Carta virada.",
-        (total) => `${total} cartas viradas.`,
-        "Selecione uma carta dupla para virar.",
-        anchors,
-      );
-    },
+  await queueCommandRegistration("initial load");
+
+  for (const delayMs of [250, 1000, 2500, 5000]) {
+    window.setTimeout(() => {
+      queueCommandRegistration(`delayed ${delayMs}ms`);
+    }, delayMs);
+  }
+
+  window.addEventListener("focus", () => {
+    queueCommandRegistration("window focus");
   });
 
-  await createToolAction(OBR, {
-    id: `${EXTENSION_ID}/draw-action`,
-    icons: [
-      {
-        icon: assetUrl("icons/draw.svg"),
-        label: "Comprar carta",
-      },
-    ],
-    async onClick() {
-      const anchors = await getAnchorItems(lastDeckSelection);
-      const count = await drawSelectedDecks(OBR, sdk.buildImage, lastDeckSelection);
-      await showActionResult(
-        count,
-        "Carta comprada.",
-        (total) => `${total} cartas compradas.`,
-        "Selecione uma pilha com cartas para comprar.",
-        anchors,
-      );
-    },
-  });
-
-  await createToolAction(OBR, {
-    id: `${EXTENSION_ID}/shuffle-action`,
-    icons: [
-      {
-        icon: assetUrl("icons/shuffle.svg"),
-        label: "Embaralhar pilha",
-      },
-    ],
-    async onClick() {
-      const anchors = await getAnchorItems(lastDeckSelection);
-      const count = await shuffleSelectedDecks(OBR, lastDeckSelection);
-      await showActionResult(
-        count,
-        "Pilha embaralhada.",
-        (total) => `${total} pilhas embaralhadas.`,
-        "Selecione uma pilha com pelo menos duas cartas.",
-        anchors,
-      );
-    },
-  });
-
-  await createToolAction(OBR, {
-    id: `${EXTENSION_ID}/return-action`,
-    icons: [
-      {
-        icon: assetUrl("icons/return.svg"),
-        label: "Devolver para pilha",
-      },
-    ],
-    async onClick() {
-      const anchors = await getAnchorItems(lastCardSelection);
-      const count = await returnSelectedCardsToDeck(
-        OBR,
-        lastCardSelection,
-        lastDeckSelection,
-      );
-      await showActionResult(
-        count,
-        "Carta devolvida para a pilha.",
-        (total) => `${total} cartas devolvidas para a pilha.`,
-        "Selecione uma carta comprada e uma pilha alvo.",
-        anchors,
-      );
-    },
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      queueCommandRegistration("visibility change");
+    }
   });
 }
 

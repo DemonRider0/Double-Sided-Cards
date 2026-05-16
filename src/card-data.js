@@ -8,6 +8,7 @@ export const METADATA_KEY = `${EXTENSION_ID}/card`;
 export const DECK_METADATA_KEY = `${EXTENSION_ID}/deck`;
 export const LEGACY_METADATA_KEY = `${LEGACY_EXTENSION_ID}/card`;
 export const LEGACY_DECK_METADATA_KEY = `${LEGACY_EXTENSION_ID}/deck`;
+export const COMMANDS_CHANNEL = `${EXTENSION_ID}/commands`;
 
 export function isCardMetadata(value) {
   return Boolean(

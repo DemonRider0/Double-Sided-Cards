@@ -1,4 +1,5 @@
 import {
+  COMMANDS_CHANNEL,
   createCardMetadata,
   createCardMetadataMap,
   createDeckMetadata,
@@ -1058,11 +1059,16 @@ async function init() {
   try {
     const loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=32").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=33").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
     obr = loaded.OBR;
     buildImage = loaded.sdk.buildImage;
+    obr.broadcast
+      .sendMessage(COMMANDS_CHANNEL, { type: "register-commands" }, { destination: "LOCAL" })
+      .catch((error) => {
+        console.warn("Unable to request command registration", error);
+      });
     const selection = await obr.player.getSelection();
     await Promise.all([rememberCardSelection(selection), rememberDeckSelection(selection)]);
     obr.player.onChange((player) => {
