@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Double-Sided Cards</title>
+    <script type="module" src="./dist/sdk-boot.js?v=27"></script>
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="topbar">
+        <img src="./icons/card.svg" alt="" class="topbar__icon" />
+        <div>
+          <h1>Cartas Duplas</h1>
+          <p id="connectionStatus" class="status">Carregando painel...</p>
+        </div>
+      </header>
+
+      <form id="cardForm" class="form">
+        <h2>Carta</h2>
+        <label class="field">
+          <span>Nome</span>
+          <input id="cardName" name="cardName" type="text" placeholder="Carta sem nome" autocomplete="off" />
+        </label>
+
+        <label class="field">
+          <span>Frente URL</span>
+          <input id="frontUrl" name="frontUrl" type="url" placeholder="https://..." />
+        </label>
+
+        <label class="field">
+          <span>Frente arquivo</span>
+          <input id="frontFile" name="frontFile" type="file" accept="image/*" />
+        </label>
+        <button id="pickFrontAssetButton" class="button button--secondary" type="button">
+          Escolher frente dos assets
+        </button>
+
+        <label class="field">
+          <span>Verso URL</span>
+          <input id="backUrl" name="backUrl" type="url" placeholder="https://..." />
+        </label>
+
+        <label class="field">
+          <span>Verso arquivo</span>
+          <input id="backFile" name="backFile" type="file" accept="image/*" />
+        </label>
+        <button id="pickBackAssetButton" class="button button--secondary" type="button">
+          Escolher verso dos assets
+        </button>
+
+        <div class="row">
+          <label class="field">
+            <span>Largura no grid</span>
+            <input id="gridWidth" name="gridWidth" type="number" min="0.25" max="20" step="0.25" value="2" required />
+          </label>
+
+          <label class="field">
+            <span>Camada</span>
+            <select id="layer" name="layer">
+              <option value="PROP" selected>Mesa</option>
+              <option value="CHARACTER">Personagem</option>
+              <option value="ATTACHMENT">Anexo</option>
+            </select>
+          </label>
+        </div>
+
+        <section class="preview" aria-label="Prévia">
+          <figure>
+            <div class="preview__image">
+              <img id="frontPreview" alt="Prévia da frente" hidden />
+            </div>
+            <figcaption>Frente</figcaption>
+          </figure>
+          <figure>
+            <div class="preview__image">
+              <img id="backPreview" alt="Prévia do verso" hidden />
+            </div>
+            <figcaption>Verso</figcaption>
+          </figure>
+        </section>
+
+        <button id="importButton" class="button" type="submit" disabled>
+          Importar carta
+        </button>
+      </form>
+
+      <form id="deckForm" class="form">
+        <h2>Pilha</h2>
+        <label class="field">
+          <span>Nome</span>
+          <input id="deckName" name="deckName" type="text" placeholder="Pilha sem nome" autocomplete="off" />
+        </label>
+
+        <label class="field">
+          <span>Verso URL</span>
+          <input id="deckBackUrl" name="deckBackUrl" type="url" placeholder="https://..." />
+        </label>
+
+        <label class="field">
+          <span>Verso arquivo</span>
+          <input id="deckBackFile" name="deckBackFile" type="file" accept="image/*" />
+        </label>
+        <button id="pickDeckBackAssetButton" class="button button--secondary" type="button">
+          Escolher verso dos assets
+        </button>
+
+        <label class="field">
+          <span>Frentes URLs</span>
+          <textarea id="deckFrontUrls" name="deckFrontUrls" rows="5" placeholder="Nome | https://..."></textarea>
+        </label>
+
+        <label class="field">
+          <span>Frentes arquivos</span>
+          <input id="deckFrontFiles" name="deckFrontFiles" type="file" accept="image/*" multiple />
+        </label>
+        <button id="pickDeckFrontAssetsButton" class="button button--secondary" type="button">
+          Escolher frentes dos assets
+        </button>
+        <p id="deckAssetsStatus" class="field-note"></p>
+
+        <div class="row">
+          <label class="field">
+            <span>Largura no grid</span>
+            <input id="deckGridWidth" name="deckGridWidth" type="number" min="0.25" max="20" step="0.25" value="2" />
+          </label>
+
+          <label class="field">
+            <span>Camada</span>
+            <select id="deckLayer" name="deckLayer">
+              <option value="PROP" selected>Mesa</option>
+              <option value="CHARACTER">Personagem</option>
+              <option value="ATTACHMENT">Anexo</option>
+            </select>
+          </label>
+        </div>
+
+        <section class="preview preview--single" aria-label="Previa da pilha">
+          <figure>
+            <div class="preview__image">
+              <img id="deckBackPreview" alt="Previa do verso da pilha" hidden />
+            </div>
+            <figcaption>Verso</figcaption>
+          </figure>
+        </section>
+
+        <button id="importDeckButton" class="button" type="submit" disabled>
+          Importar pilha
+        </button>
+      </form>
+
+      <section class="form">
+        <h2>Publicar</h2>
+        <label class="field">
+          <span>URL pública</span>
+          <input id="publicBaseUrl" name="publicBaseUrl" type="url" placeholder="https://usuario.github.io/repositorio" />
+        </label>
+        <p class="field-note">
+          Use esta opção depois de copiar as imagens locais para o GitHub Pages.
+        </p>
+        <button id="migratePublicButton" class="button button--secondary" type="button" disabled>
+          Migrar links locais da cena
+        </button>
+      </section>
+
+      <p id="message" class="message" role="status" aria-live="polite"></p>
+    </main>
+
+    <script type="module" src="./dist/app.js?v=27"></script>
+  </body>
+</html>

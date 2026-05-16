@@ -1,0 +1,19 @@
+{
+  "name": "double-sided-cards-owlbear",
+  "version": "0.1.0",
+  "author": "DemonRider",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "prepare:github-assets": "node scripts/prepare-github-assets.mjs"
+  },
+  "dependencies": {
+    "@owlbear-rodeo/sdk": "3.1.0"
+  },
+  "devDependencies": {
+    "@rollup/plugin-node-resolve": "^16.0.3",
+    "esbuild": "^0.27.0",
+    "rollup": "^4.60.4"
+  }
+}

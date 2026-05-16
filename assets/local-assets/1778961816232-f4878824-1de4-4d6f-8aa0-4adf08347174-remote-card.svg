@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="Cards">
+  <rect x="9" y="7" width="25" height="34" rx="4" fill="#f8f2e4" stroke="#1f1b16" stroke-width="2"/>
+  <rect x="15" y="11" width="25" height="34" rx="4" fill="#0e7c86" stroke="#1f1b16" stroke-width="2"/>
+  <path d="M20 18h15M20 25h15M20 32h10" stroke="#fff7e8" stroke-width="3" stroke-linecap="round"/>
+</svg>
