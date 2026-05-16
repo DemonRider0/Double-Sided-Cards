@@ -16,7 +16,7 @@ MVP de uma extensao para importar cartas 2D com frente e verso e vira-las no Owl
 5. Adicione uma extensao customizada usando:
 
    ```text
-   http://localhost:5179/manifest.json?v=27
+   http://localhost:5179/manifest.json?v=28
    ```
 
 6. Abra o botao `Cards`, preencha `Frente`, `Verso` e importe.
@@ -67,7 +67,7 @@ O projeto e estatico depois do build, entao pode ser publicado pelo GitHub Pages
 5. A URL da extensao no Owlbear ficara assim:
 
    ```text
-   https://SEU_USUARIO.github.io/SEU_REPOSITORIO/manifest.json?v=27
+   https://SEU_USUARIO.github.io/SEU_REPOSITORIO/manifest.json?v=28
    ```
 
 ### Preservar pilhas ja montadas
@@ -81,6 +81,7 @@ https://SEU_USUARIO.github.io/SEU_REPOSITORIO
 
 Depois clique em `Migrar links locais da cena`. A extensao troca os links `localhost/.local-assets/...`
 por `assets/local-assets/...` no GitHub Pages, mantendo as pilhas e cartas existentes na cena.
+Se voce migrar usando uma URL errada, corrija a URL e clique no botao de migracao de novo.
 
 ## Mobile
 
@@ -89,7 +90,7 @@ por `assets/local-assets/...` no GitHub Pages, mantendo as pilhas e cartas exist
 Para testar no mobile, publique ou exponha este servidor por uma URL HTTPS publica, por exemplo com um tunel. Use a URL HTTPS gerada no Owlbear:
 
 ```text
-https://sua-url-publica/manifest.json?v=27
+https://sua-url-publica/manifest.json?v=28
 ```
 
 Quando a extensao e aberta por uma URL publica, os arquivos locais importados tambem passam a ser servidos por essa mesma URL publica.

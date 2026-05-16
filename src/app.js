@@ -171,24 +171,26 @@ function encodeAssetFilename(filename) {
     .join("/");
 }
 
-function getLocalAssetFilename(rawUrl) {
+function getMigratableAssetFilename(rawUrl) {
   try {
     const url = new URL(rawUrl);
-    const marker = "/.local-assets/";
-    const markerIndex = url.pathname.indexOf(marker);
+    const markers = ["/.local-assets/", "/assets/local-assets/"];
 
-    if (markerIndex < 0) {
-      return null;
+    for (const marker of markers) {
+      const markerIndex = url.pathname.indexOf(marker);
+      if (markerIndex >= 0) {
+        return decodeURIComponent(url.pathname.slice(markerIndex + marker.length));
+      }
     }
 
-    return decodeURIComponent(url.pathname.slice(markerIndex + marker.length));
+    return null;
   } catch {
     return null;
   }
 }
 
 function migrateFaceUrl(face, publicBaseUrl, stats) {
-  const filename = getLocalAssetFilename(face.url);
+  const filename = getMigratableAssetFilename(face.url);
 
   if (!filename) {
     return face;
@@ -843,7 +845,7 @@ async function init() {
   try {
     const loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=27").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=28").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
     obr = loaded.OBR;

@@ -1,16 +1,16 @@
 {
   "name": "Double-Sided Cards",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "manifest_version": 1,
   "author": "DemonRider",
-  "icon": "/icons/card.svg",
+  "icon": "icons/card.svg",
   "description": "Import two-sided cards and flip them in Owlbear Rodeo.",
   "action": {
     "title": "Cards",
-    "icon": "/icons/card.svg",
-    "popover": "/index.html",
+    "icon": "icons/card.svg",
+    "popover": "index.html",
     "height": 680,
     "width": 420
   },
-  "background_url": "/background.html"
+  "background_url": "background.html"
 }

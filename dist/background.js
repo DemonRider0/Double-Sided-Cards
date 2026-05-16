@@ -3968,7 +3968,7 @@ async function setupContextMenu() {
     id: `${EXTENSION_ID}/flip`,
     icons: [
       {
-        icon: "/icons/flip.svg",
+        icon: "icons/flip.svg",
         label: "Virar carta",
         filter: {
           permissions: ["UPDATE"],
@@ -3993,7 +3993,7 @@ async function setupContextMenu() {
     id: `${EXTENSION_ID}/draw-from-deck`,
     icons: [
       {
-        icon: "/icons/draw.svg",
+        icon: "icons/draw.svg",
         label: "Comprar carta",
         filter: {
           permissions: ["UPDATE"],
@@ -4018,7 +4018,7 @@ async function setupContextMenu() {
     id: `${EXTENSION_ID}/shuffle-deck`,
     icons: [
       {
-        icon: "/icons/shuffle.svg",
+        icon: "icons/shuffle.svg",
         label: "Embaralhar pilha",
         filter: {
           permissions: ["UPDATE"],
@@ -4043,7 +4043,7 @@ async function setupContextMenu() {
     id: `${EXTENSION_ID}/return-to-deck`,
     icons: [
       {
-        icon: "/icons/return.svg",
+        icon: "icons/return.svg",
         label: "Devolver para pilha",
         filter: {
           permissions: ["UPDATE", "DELETE"],
@@ -4070,7 +4070,7 @@ async function setupContextMenu() {
     id: `${EXTENSION_ID}/flip-action`,
     icons: [
       {
-        icon: "/icons/flip.svg",
+        icon: "icons/flip.svg",
         label: "Virar carta",
       },
     ],
@@ -4092,7 +4092,7 @@ async function setupContextMenu() {
     id: `${EXTENSION_ID}/draw-action`,
     icons: [
       {
-        icon: "/icons/draw.svg",
+        icon: "icons/draw.svg",
         label: "Comprar carta",
       },
     ],
@@ -4113,7 +4113,7 @@ async function setupContextMenu() {
     id: `${EXTENSION_ID}/shuffle-action`,
     icons: [
       {
-        icon: "/icons/shuffle.svg",
+        icon: "icons/shuffle.svg",
         label: "Embaralhar pilha",
       },
     ],
@@ -4134,7 +4134,7 @@ async function setupContextMenu() {
     id: `${EXTENSION_ID}/return-action`,
     icons: [
       {
-        icon: "/icons/return.svg",
+        icon: "icons/return.svg",
         label: "Devolver para pilha",
       },
     ],
