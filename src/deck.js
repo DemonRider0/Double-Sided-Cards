@@ -1,14 +1,13 @@
 import {
   createCardMetadata,
+  createCardMetadataMap,
   createGridData,
   createImageData,
-  DECK_METADATA_KEY,
   deckDescription,
   getCardMetadata,
   getDeckMetadata,
   isCardMetadata,
   isDeckMetadata,
-  METADATA_KEY,
   setCardMetadata,
   setDeckMetadata,
 } from "./card-data.js";
@@ -147,9 +146,7 @@ export async function drawFromDecks(OBR, buildImage, items) {
       .description("Carta dupla: verso")
       .layer(deck.layer)
       .position(position)
-      .metadata({
-        [METADATA_KEY]: cardMetadata,
-      })
+      .metadata(createCardMetadataMap(cardMetadata))
       .build();
 
     drawnItems.push(item);

@@ -16,7 +16,7 @@ MVP de uma extensao para importar cartas 2D com frente e verso e vira-las no Owl
 5. Adicione uma extensao customizada usando:
 
    ```text
-   http://localhost:5179/manifest.json?v=29
+   http://localhost:5179/manifest.json?v=31
    ```
 
 6. Abra o botao `Cards`, preencha `Frente`, `Verso` e importe.
@@ -33,6 +33,9 @@ MVP de uma extensao para importar cartas 2D com frente e verso e vira-las no Owl
 - Links do Google Drive em formato `/file/d/.../view` sao convertidos automaticamente para URLs de imagem.
 - Arquivos locais funcionam para teste e sao servidos pela pasta local `.local-assets`; para mobile, use uma URL HTTPS publica ou tunel para este servidor.
 - A largura no grid define quantas casas a carta ocupa na horizontal.
+- Cada conta que for usar os comandos precisa instalar e ativar esta mesma extensao customizada.
+- O Owlbear so mostra os comandos para contas que tenham permissao de atualizar o item/camada.
+- Se cartas antigas aparecerem como imagens comuns em outra conta, abra o painel na conta que criou/GM e clique em `Sincronizar cena`; depois recarregue a sala nas outras contas.
 
 ## Publicar no GitHub Pages
 
@@ -67,7 +70,7 @@ O projeto e estatico depois do build, entao pode ser publicado pelo GitHub Pages
 5. A URL da extensao no Owlbear ficara assim:
 
    ```text
-   https://SEU_USUARIO.github.io/SEU_REPOSITORIO/manifest.json?v=29
+   https://SEU_USUARIO.github.io/SEU_REPOSITORIO/manifest.json?v=31
    ```
 
 ### Preservar pilhas ja montadas
@@ -90,7 +93,7 @@ Se voce migrar usando uma URL errada, corrija a URL e clique no botao de migraca
 Para testar no mobile, publique ou exponha este servidor por uma URL HTTPS publica, por exemplo com um tunel. Use a URL HTTPS gerada no Owlbear:
 
 ```text
-https://sua-url-publica/manifest.json?v=29
+https://sua-url-publica/manifest.json?v=31
 ```
 
 Quando a extensao e aberta por uma URL publica, os arquivos locais importados tambem passam a ser servidos por essa mesma URL publica.

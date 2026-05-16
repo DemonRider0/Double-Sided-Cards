@@ -1,18 +1,25 @@
 import {
   createCardMetadata,
+  createCardMetadataMap,
   createDeckMetadata,
+  createDeckMetadataMap,
   createGridData,
   createImageData,
-  DECK_METADATA_KEY,
   deckDescription,
   getCardMetadata,
   getDeckMetadata,
   getMimeFromUrl,
-  METADATA_KEY,
   setCardMetadata,
   setDeckMetadata,
 } from "./card-data.js";
-import { createDeckText } from "./deck.js";
+import {
+  createDeckText,
+  drawSelectedDecks,
+  getDeckItems,
+  returnSelectedCardsToDeck,
+  shuffleSelectedDecks,
+} from "./deck.js";
+import { flipSelectedItems, getDoubleSidedCards } from "./flip.js";
 
 const elements = {
   form: document.querySelector("#cardForm"),
@@ -36,6 +43,11 @@ const elements = {
   deckAssetsStatus: document.querySelector("#deckAssetsStatus"),
   deckGridWidth: document.querySelector("#deckGridWidth"),
   deckLayer: document.querySelector("#deckLayer"),
+  panelFlipButton: document.querySelector("#panelFlipButton"),
+  panelDrawButton: document.querySelector("#panelDrawButton"),
+  panelShuffleButton: document.querySelector("#panelShuffleButton"),
+  panelReturnButton: document.querySelector("#panelReturnButton"),
+  panelRepairButton: document.querySelector("#panelRepairButton"),
   publicBaseUrl: document.querySelector("#publicBaseUrl"),
   migratePublicButton: document.querySelector("#migratePublicButton"),
   importButton: document.querySelector("#importButton"),
@@ -49,6 +61,8 @@ const elements = {
 
 let obr = null;
 let buildImage = null;
+let lastCardSelection = [];
+let lastDeckSelection = [];
 const selectedAssets = {
   front: null,
   back: null,
@@ -81,6 +95,144 @@ function setConnectionStatus(text, isConnected) {
   elements.pickDeckBackAssetButton.disabled = !isConnected;
   elements.pickDeckFrontAssetsButton.disabled = !isConnected;
   elements.migratePublicButton.disabled = !isConnected;
+  elements.panelFlipButton.disabled = !isConnected;
+  elements.panelDrawButton.disabled = !isConnected;
+  elements.panelShuffleButton.disabled = !isConnected;
+  elements.panelReturnButton.disabled = !isConnected;
+  elements.panelRepairButton.disabled = !isConnected;
+}
+
+async function rememberCardSelection(selection) {
+  if (!obr || !selection?.length) {
+    return;
+  }
+
+  const selectedItems = await obr.scene.items.getItems(selection);
+  const cardIds = getDoubleSidedCards(selectedItems).map((item) => item.id);
+
+  if (cardIds.length) {
+    lastCardSelection = cardIds;
+  }
+}
+
+async function rememberDeckSelection(selection) {
+  if (!obr || !selection?.length) {
+    return;
+  }
+
+  const selectedItems = await obr.scene.items.getItems(selection);
+  const deckIds = getDeckItems(selectedItems).map((item) => item.id);
+
+  if (deckIds.length) {
+    lastDeckSelection = deckIds;
+  }
+}
+
+async function refreshPanelSelectionMemory() {
+  if (!obr) {
+    return;
+  }
+
+  const selection = await obr.player.getSelection();
+  await Promise.all([rememberCardSelection(selection), rememberDeckSelection(selection)]);
+}
+
+async function showPanelActionResult(count, singular, plural, warning) {
+  if (!count) {
+    setMessage(warning, "warning");
+    await obr.notification.show(warning, "WARNING");
+    return;
+  }
+
+  const message = count === 1 ? singular : plural(count);
+  setMessage(message, "success");
+  await obr.notification.show(message, "SUCCESS");
+}
+
+async function runPanelAction(button, action) {
+  if (!obr) {
+    setMessage("Abra esta extensao dentro do Owlbear para usar os comandos.", "warning");
+    return;
+  }
+
+  button.disabled = true;
+  try {
+    await refreshPanelSelectionMemory();
+    await action();
+  } catch (error) {
+    console.error(error);
+    setMessage(error.message || "Nao consegui executar a acao.", "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function getRepairMessage(stats) {
+  const parts = [];
+
+  if (stats.cards) {
+    parts.push(stats.cards === 1 ? "1 carta" : `${stats.cards} cartas`);
+  }
+
+  if (stats.decks) {
+    parts.push(stats.decks === 1 ? "1 pilha" : `${stats.decks} pilhas`);
+  }
+
+  return `Cena sincronizada: ${parts.join(" e ")}.`;
+}
+
+async function repairSceneMetadata() {
+  const items = await obr.scene.items.getItems();
+  const repairableItems = items.filter((item) => getCardMetadata(item) || getDeckMetadata(item));
+  const stats = repairableItems.reduce(
+    (result, item) => {
+      if (getCardMetadata(item)) {
+        result.cards += 1;
+      } else if (getDeckMetadata(item)) {
+        result.decks += 1;
+      }
+
+      return result;
+    },
+    { cards: 0, decks: 0 },
+  );
+
+  if (!repairableItems.length) {
+    return stats;
+  }
+
+  await obr.scene.items.updateItems(repairableItems, (draftItems) => {
+    for (const item of draftItems) {
+      const cardMetadata = getCardMetadata(item);
+
+      if (cardMetadata) {
+        const currentFace = cardMetadata.currentFace === "back" ? "back" : "front";
+        const face = cardMetadata.faces[currentFace];
+
+        item.image = createImageData(face);
+        item.grid = createGridData(face, cardMetadata.gridWidth);
+        item.description = currentFace === "back" ? "Carta dupla: verso" : "Carta dupla: frente";
+        setCardMetadata(item, {
+          ...cardMetadata,
+          currentFace,
+        });
+        continue;
+      }
+
+      const deckMetadata = getDeckMetadata(item);
+
+      if (deckMetadata) {
+        item.image = createImageData(deckMetadata.back);
+        item.grid = createGridData(deckMetadata.back, deckMetadata.gridWidth);
+        item.name = `${deckMetadata.name} (${deckMetadata.cards.length})`;
+        item.description = deckDescription(deckMetadata.cards.length);
+        item.text = createDeckText(deckMetadata.cards.length);
+        setDeckMetadata(item, deckMetadata);
+      }
+    }
+  });
+
+  return stats;
 }
 
 function normalizeUrl(value) {
@@ -694,9 +846,7 @@ async function createCard(event) {
       .description("Carta dupla: frente")
       .layer(elements.layer.value)
       .position(position)
-      .metadata({
-        [METADATA_KEY]: metadata,
-      })
+      .metadata(createCardMetadataMap(metadata))
       .build();
 
     await obr.scene.items.addItems([item]);
@@ -747,9 +897,7 @@ async function createDeck(event) {
       .text(createDeckText(cards.length))
       .layer(elements.deckLayer.value)
       .position(position)
-      .metadata({
-        [DECK_METADATA_KEY]: metadata,
-      })
+      .metadata(createDeckMetadataMap(metadata))
       .build();
 
     await obr.scene.items.addItems([item]);
@@ -768,6 +916,71 @@ async function init() {
   elements.form.addEventListener("submit", createCard);
   elements.deckForm.addEventListener("submit", createDeck);
   elements.publicBaseUrl.value = getDefaultPublicBaseUrl();
+  elements.panelFlipButton.addEventListener("click", () =>
+    runPanelAction(elements.panelFlipButton, async () => {
+      const count = await flipSelectedItems(obr, lastCardSelection);
+      await showPanelActionResult(
+        count,
+        "Carta virada.",
+        (total) => `${total} cartas viradas.`,
+        "Selecione uma carta dupla para virar.",
+      );
+    }),
+  );
+  elements.panelDrawButton.addEventListener("click", () =>
+    runPanelAction(elements.panelDrawButton, async () => {
+      const count = await drawSelectedDecks(obr, buildImage, lastDeckSelection);
+      await showPanelActionResult(
+        count,
+        "Carta comprada.",
+        (total) => `${total} cartas compradas.`,
+        "Selecione uma pilha com cartas para comprar.",
+      );
+    }),
+  );
+  elements.panelShuffleButton.addEventListener("click", () =>
+    runPanelAction(elements.panelShuffleButton, async () => {
+      const count = await shuffleSelectedDecks(obr, lastDeckSelection);
+      await showPanelActionResult(
+        count,
+        "Pilha embaralhada.",
+        (total) => `${total} pilhas embaralhadas.`,
+        "Selecione uma pilha com pelo menos duas cartas.",
+      );
+    }),
+  );
+  elements.panelReturnButton.addEventListener("click", () =>
+    runPanelAction(elements.panelReturnButton, async () => {
+      const count = await returnSelectedCardsToDeck(
+        obr,
+        lastCardSelection,
+        lastDeckSelection,
+      );
+      await showPanelActionResult(
+        count,
+        "Carta devolvida para a pilha.",
+        (total) => `${total} cartas devolvidas para a pilha.`,
+        "Selecione uma carta comprada e uma pilha alvo.",
+      );
+    }),
+  );
+  elements.panelRepairButton.addEventListener("click", () =>
+    runPanelAction(elements.panelRepairButton, async () => {
+      const stats = await repairSceneMetadata();
+      const total = stats.cards + stats.decks;
+
+      if (!total) {
+        const warning = "Nao encontrei cartas ou pilhas para sincronizar.";
+        setMessage(warning, "warning");
+        await obr.notification.show(warning, "WARNING");
+        return;
+      }
+
+      const message = getRepairMessage(stats);
+      setMessage(message, "success");
+      await obr.notification.show(message, "SUCCESS");
+    }),
+  );
   elements.frontUrl.addEventListener("input", () =>
     clearAsset("front") ||
     updatePreview(elements.frontUrl, elements.frontFile, elements.frontPreview),
@@ -845,11 +1058,21 @@ async function init() {
   try {
     const loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=29").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=31").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
     obr = loaded.OBR;
     buildImage = loaded.sdk.buildImage;
+    const selection = await obr.player.getSelection();
+    await Promise.all([rememberCardSelection(selection), rememberDeckSelection(selection)]);
+    obr.player.onChange((player) => {
+      rememberCardSelection(player.selection).catch((error) => {
+        console.warn("Unable to update card selection", error);
+      });
+      rememberDeckSelection(player.selection).catch((error) => {
+        console.warn("Unable to update deck selection", error);
+      });
+    });
     setConnectionStatus("Conectado ao Owlbear", true);
     setMessage("", "neutral");
   } catch (error) {

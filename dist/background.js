@@ -55,13 +55,20 @@ function getDeckMetadata(item) {
 function setCardMetadata(item, metadata) {
   item.metadata ||= {};
   item.metadata[METADATA_KEY] = metadata;
-  delete item.metadata[LEGACY_METADATA_KEY];
+  item.metadata[LEGACY_METADATA_KEY] = metadata;
 }
 
 function setDeckMetadata(item, metadata) {
   item.metadata ||= {};
   item.metadata[DECK_METADATA_KEY] = metadata;
-  delete item.metadata[LEGACY_DECK_METADATA_KEY];
+  item.metadata[LEGACY_DECK_METADATA_KEY] = metadata;
+}
+
+function createCardMetadataMap(metadata) {
+  return {
+    [METADATA_KEY]: metadata,
+    [LEGACY_METADATA_KEY]: metadata,
+  };
 }
 
 function nextFace(currentFace) {
@@ -262,9 +269,7 @@ async function drawFromDecks(OBR, buildImage, items) {
       .description("Carta dupla: verso")
       .layer(deck.layer)
       .position(position)
-      .metadata({
-        [METADATA_KEY]: cardMetadata,
-      })
+      .metadata(createCardMetadataMap(cardMetadata))
       .build();
 
     drawnItems.push(item);

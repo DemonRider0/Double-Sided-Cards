@@ -85,6 +85,12 @@ h2 {
   gap: 12px;
 }
 
+.action-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
 .field {
   display: grid;
   gap: 6px;

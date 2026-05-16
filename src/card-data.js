@@ -53,13 +53,27 @@ export function getDeckMetadata(item) {
 export function setCardMetadata(item, metadata) {
   item.metadata ||= {};
   item.metadata[METADATA_KEY] = metadata;
-  delete item.metadata[LEGACY_METADATA_KEY];
+  item.metadata[LEGACY_METADATA_KEY] = metadata;
 }
 
 export function setDeckMetadata(item, metadata) {
   item.metadata ||= {};
   item.metadata[DECK_METADATA_KEY] = metadata;
-  delete item.metadata[LEGACY_DECK_METADATA_KEY];
+  item.metadata[LEGACY_DECK_METADATA_KEY] = metadata;
+}
+
+export function createCardMetadataMap(metadata) {
+  return {
+    [METADATA_KEY]: metadata,
+    [LEGACY_METADATA_KEY]: metadata,
+  };
+}
+
+export function createDeckMetadataMap(metadata) {
+  return {
+    [DECK_METADATA_KEY]: metadata,
+    [LEGACY_DECK_METADATA_KEY]: metadata,
+  };
 }
 
 export function nextFace(currentFace) {

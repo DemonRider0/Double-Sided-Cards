@@ -4,7 +4,6 @@ import {
   faceLabel,
   getCardMetadata,
   isCardMetadata,
-  METADATA_KEY,
   nextFace,
   setCardMetadata,
 } from "./card-data.js";
