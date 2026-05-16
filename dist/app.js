@@ -1,7 +1,11 @@
 const process = { env: { NODE_ENV: "production" } };
 
 const EXTENSION_ID = "br.demonrider.double-sided-cards";
-const LEGACY_EXTENSION_ID = ["br", String.fromCharCode(99, 111, 100, 101, 120), "double-sided-cards"].join(".");
+const LEGACY_EXTENSION_ID = [
+  "br",
+  String.fromCharCode(99, 111, 100, 101, 120),
+  "double-sided-cards",
+].join(".");
 const METADATA_KEY = `${EXTENSION_ID}/card`;
 const DECK_METADATA_KEY = `${EXTENSION_ID}/deck`;
 const LEGACY_METADATA_KEY = `${LEGACY_EXTENSION_ID}/card`;
@@ -1513,7 +1517,7 @@ async function init() {
   try {
     const loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=31").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=32").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
     obr = loaded.OBR;

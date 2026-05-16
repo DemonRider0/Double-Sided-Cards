@@ -1,5 +1,9 @@
 export const EXTENSION_ID = "br.demonrider.double-sided-cards";
-const LEGACY_EXTENSION_ID = ["br", String.fromCharCode(99, 111, 100, 101, 120), "double-sided-cards"].join(".");
+export const LEGACY_EXTENSION_ID = [
+  "br",
+  String.fromCharCode(99, 111, 100, 101, 120),
+  "double-sided-cards",
+].join(".");
 export const METADATA_KEY = `${EXTENSION_ID}/card`;
 export const DECK_METADATA_KEY = `${EXTENSION_ID}/deck`;
 export const LEGACY_METADATA_KEY = `${LEGACY_EXTENSION_ID}/card`;

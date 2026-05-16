@@ -1,7 +1,11 @@
 const process = { env: { NODE_ENV: "production" } };
 
 const EXTENSION_ID = "br.demonrider.double-sided-cards";
-const LEGACY_EXTENSION_ID = ["br", String.fromCharCode(99, 111, 100, 101, 120), "double-sided-cards"].join(".");
+const LEGACY_EXTENSION_ID = [
+  "br",
+  String.fromCharCode(99, 111, 100, 101, 120),
+  "double-sided-cards",
+].join(".");
 const METADATA_KEY = `${EXTENSION_ID}/card`;
 const DECK_METADATA_KEY = `${EXTENSION_ID}/deck`;
 const LEGACY_METADATA_KEY = `${LEGACY_EXTENSION_ID}/card`;
@@ -3879,6 +3883,42 @@ function assetUrl(path) {
   return new URL(`../${path}`, import.meta.url).toString();
 }
 
+async function removePreviousRegistrations(OBR) {
+  const extensionIds = [EXTENSION_ID, LEGACY_EXTENSION_ID];
+  const contextMenuIds = [
+    "flip",
+    "draw-from-deck",
+    "shuffle-deck",
+    "return-to-deck",
+  ];
+  const actionIds = ["flip-action", "draw-action", "shuffle-action", "return-action"];
+  const toolIds = ["flip-tool"];
+
+  for (const extensionId of extensionIds) {
+    for (const id of contextMenuIds) {
+      await OBR.contextMenu.remove(`${extensionId}/${id}`).catch(() => {});
+    }
+
+    for (const id of actionIds) {
+      await OBR.tool.removeAction(`${extensionId}/${id}`).catch(() => {});
+    }
+
+    for (const id of toolIds) {
+      await OBR.tool.remove(`${extensionId}/${id}`).catch(() => {});
+    }
+  }
+}
+
+async function createContextMenu(OBR, contextMenu) {
+  await OBR.contextMenu.remove(contextMenu.id).catch(() => {});
+  await OBR.contextMenu.create(contextMenu);
+}
+
+async function createToolAction(OBR, action) {
+  await OBR.tool.removeAction(action.id).catch(() => {});
+  await OBR.tool.createAction(action);
+}
+
 async function setupContextMenu() {
   const { OBR, sdk } = await loadOwlbearSdk(20000);
   let lastCardSelection = [];
@@ -3973,7 +4013,9 @@ async function setupContextMenu() {
     });
   });
 
-  await OBR.contextMenu.create({
+  await removePreviousRegistrations(OBR);
+
+  await createContextMenu(OBR, {
     id: `${EXTENSION_ID}/flip`,
     icons: [
       {
@@ -3998,7 +4040,7 @@ async function setupContextMenu() {
     },
   });
 
-  await OBR.contextMenu.create({
+  await createContextMenu(OBR, {
     id: `${EXTENSION_ID}/draw-from-deck`,
     icons: [
       {
@@ -4023,7 +4065,7 @@ async function setupContextMenu() {
     },
   });
 
-  await OBR.contextMenu.create({
+  await createContextMenu(OBR, {
     id: `${EXTENSION_ID}/shuffle-deck`,
     icons: [
       {
@@ -4048,7 +4090,7 @@ async function setupContextMenu() {
     },
   });
 
-  await OBR.contextMenu.create({
+  await createContextMenu(OBR, {
     id: `${EXTENSION_ID}/return-to-deck`,
     icons: [
       {
@@ -4073,9 +4115,7 @@ async function setupContextMenu() {
     },
   });
 
-  await OBR.tool.remove(`${EXTENSION_ID}/flip-tool`).catch(() => {});
-
-  await OBR.tool.createAction({
+  await createToolAction(OBR, {
     id: `${EXTENSION_ID}/flip-action`,
     icons: [
       {
@@ -4097,7 +4137,7 @@ async function setupContextMenu() {
     },
   });
 
-  await OBR.tool.createAction({
+  await createToolAction(OBR, {
     id: `${EXTENSION_ID}/draw-action`,
     icons: [
       {
@@ -4118,7 +4158,7 @@ async function setupContextMenu() {
     },
   });
 
-  await OBR.tool.createAction({
+  await createToolAction(OBR, {
     id: `${EXTENSION_ID}/shuffle-action`,
     icons: [
       {
@@ -4139,7 +4179,7 @@ async function setupContextMenu() {
     },
   });
 
-  await OBR.tool.createAction({
+  await createToolAction(OBR, {
     id: `${EXTENSION_ID}/return-action`,
     icons: [
       {
