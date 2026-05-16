@@ -3870,6 +3870,10 @@ async function loadOwlbearSdk(timeoutMs = 5000) {
   return { OBR, sdk: { buildImage, buildLabel } };
 }
 
+function assetUrl(path) {
+  return new URL(`../${path}`, import.meta.url).toString();
+}
+
 async function setupContextMenu() {
   const { OBR, sdk } = await loadOwlbearSdk(20000);
   let lastCardSelection = [];
@@ -3968,7 +3972,7 @@ async function setupContextMenu() {
     id: `${EXTENSION_ID}/flip`,
     icons: [
       {
-        icon: "icons/flip.svg",
+        icon: assetUrl("icons/flip.svg"),
         label: "Virar carta",
         filter: {
           permissions: ["UPDATE"],
@@ -3993,7 +3997,7 @@ async function setupContextMenu() {
     id: `${EXTENSION_ID}/draw-from-deck`,
     icons: [
       {
-        icon: "icons/draw.svg",
+        icon: assetUrl("icons/draw.svg"),
         label: "Comprar carta",
         filter: {
           permissions: ["UPDATE"],
@@ -4018,7 +4022,7 @@ async function setupContextMenu() {
     id: `${EXTENSION_ID}/shuffle-deck`,
     icons: [
       {
-        icon: "icons/shuffle.svg",
+        icon: assetUrl("icons/shuffle.svg"),
         label: "Embaralhar pilha",
         filter: {
           permissions: ["UPDATE"],
@@ -4043,7 +4047,7 @@ async function setupContextMenu() {
     id: `${EXTENSION_ID}/return-to-deck`,
     icons: [
       {
-        icon: "icons/return.svg",
+        icon: assetUrl("icons/return.svg"),
         label: "Devolver para pilha",
         filter: {
           permissions: ["UPDATE", "DELETE"],
@@ -4070,7 +4074,7 @@ async function setupContextMenu() {
     id: `${EXTENSION_ID}/flip-action`,
     icons: [
       {
-        icon: "icons/flip.svg",
+        icon: assetUrl("icons/flip.svg"),
         label: "Virar carta",
       },
     ],
@@ -4092,7 +4096,7 @@ async function setupContextMenu() {
     id: `${EXTENSION_ID}/draw-action`,
     icons: [
       {
-        icon: "icons/draw.svg",
+        icon: assetUrl("icons/draw.svg"),
         label: "Comprar carta",
       },
     ],
@@ -4113,7 +4117,7 @@ async function setupContextMenu() {
     id: `${EXTENSION_ID}/shuffle-action`,
     icons: [
       {
-        icon: "icons/shuffle.svg",
+        icon: assetUrl("icons/shuffle.svg"),
         label: "Embaralhar pilha",
       },
     ],
@@ -4134,7 +4138,7 @@ async function setupContextMenu() {
     id: `${EXTENSION_ID}/return-action`,
     icons: [
       {
-        icon: "icons/return.svg",
+        icon: assetUrl("icons/return.svg"),
         label: "Devolver para pilha",
       },
     ],
