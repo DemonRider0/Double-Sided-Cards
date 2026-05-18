@@ -31,4 +31,4 @@ for (const entry of entries) {
   totalBytes += details.size;
 }
 
-console.log(`Copied ${copied} assets to assets/local-assets (${formatMb(totalBytes)}).`);
+console.log(`${copied} assets copiados para assets/local-assets (${formatMb(totalBytes)}).`);

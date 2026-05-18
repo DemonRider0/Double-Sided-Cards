@@ -1,15 +1,8 @@
 const process = { env: { NODE_ENV: "production" } };
 
 const EXTENSION_ID = "br.demonrider.double-sided-cards";
-const LEGACY_EXTENSION_ID = [
-  "br",
-  String.fromCharCode(99, 111, 100, 101, 120),
-  "double-sided-cards",
-].join(".");
 const METADATA_KEY = `${EXTENSION_ID}/card`;
 const DECK_METADATA_KEY = `${EXTENSION_ID}/deck`;
-const LEGACY_METADATA_KEY = `${LEGACY_EXTENSION_ID}/card`;
-const LEGACY_DECK_METADATA_KEY = `${LEGACY_EXTENSION_ID}/deck`;
 const COMMANDS_CHANNEL = `${EXTENSION_ID}/commands`;
 
 function isCardMetadata(value) {
@@ -39,40 +32,27 @@ function isDeckMetadata(value) {
 
 function getCardMetadata(item) {
   const metadata = item.metadata?.[METADATA_KEY];
-  if (isCardMetadata(metadata)) {
-    return metadata;
-  }
-
-  const legacyMetadata = item.metadata?.[LEGACY_METADATA_KEY];
-  return isCardMetadata(legacyMetadata) ? legacyMetadata : null;
+  return isCardMetadata(metadata) ? metadata : null;
 }
 
 function getDeckMetadata(item) {
   const metadata = item.metadata?.[DECK_METADATA_KEY];
-  if (isDeckMetadata(metadata)) {
-    return metadata;
-  }
-
-  const legacyMetadata = item.metadata?.[LEGACY_DECK_METADATA_KEY];
-  return isDeckMetadata(legacyMetadata) ? legacyMetadata : null;
+  return isDeckMetadata(metadata) ? metadata : null;
 }
 
 function setCardMetadata(item, metadata) {
   item.metadata ||= {};
   item.metadata[METADATA_KEY] = metadata;
-  item.metadata[LEGACY_METADATA_KEY] = metadata;
 }
 
 function setDeckMetadata(item, metadata) {
   item.metadata ||= {};
   item.metadata[DECK_METADATA_KEY] = metadata;
-  item.metadata[LEGACY_DECK_METADATA_KEY] = metadata;
 }
 
 function createCardMetadataMap(metadata) {
   return {
     [METADATA_KEY]: metadata,
-    [LEGACY_METADATA_KEY]: metadata,
   };
 }
 
@@ -236,7 +216,7 @@ async function getDrawOffset(OBR) {
   }
 }
 
-async function drawFromDecks(OBR, buildImage, items) {
+async function drawFromDecks(OBR, buildImage, items, options = {}) {
   const decks = getDeckItems(items).filter(
     (item) => getDeckMetadata(item).cards.length > 0,
   );
@@ -262,7 +242,7 @@ async function drawFromDecks(OBR, buildImage, items) {
       sourceDeckName: metadata.name,
     });
     const drawOffset = offset * (index + 1);
-    const position = {
+    const position = options.drawPositionsByDeckId?.get(deck.id) || {
       x: deck.position.x + drawOffset,
       y: deck.position.y + drawOffset,
     };
@@ -293,6 +273,11 @@ async function drawFromDecks(OBR, buildImage, items) {
 
       applyDeckDisplay(item, metadata);
       setDeckMetadata(item, metadata);
+
+      const restoredPosition = options.deckPositionsById?.get(item.id);
+      if (restoredPosition) {
+        item.position = restoredPosition;
+      }
     }
   });
 
@@ -407,7 +392,7 @@ async function returnCardsToDeck(OBR, cards, fallbackDeckSelection = []) {
     const metadata = getDeckMetadata(item);
     const nextMetadata = {
       ...metadata,
-      cards: [...returnedCards, ...metadata.cards],
+      cards: [...metadata.cards, ...returnedCards],
     };
 
     applyDeckDisplay(item, nextMetadata);
@@ -454,7 +439,7 @@ async function getFeedbackPosition(OBR, anchorItems) {
         y: bounds.min.y - Math.max(48, bounds.height * 0.12),
       };
     } catch {
-      // Fall back to the viewport center when a selected item was just removed.
+      // Usa o centro da tela quando o item selecionado acabou de ser removido.
     }
   }
 
@@ -535,7 +520,7 @@ async function showActionFeedback(OBR, buildLabel, message, anchorItems = []) {
     await OBR.scene.local.addItems([label]);
     await animateFeedback(OBR, label, position);
   } catch (error) {
-    console.warn("Unable to show action feedback", error);
+    console.warn("Nao consegui mostrar a animacao da acao", error);
     await OBR.notification.show(message, "SUCCESS").catch(() => {});
   }
 }
@@ -3880,19 +3865,385 @@ async function loadOwlbearSdk(timeoutMs = 5000) {
   return { OBR, sdk: { buildImage, buildLabel } };
 }
 
+const COLOR_TOKEN_KEY = `${EXTENSION_ID}/color-token`;
+const CARD_CATEGORY_KEY = `${EXTENSION_ID}/card-category`;
+const ACTIVE_COLOR_KEY = `${EXTENSION_ID}/active-color`;
+const SELECTION_BOARD_KEY = `${EXTENSION_ID}/selection-board`;
+
+const PLAYER_COLORS = [
+  { id: "red", label: "Vermelho", aliases: ["vermelho", "red"] },
+  { id: "white", label: "Branco", aliases: ["branco", "white"] },
+  { id: "green", label: "Verde", aliases: ["verde", "green"] },
+  { id: "blue", label: "Azul", aliases: ["azul", "blue"] },
+];
+
+const CARD_CATEGORIES = [
+  { id: "race", label: "Raca" },
+  { id: "class", label: "Classe" },
+  { id: "divinity", label: "Divindade" },
+];
+
+const PLAYER_COLOR_IDS = new Set(PLAYER_COLORS.map((color) => color.id));
+const CATEGORY_IDS = new Set(CARD_CATEGORIES.map((category) => category.id));
+
+function getColorLabel(colorId) {
+  return PLAYER_COLORS.find((color) => color.id === colorId)?.label || "cor";
+}
+
+function getCategoryLabel(categoryId) {
+  return CARD_CATEGORIES.find((category) => category.id === categoryId)?.label || "categoria";
+}
+
+function normalizePlayerColor(colorId) {
+  return PLAYER_COLOR_IDS.has(colorId) ? colorId : null;
+}
+
+function normalizeCategory(categoryId) {
+  return CATEGORY_IDS.has(categoryId) ? categoryId : null;
+}
+
+function createEmptyState() {
+  const slots = {};
+  const assigned = {};
+  const tokens = {};
+
+  for (const color of PLAYER_COLORS) {
+    slots[color.id] = {};
+    assigned[color.id] = {};
+    tokens[color.id] = null;
+  }
+
+  return {
+    version: 1,
+    slots,
+    assigned,
+    origins: {},
+    tokens,
+  };
+}
+
+function normalizeState(value) {
+  const state = createEmptyState();
+
+  if (!value || typeof value !== "object") {
+    return state;
+  }
+
+  for (const color of PLAYER_COLORS) {
+    state.slots[color.id] = {
+      ...state.slots[color.id],
+      ...(value.slots?.[color.id] || {}),
+    };
+    state.assigned[color.id] = {
+      ...state.assigned[color.id],
+      ...(value.assigned?.[color.id] || {}),
+    };
+    state.tokens[color.id] = value.tokens?.[color.id] || null;
+  }
+
+  state.origins = value.origins && typeof value.origins === "object" ? value.origins : {};
+  return state;
+}
+
+async function getSceneState(OBR) {
+  const metadata = await OBR.scene.getMetadata();
+  return normalizeState(metadata[SELECTION_BOARD_KEY]);
+}
+
+async function setSceneState(OBR, state) {
+  await OBR.scene.setMetadata({
+    [SELECTION_BOARD_KEY]: state,
+  });
+}
+
+function capturePlacement(item) {
+  return {
+    position: { ...item.position },
+    rotation: item.rotation,
+    scale: { ...item.scale },
+    layer: item.layer,
+    zIndex: item.zIndex,
+    locked: item.locked,
+  };
+}
+
+function getTopZIndex(placement) {
+  return Math.max(Date.now(), Number.isFinite(placement?.zIndex) ? placement.zIndex + 1 : 0);
+}
+
+function applyPlacement(item, placement, options = {}) {
+  item.position = { ...placement.position };
+  item.rotation = placement.rotation;
+  item.scale = { ...placement.scale };
+  item.layer = placement.layer;
+
+  if (Number.isFinite(options.zIndex)) {
+    item.zIndex = options.zIndex;
+  } else if (Number.isFinite(placement.zIndex)) {
+    item.zIndex = placement.zIndex;
+  }
+}
+
+async function getSelectedItems(OBR, fallbackSelection = []) {
+  const selection = await OBR.player.getSelection();
+  const itemIds = selection?.length ? selection : fallbackSelection;
+
+  if (!itemIds.length) {
+    return [];
+  }
+
+  return OBR.scene.items.getItems(itemIds);
+}
+
+function getPrimaryImage(items) {
+  return items.find((item) => item.type === "IMAGE") || null;
+}
+
+async function getSelectedImage(OBR, fallbackSelection = []) {
+  const item = getPrimaryImage(await getSelectedItems(OBR, fallbackSelection));
+
+  if (!item) {
+    throw new Error("Selecione uma imagem na cena.");
+  }
+
+  return item;
+}
+
+async function safeGetItems(OBR, ids) {
+  const uniqueIds = [...new Set(ids.filter(Boolean))];
+
+  if (!uniqueIds.length) {
+    return [];
+  }
+
+  const itemResults = await Promise.all(
+    uniqueIds.map((id) =>
+      OBR.scene.items
+        .getItems([id])
+        .then((items) => items[0] || null)
+        .catch(() => null),
+    ),
+  );
+
+  return itemResults.filter(Boolean);
+}
+
+function colorFromText(text) {
+  const normalized = (text || "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+
+  for (const color of PLAYER_COLORS) {
+    if (color.aliases.some((alias) => normalized.includes(alias))) {
+      return color.id;
+    }
+  }
+
+  return null;
+}
+
+function detectPlayerColorFromItem(item) {
+  const metadataColor = normalizePlayerColor(item.metadata?.[COLOR_TOKEN_KEY]?.color);
+
+  if (metadataColor) {
+    return metadataColor;
+  }
+
+  return colorFromText(
+    [
+      item.name,
+      item.description,
+      item.text?.plainText,
+      item.image?.url,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+}
+
+function detectCardCategoryFromItem(item) {
+  return normalizeCategory(item.metadata?.[CARD_CATEGORY_KEY]?.category);
+}
+
+async function getActivePlayerColor(OBR) {
+  const metadata = await OBR.player.getMetadata();
+  return normalizePlayerColor(metadata[ACTIVE_COLOR_KEY]?.color);
+}
+
+async function getCurrentPlayerId(OBR) {
+  try {
+    return await OBR.player.getId();
+  } catch {
+    return OBR.player.id;
+  }
+}
+
+async function getPlayerUsingColor(OBR, color) {
+  if (!OBR.party?.getPlayers) {
+    return null;
+  }
+
+  const [currentPlayerId, players] = await Promise.all([
+    getCurrentPlayerId(OBR),
+    OBR.party.getPlayers(),
+  ]);
+
+  return (
+    players.find(
+      (player) =>
+        player.id !== currentPlayerId &&
+        normalizePlayerColor(player.metadata?.[ACTIVE_COLOR_KEY]?.color) === color,
+    ) || null
+  );
+}
+
+async function setActivePlayerColor(OBR, colorId) {
+  const color = normalizePlayerColor(colorId);
+
+  if (!color) {
+    throw new Error("Escolha uma cor valida.");
+  }
+
+  const claimedBy = await getPlayerUsingColor(OBR, color);
+
+  if (claimedBy) {
+    throw new Error(
+      `${getColorLabel(color)} ja esta em uso por ${claimedBy.name || "outro jogador"}.`,
+    );
+  }
+
+  await OBR.player.setMetadata({
+    [ACTIVE_COLOR_KEY]: {
+      version: 1,
+      color,
+    },
+  });
+
+  return color;
+}
+
+function clearAssignmentsForItem(state, itemId) {
+  for (const color of PLAYER_COLORS) {
+    for (const category of CARD_CATEGORIES) {
+      if (state.assigned[color.id][category.id] === itemId) {
+        state.assigned[color.id][category.id] = null;
+      }
+    }
+  }
+}
+
+function isAssignedItem(state, itemId) {
+  return PLAYER_COLORS.some((color) =>
+    CARD_CATEGORIES.some((category) => state.assigned[color.id][category.id] === itemId),
+  );
+}
+
+async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelection = []) {
+  const category = normalizeCategory(categoryId);
+
+  if (!category) {
+    throw new Error("Escolha uma categoria valida.");
+  }
+
+  const selectedItem = await getSelectedImage(OBR, fallbackSelection);
+  const state = await getSceneState(OBR);
+  const selectedWasAssigned = isAssignedItem(state, selectedItem.id);
+
+  if (selectedWasAssigned) {
+    return {
+      ignored: true,
+      category,
+    };
+  }
+
+  const color = await getActivePlayerColor(OBR);
+
+  if (!color) {
+    throw new Error("Escolha uma cor antes de posicionar a carta.");
+  }
+
+  const slot = state.slots[color]?.[category];
+
+  if (!slot) {
+    throw new Error(
+      `Salve primeiro o slot de ${getCategoryLabel(category)} para ${getColorLabel(color)}.`,
+    );
+  }
+
+  const previousItemId = state.assigned[color]?.[category];
+  const items = await safeGetItems(OBR, [selectedItem.id, previousItemId]);
+  const previousItem = previousItemId
+    ? items.find((item) => item.id === previousItemId)
+    : null;
+
+  if (!state.origins[selectedItem.id]) {
+    state.origins[selectedItem.id] = capturePlacement(selectedItem);
+  }
+
+  clearAssignmentsForItem(state, selectedItem.id);
+  state.assigned[color][category] = selectedItem.id;
+
+  if (previousItem && previousItem.id !== selectedItem.id) {
+    const origin = state.origins[previousItem.id];
+
+    if (origin) {
+      clearAssignmentsForItem(state, previousItem.id);
+    }
+  }
+
+  await OBR.scene.items.updateItems(items, (draftItems) => {
+    for (const item of draftItems) {
+      if (item.id === selectedItem.id) {
+        applyPlacement(item, slot, { zIndex: getTopZIndex(slot) });
+        item.locked = category !== "divinity";
+        continue;
+      }
+
+      if (previousItem && item.id === previousItem.id) {
+        const origin = state.origins[item.id];
+
+        if (origin) {
+          applyPlacement(item, origin);
+          item.locked = origin.locked;
+        } else {
+          item.locked = false;
+        }
+      }
+    }
+  });
+
+  await setSceneState(OBR, state);
+
+  return {
+    color,
+    category,
+    replaced: Boolean(previousItem && previousItem.id !== selectedItem.id),
+  };
+}
+
 function assetUrl(path) {
   return new URL(`../${path}`, import.meta.url).toString();
 }
 
 async function removePreviousRegistrations(OBR) {
-  const extensionIds = [EXTENSION_ID, LEGACY_EXTENSION_ID];
+  const extensionIds = [EXTENSION_ID];
   const contextMenuIds = [
     "flip",
     "draw-from-deck",
     "shuffle-deck",
     "return-to-deck",
   ];
-  const actionIds = ["flip-action", "draw-action", "shuffle-action", "return-action"];
+  const actionIds = [
+    "flip-action",
+    "draw-action",
+    "shuffle-action",
+    "return-action",
+    "use-color-action",
+    "place-race-action",
+    "place-class-action",
+    "place-divinity-action",
+  ];
   const toolIds = ["flip-tool"];
 
   for (const extensionId of extensionIds) {
@@ -3924,6 +4275,18 @@ async function setupContextMenu() {
   const { OBR, sdk } = await loadOwlbearSdk(20000);
   let lastCardSelection = [];
   let lastDeckSelection = [];
+  let activePlayerColor = null;
+  const autoReturnPositions = new Map();
+  const autoReturnTimers = new Map();
+  const autoReturningCardIds = new Set();
+  let autoReturnQueue = Promise.resolve();
+  const deckPositions = new Map();
+  const autoDrawDeckTimers = new Map();
+  const autoDrawingDeckIds = new Set();
+  let autoDrawQueue = Promise.resolve();
+  const autoDrawDeckDelayMs = 90;
+  const autoDrawDeckCooldownMs = 120;
+  const autoDrawDeckMinDistance = 84;
 
   async function rememberCardSelection(selection) {
     if (!selection?.length) {
@@ -3948,6 +4311,43 @@ async function setupContextMenu() {
 
     if (deckIds.length) {
       lastDeckSelection = deckIds;
+    }
+  }
+
+  async function rememberImageSelection(selection) {
+    if (!selection?.length) {
+      return;
+    }
+
+    const selectedItems = await OBR.scene.items.getItems(selection);
+    const imageItems = selectedItems.filter((item) => item.type === "IMAGE");
+
+    if (!imageItems.length) {
+      return;
+    }
+
+    imageItems.map((item) => item.id);
+
+    const color = detectPlayerColorFromItem(imageItems[0]);
+
+    if (color && color !== activePlayerColor) {
+      try {
+        await setActivePlayerColor(OBR, color);
+        activePlayerColor = color;
+        await OBR.notification.show(`Cor ativa: ${getColorLabel(color)}.`, "SUCCESS");
+      } catch (error) {
+        await showCommandError(error);
+      }
+    }
+
+    const category = detectCardCategoryFromItem(imageItems[0]);
+
+    if (category) {
+      try {
+        await placeSelectedCardInCategory(OBR, category, [imageItems[0].id]);
+      } catch (error) {
+        await showCommandError(error);
+      }
     }
   }
 
@@ -3976,46 +4376,303 @@ async function setupContextMenu() {
     await showActionFeedback(OBR, sdk.buildLabel, message, anchorItems);
   }
 
+  async function showCommandError(error) {
+    console.warn(error);
+    await OBR.notification.show(error.message || "Nao consegui executar o comando.", "WARNING");
+  }
+
+  function pointInBounds(point, bounds) {
+    return (
+      point.x >= bounds.min.x &&
+      point.x <= bounds.max.x &&
+      point.y >= bounds.min.y &&
+      point.y <= bounds.max.y
+    );
+  }
+
+  function didPositionChange(previous, current) {
+    if (!previous) {
+      return false;
+    }
+
+    return Math.hypot(current.x - previous.x, current.y - previous.y) > 1;
+  }
+
+  function distanceBetween(left, right) {
+    return Math.hypot(left.x - right.x, left.y - right.y);
+  }
+
+  function rememberAutoReturnCardPositions(items) {
+    for (const card of getDoubleSidedCards(items)) {
+      if (!getCardMetadata(card)?.sourceDeckId) {
+        continue;
+      }
+
+      autoReturnPositions.set(card.id, { ...card.position });
+    }
+  }
+
+  function getMovedAutoReturnCardIds(items) {
+    const movedCardIds = [];
+
+    for (const card of getDoubleSidedCards(items)) {
+      if (!getCardMetadata(card)?.sourceDeckId) {
+        continue;
+      }
+
+      const previousPosition = autoReturnPositions.get(card.id);
+      const currentPosition = { ...card.position };
+      autoReturnPositions.set(card.id, currentPosition);
+
+      if (
+        !autoReturningCardIds.has(card.id) &&
+        didPositionChange(previousPosition, currentPosition)
+      ) {
+        movedCardIds.push(card.id);
+      }
+    }
+
+    return movedCardIds;
+  }
+
+  function scheduleAutoReturnCheck(cardId) {
+    const existingTimer = autoReturnTimers.get(cardId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+
+    const timer = setTimeout(() => {
+      autoReturnTimers.delete(cardId);
+      queueAutoReturnCheck(cardId);
+    }, 250);
+
+    autoReturnTimers.set(cardId, timer);
+  }
+
+  function queueAutoReturnCheck(cardId) {
+    autoReturnQueue = autoReturnQueue
+      .catch(() => {})
+      .then(() => returnCardIfDroppedOnSourceDeck(cardId))
+      .catch((error) => {
+        console.warn("Nao consegui devolver a carta automaticamente para a pilha", error);
+      });
+  }
+
+  async function returnCardIfDroppedOnSourceDeck(cardId) {
+    if (autoReturningCardIds.has(cardId)) {
+      return;
+    }
+
+    autoReturningCardIds.add(cardId);
+
+    try {
+      const [card] = getCardItems(await OBR.scene.items.getItems([cardId]));
+      const metadata = card ? getCardMetadata(card) : null;
+      const sourceDeckId = metadata?.sourceDeckId;
+
+      if (!card || !sourceDeckId) {
+        autoReturnPositions.delete(cardId);
+        return;
+      }
+
+      const [sourceDeck] = getDeckItems(await OBR.scene.items.getItems([sourceDeckId]));
+
+      if (!sourceDeck) {
+        return;
+      }
+
+      const sourceDeckBounds = await OBR.scene.items.getItemBounds([sourceDeck.id]);
+
+      if (!pointInBounds(card.position, sourceDeckBounds)) {
+        return;
+      }
+
+      const count = await returnCardsToDeck(OBR, [card], [sourceDeck.id]);
+
+      if (count) {
+        autoReturnPositions.delete(cardId);
+      }
+    } finally {
+      autoReturningCardIds.delete(cardId);
+    }
+  }
+
+  function rememberDeckPositions(items) {
+    for (const deck of getDeckItems(items)) {
+      if (!deckPositions.has(deck.id)) {
+        deckPositions.set(deck.id, { ...deck.position });
+      }
+    }
+  }
+
+  function getMovedDeckDraws(items) {
+    const movedDecks = [];
+
+    for (const deck of getDeckItems(items)) {
+      const previousPosition = deckPositions.get(deck.id);
+      const currentPosition = { ...deck.position };
+
+      if (!previousPosition) {
+        deckPositions.set(deck.id, currentPosition);
+        continue;
+      }
+
+      if (autoDrawingDeckIds.has(deck.id)) {
+        deckPositions.set(deck.id, currentPosition);
+        continue;
+      }
+
+      if (distanceBetween(previousPosition, currentPosition) > autoDrawDeckMinDistance) {
+        movedDecks.push({
+          id: deck.id,
+          from: previousPosition,
+          to: currentPosition,
+        });
+      } else {
+        deckPositions.set(deck.id, currentPosition);
+      }
+    }
+
+    return movedDecks;
+  }
+
+  function scheduleDeckDragDraw(movedDeck) {
+    const existingTimer = autoDrawDeckTimers.get(movedDeck.id);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+
+    const timer = setTimeout(() => {
+      autoDrawDeckTimers.delete(movedDeck.id);
+      queueDeckDragDraw(movedDeck);
+    }, autoDrawDeckDelayMs);
+
+    autoDrawDeckTimers.set(movedDeck.id, timer);
+  }
+
+  function queueDeckDragDraw(movedDeck) {
+    autoDrawQueue = autoDrawQueue
+      .catch(() => {})
+      .then(() => drawCardFromDraggedDeck(movedDeck))
+      .catch((error) => {
+        console.warn("Nao consegui comprar carta ao arrastar a pilha", error);
+      });
+  }
+
+  async function restoreDeckPosition(deckId, position) {
+    const [deck] = getDeckItems(await OBR.scene.items.getItems([deckId]));
+
+    if (!deck) {
+      return;
+    }
+
+    await OBR.scene.items.updateItems([deck], (items) => {
+      if (items[0]) {
+        items[0].position = position;
+      }
+    });
+  }
+
+  async function drawCardFromDraggedDeck(movedDeck) {
+    if (autoDrawingDeckIds.has(movedDeck.id)) {
+      return;
+    }
+
+    autoDrawingDeckIds.add(movedDeck.id);
+
+    try {
+      const [deck] = getDeckItems(await OBR.scene.items.getItems([movedDeck.id]));
+
+      if (!deck) {
+        deckPositions.delete(movedDeck.id);
+        return;
+      }
+
+      const dropPosition = { ...deck.position };
+
+      if (distanceBetween(movedDeck.from, dropPosition) <= autoDrawDeckMinDistance) {
+        deckPositions.set(deck.id, dropPosition);
+        return;
+      }
+
+      const metadata = getDeckMetadata(deck);
+      deckPositions.set(deck.id, { ...movedDeck.from });
+
+      if (!metadata.cards.length) {
+        await restoreDeckPosition(deck.id, movedDeck.from);
+        await OBR.notification.show("A pilha esta vazia.", "WARNING");
+        return;
+      }
+
+      await drawFromDecks(OBR, sdk.buildImage, [deck], {
+        drawPositionsByDeckId: new Map([[deck.id, dropPosition]]),
+        deckPositionsById: new Map([[deck.id, movedDeck.from]]),
+      });
+    } finally {
+      setTimeout(() => {
+        autoDrawingDeckIds.delete(movedDeck.id);
+      }, autoDrawDeckCooldownMs);
+    }
+  }
+
   function cardMetadataFilter() {
     return [
       { key: ["metadata", METADATA_KEY], value: undefined, operator: "!=" },
-      { key: ["metadata", LEGACY_METADATA_KEY], value: undefined, operator: "!=" },
     ];
   }
 
   function deckMetadataFilter() {
     return [
       { key: ["metadata", DECK_METADATA_KEY], value: undefined, operator: "!=" },
-      { key: ["metadata", LEGACY_DECK_METADATA_KEY], value: undefined, operator: "!=" },
     ];
   }
 
   OBR.player
     .getSelection()
     .then(async (selection) => {
-      await Promise.all([rememberCardSelection(selection), rememberDeckSelection(selection)]);
+      await Promise.all([
+        rememberCardSelection(selection),
+        rememberDeckSelection(selection),
+        rememberImageSelection(selection),
+      ]);
     })
     .catch((error) => {
-      console.warn("Unable to read initial selection", error);
+      console.warn("Nao consegui ler a selecao inicial", error);
     });
 
   OBR.player.onChange((player) => {
+    activePlayerColor = player.metadata?.[ACTIVE_COLOR_KEY]?.color || activePlayerColor;
     rememberCardSelection(player.selection).catch((error) => {
-      console.warn("Unable to update card selection", error);
+      console.warn("Nao consegui atualizar a selecao de cartas", error);
     });
     rememberDeckSelection(player.selection).catch((error) => {
-      console.warn("Unable to update deck selection", error);
+      console.warn("Nao consegui atualizar a selecao de pilhas", error);
+    });
+    rememberImageSelection(player.selection).catch((error) => {
+      console.warn("Nao consegui atualizar a selecao de imagens", error);
     });
   });
   OBR.scene.items
     .getItems()
-    .then((items) => syncDeckDisplays(OBR, items))
+    .then((items) => {
+      rememberAutoReturnCardPositions(items);
+      rememberDeckPositions(items);
+      return syncDeckDisplays(OBR, items);
+    })
     .catch((error) => {
-      console.warn("Unable to sync deck counters", error);
+      console.warn("Nao consegui sincronizar os contadores das pilhas", error);
     });
   OBR.scene.items.onChange((items) => {
+    for (const cardId of getMovedAutoReturnCardIds(items)) {
+      scheduleAutoReturnCheck(cardId);
+    }
+
+    for (const movedDeck of getMovedDeckDraws(items)) {
+      scheduleDeckDragDraw(movedDeck);
+    }
+
     syncDeckDisplays(OBR, items).catch((error) => {
-      console.warn("Unable to sync changed deck counters", error);
+      console.warn("Nao consegui sincronizar os contadores alterados das pilhas", error);
     });
   });
 
@@ -4112,13 +4769,12 @@ async function setupContextMenu() {
       ],
       async onClick(context) {
         const count = await returnCardsToDeck(OBR, context.items, lastDeckSelection);
-        await showActionResult(
-          count,
-          "Carta devolvida para a pilha.",
-          (total) => `${total} cartas devolvidas para a pilha.`,
-          "Selecione uma carta e tenha uma pilha alvo selecionada recentemente.",
-          context.items,
-        );
+        if (!count) {
+          await OBR.notification.show(
+            "Selecione uma carta e tenha uma pilha alvo selecionada recentemente.",
+            "WARNING",
+          );
+        }
       },
     });
 
@@ -4152,6 +4808,7 @@ async function setupContextMenu() {
           label: "Comprar carta",
         },
       ],
+      shortcut: "C",
       async onClick() {
         const anchors = await getAnchorItems(lastDeckSelection);
         const count = await drawSelectedDecks(OBR, sdk.buildImage, lastDeckSelection);
@@ -4173,6 +4830,7 @@ async function setupContextMenu() {
           label: "Embaralhar pilha",
         },
       ],
+      shortcut: "E",
       async onClick() {
         const anchors = await getAnchorItems(lastDeckSelection);
         const count = await shuffleSelectedDecks(OBR, lastDeckSelection);
@@ -4194,22 +4852,23 @@ async function setupContextMenu() {
           label: "Devolver para pilha",
         },
       ],
+      shortcut: "R",
       async onClick() {
-        const anchors = await getAnchorItems(lastCardSelection);
+        await getAnchorItems(lastCardSelection);
         const count = await returnSelectedCardsToDeck(
           OBR,
           lastCardSelection,
           lastDeckSelection,
         );
-        await showActionResult(
-          count,
-          "Carta devolvida para a pilha.",
-          (total) => `${total} cartas devolvidas para a pilha.`,
-          "Selecione uma carta comprada e uma pilha alvo.",
-          anchors,
-        );
+        if (!count) {
+          await OBR.notification.show(
+            "Selecione uma carta comprada e uma pilha alvo.",
+            "WARNING",
+          );
+        }
       },
     });
+
   }
 
   let commandRegistration = Promise.resolve();
@@ -4218,35 +4877,35 @@ async function setupContextMenu() {
       .catch(() => {})
       .then(() => registerCommands())
       .catch((error) => {
-        console.warn(`Unable to register Double-Sided Cards commands (${reason})`, error);
+        console.warn(`Nao consegui registrar os comandos das Cartas Duplas (${reason})`, error);
       });
 
     return commandRegistration;
   }
 
   OBR.broadcast.onMessage(COMMANDS_CHANNEL, () => {
-    queueCommandRegistration("panel request");
+    queueCommandRegistration("pedido do painel");
   });
 
-  await queueCommandRegistration("initial load");
+  await queueCommandRegistration("carregamento inicial");
 
   for (const delayMs of [250, 1000, 2500, 5000]) {
     window.setTimeout(() => {
-      queueCommandRegistration(`delayed ${delayMs}ms`);
+      queueCommandRegistration(`atraso de ${delayMs}ms`);
     }, delayMs);
   }
 
   window.addEventListener("focus", () => {
-    queueCommandRegistration("window focus");
+    queueCommandRegistration("foco da janela");
   });
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
-      queueCommandRegistration("visibility change");
+      queueCommandRegistration("mudanca de visibilidade");
     }
   });
 }
 
 setupContextMenu().catch((error) => {
-  console.error("Double-Sided Cards background error", error);
+  console.error("Erro no plano de fundo das Cartas Duplas", error);
 });

@@ -108,7 +108,7 @@ async function getDrawOffset(OBR) {
   }
 }
 
-export async function drawFromDecks(OBR, buildImage, items) {
+export async function drawFromDecks(OBR, buildImage, items, options = {}) {
   const decks = getDeckItems(items).filter(
     (item) => getDeckMetadata(item).cards.length > 0,
   );
@@ -134,7 +134,7 @@ export async function drawFromDecks(OBR, buildImage, items) {
       sourceDeckName: metadata.name,
     });
     const drawOffset = offset * (index + 1);
-    const position = {
+    const position = options.drawPositionsByDeckId?.get(deck.id) || {
       x: deck.position.x + drawOffset,
       y: deck.position.y + drawOffset,
     };
@@ -165,6 +165,11 @@ export async function drawFromDecks(OBR, buildImage, items) {
 
       applyDeckDisplay(item, metadata);
       setDeckMetadata(item, metadata);
+
+      const restoredPosition = options.deckPositionsById?.get(item.id);
+      if (restoredPosition) {
+        item.position = restoredPosition;
+      }
     }
   });
 
@@ -279,7 +284,7 @@ export async function returnCardsToDeck(OBR, cards, fallbackDeckSelection = []) 
     const metadata = getDeckMetadata(item);
     const nextMetadata = {
       ...metadata,
-      cards: [...returnedCards, ...metadata.cards],
+      cards: [...metadata.cards, ...returnedCards],
     };
 
     applyDeckDisplay(item, nextMetadata);

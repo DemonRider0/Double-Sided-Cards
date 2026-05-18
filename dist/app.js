@@ -1,15 +1,8 @@
 const process = { env: { NODE_ENV: "production" } };
 
 const EXTENSION_ID = "br.demonrider.double-sided-cards";
-const LEGACY_EXTENSION_ID = [
-  "br",
-  String.fromCharCode(99, 111, 100, 101, 120),
-  "double-sided-cards",
-].join(".");
 const METADATA_KEY = `${EXTENSION_ID}/card`;
 const DECK_METADATA_KEY = `${EXTENSION_ID}/deck`;
-const LEGACY_METADATA_KEY = `${LEGACY_EXTENSION_ID}/card`;
-const LEGACY_DECK_METADATA_KEY = `${LEGACY_EXTENSION_ID}/deck`;
 const COMMANDS_CHANNEL = `${EXTENSION_ID}/commands`;
 
 function isCardMetadata(value) {
@@ -39,47 +32,33 @@ function isDeckMetadata(value) {
 
 function getCardMetadata(item) {
   const metadata = item.metadata?.[METADATA_KEY];
-  if (isCardMetadata(metadata)) {
-    return metadata;
-  }
-
-  const legacyMetadata = item.metadata?.[LEGACY_METADATA_KEY];
-  return isCardMetadata(legacyMetadata) ? legacyMetadata : null;
+  return isCardMetadata(metadata) ? metadata : null;
 }
 
 function getDeckMetadata(item) {
   const metadata = item.metadata?.[DECK_METADATA_KEY];
-  if (isDeckMetadata(metadata)) {
-    return metadata;
-  }
-
-  const legacyMetadata = item.metadata?.[LEGACY_DECK_METADATA_KEY];
-  return isDeckMetadata(legacyMetadata) ? legacyMetadata : null;
+  return isDeckMetadata(metadata) ? metadata : null;
 }
 
 function setCardMetadata(item, metadata) {
   item.metadata ||= {};
   item.metadata[METADATA_KEY] = metadata;
-  item.metadata[LEGACY_METADATA_KEY] = metadata;
 }
 
 function setDeckMetadata(item, metadata) {
   item.metadata ||= {};
   item.metadata[DECK_METADATA_KEY] = metadata;
-  item.metadata[LEGACY_DECK_METADATA_KEY] = metadata;
 }
 
 function createCardMetadataMap(metadata) {
   return {
     [METADATA_KEY]: metadata,
-    [LEGACY_METADATA_KEY]: metadata,
   };
 }
 
 function createDeckMetadataMap(metadata) {
   return {
     [DECK_METADATA_KEY]: metadata,
-    [LEGACY_DECK_METADATA_KEY]: metadata,
   };
 }
 
@@ -246,7 +225,7 @@ async function getDrawOffset(OBR) {
   }
 }
 
-async function drawFromDecks(OBR, buildImage, items) {
+async function drawFromDecks(OBR, buildImage, items, options = {}) {
   const decks = getDeckItems(items).filter(
     (item) => getDeckMetadata(item).cards.length > 0,
   );
@@ -272,7 +251,7 @@ async function drawFromDecks(OBR, buildImage, items) {
       sourceDeckName: metadata.name,
     });
     const drawOffset = offset * (index + 1);
-    const position = {
+    const position = options.drawPositionsByDeckId?.get(deck.id) || {
       x: deck.position.x + drawOffset,
       y: deck.position.y + drawOffset,
     };
@@ -303,6 +282,11 @@ async function drawFromDecks(OBR, buildImage, items) {
 
       applyDeckDisplay(item, metadata);
       setDeckMetadata(item, metadata);
+
+      const restoredPosition = options.deckPositionsById?.get(item.id);
+      if (restoredPosition) {
+        item.position = restoredPosition;
+      }
     }
   });
 
@@ -417,7 +401,7 @@ async function returnCardsToDeck(OBR, cards, fallbackDeckSelection = []) {
     const metadata = getDeckMetadata(item);
     const nextMetadata = {
       ...metadata,
-      cards: [...returnedCards, ...metadata.cards],
+      cards: [...metadata.cards, ...returnedCards],
     };
 
     applyDeckDisplay(item, nextMetadata);
@@ -481,9 +465,651 @@ async function flipSelectedItems(OBR, fallbackSelection = []) {
   return flipItems(OBR, selectedItems);
 }
 
+const COLOR_TOKEN_KEY = `${EXTENSION_ID}/color-token`;
+const CARD_CATEGORY_KEY = `${EXTENSION_ID}/card-category`;
+const ACTIVE_COLOR_KEY = `${EXTENSION_ID}/active-color`;
+const SELECTION_BOARD_KEY = `${EXTENSION_ID}/selection-board`;
+
+const PLAYER_COLORS = [
+  { id: "red", label: "Vermelho", aliases: ["vermelho", "red"] },
+  { id: "white", label: "Branco", aliases: ["branco", "white"] },
+  { id: "green", label: "Verde", aliases: ["verde", "green"] },
+  { id: "blue", label: "Azul", aliases: ["azul", "blue"] },
+];
+
+const CARD_CATEGORIES = [
+  { id: "race", label: "Raca" },
+  { id: "class", label: "Classe" },
+  { id: "divinity", label: "Divindade" },
+];
+
+const PLAYER_COLOR_IDS = new Set(PLAYER_COLORS.map((color) => color.id));
+const CATEGORY_IDS = new Set(CARD_CATEGORIES.map((category) => category.id));
+
+function getColorLabel(colorId) {
+  return PLAYER_COLORS.find((color) => color.id === colorId)?.label || "cor";
+}
+
+function getCategoryLabel(categoryId) {
+  return CARD_CATEGORIES.find((category) => category.id === categoryId)?.label || "categoria";
+}
+
+function normalizePlayerColor(colorId) {
+  return PLAYER_COLOR_IDS.has(colorId) ? colorId : null;
+}
+
+function normalizeCategory(categoryId) {
+  return CATEGORY_IDS.has(categoryId) ? categoryId : null;
+}
+
+function createEmptyState() {
+  const slots = {};
+  const assigned = {};
+  const tokens = {};
+
+  for (const color of PLAYER_COLORS) {
+    slots[color.id] = {};
+    assigned[color.id] = {};
+    tokens[color.id] = null;
+  }
+
+  return {
+    version: 1,
+    slots,
+    assigned,
+    origins: {},
+    tokens,
+  };
+}
+
+function normalizeState(value) {
+  const state = createEmptyState();
+
+  if (!value || typeof value !== "object") {
+    return state;
+  }
+
+  for (const color of PLAYER_COLORS) {
+    state.slots[color.id] = {
+      ...state.slots[color.id],
+      ...(value.slots?.[color.id] || {}),
+    };
+    state.assigned[color.id] = {
+      ...state.assigned[color.id],
+      ...(value.assigned?.[color.id] || {}),
+    };
+    state.tokens[color.id] = value.tokens?.[color.id] || null;
+  }
+
+  state.origins = value.origins && typeof value.origins === "object" ? value.origins : {};
+  return state;
+}
+
+async function getSceneState(OBR) {
+  const metadata = await OBR.scene.getMetadata();
+  return normalizeState(metadata[SELECTION_BOARD_KEY]);
+}
+
+async function setSceneState(OBR, state) {
+  await OBR.scene.setMetadata({
+    [SELECTION_BOARD_KEY]: state,
+  });
+}
+
+function capturePlacement(item) {
+  return {
+    position: { ...item.position },
+    rotation: item.rotation,
+    scale: { ...item.scale },
+    layer: item.layer,
+    zIndex: item.zIndex,
+    locked: item.locked,
+  };
+}
+
+function applyPlacement(item, placement, options = {}) {
+  item.position = { ...placement.position };
+  item.rotation = placement.rotation;
+  item.scale = { ...placement.scale };
+  item.layer = placement.layer;
+
+  if (Number.isFinite(options.zIndex)) {
+    item.zIndex = options.zIndex;
+  } else if (Number.isFinite(placement.zIndex)) {
+    item.zIndex = placement.zIndex;
+  }
+}
+
+async function getSelectedItems(OBR, fallbackSelection = []) {
+  const selection = await OBR.player.getSelection();
+  const itemIds = selection?.length ? selection : fallbackSelection;
+
+  if (!itemIds.length) {
+    return [];
+  }
+
+  return OBR.scene.items.getItems(itemIds);
+}
+
+function getPrimaryImage(items) {
+  return items.find((item) => item.type === "IMAGE") || null;
+}
+
+async function getSelectedImage(OBR, fallbackSelection = []) {
+  const item = getPrimaryImage(await getSelectedItems(OBR, fallbackSelection));
+
+  if (!item) {
+    throw new Error("Selecione uma imagem na cena.");
+  }
+
+  return item;
+}
+
+async function getActivePlayerColor(OBR) {
+  const metadata = await OBR.player.getMetadata();
+  return normalizePlayerColor(metadata[ACTIVE_COLOR_KEY]?.color);
+}
+
+async function getCurrentPlayerId(OBR) {
+  try {
+    return await OBR.player.getId();
+  } catch {
+    return OBR.player.id;
+  }
+}
+
+async function getPlayerUsingColor(OBR, color) {
+  if (!OBR.party?.getPlayers) {
+    return null;
+  }
+
+  const [currentPlayerId, players] = await Promise.all([
+    getCurrentPlayerId(OBR),
+    OBR.party.getPlayers(),
+  ]);
+
+  return (
+    players.find(
+      (player) =>
+        player.id !== currentPlayerId &&
+        normalizePlayerColor(player.metadata?.[ACTIVE_COLOR_KEY]?.color) === color,
+    ) || null
+  );
+}
+
+async function setActivePlayerColor(OBR, colorId) {
+  const color = normalizePlayerColor(colorId);
+
+  if (!color) {
+    throw new Error("Escolha uma cor valida.");
+  }
+
+  const claimedBy = await getPlayerUsingColor(OBR, color);
+
+  if (claimedBy) {
+    throw new Error(
+      `${getColorLabel(color)} ja esta em uso por ${claimedBy.name || "outro jogador"}.`,
+    );
+  }
+
+  await OBR.player.setMetadata({
+    [ACTIVE_COLOR_KEY]: {
+      version: 1,
+      color,
+    },
+  });
+
+  return color;
+}
+
+async function markSelectedTokenColor(OBR, colorId, fallbackSelection = []) {
+  const color = normalizePlayerColor(colorId);
+
+  if (!color) {
+    throw new Error("Escolha uma cor valida.");
+  }
+
+  const item = await getSelectedImage(OBR, fallbackSelection);
+  const state = await getSceneState(OBR);
+
+  await OBR.scene.items.updateItems([item], (items) => {
+    items[0].metadata ||= {};
+    items[0].metadata[COLOR_TOKEN_KEY] = {
+      version: 1,
+      color,
+    };
+  });
+
+  state.tokens[color] = item.id;
+  await setSceneState(OBR, state);
+  await setActivePlayerColor(OBR, color);
+
+  return color;
+}
+
+async function markSelectedCardsCategory(OBR, categoryId, fallbackSelection = []) {
+  const category = normalizeCategory(categoryId);
+
+  if (!category) {
+    throw new Error("Escolha uma categoria valida.");
+  }
+
+  const items = (await getSelectedItems(OBR, fallbackSelection)).filter(
+    (item) => item.type === "IMAGE",
+  );
+
+  if (!items.length) {
+    throw new Error("Selecione uma ou mais cartas na cena.");
+  }
+
+  const state = await getSceneState(OBR);
+
+  for (const item of items) {
+    if (!isAssignedItem(state, item.id)) {
+      state.origins[item.id] = capturePlacement(item);
+    }
+  }
+
+  await OBR.scene.items.updateItems(items, (draftItems) => {
+    for (const item of draftItems) {
+      item.metadata ||= {};
+      item.metadata[CARD_CATEGORY_KEY] = {
+        version: 1,
+        category,
+      };
+    }
+  });
+  await setSceneState(OBR, state);
+
+  return { category, count: items.length };
+}
+
+async function saveSlotFromSelectedItem(
+  OBR,
+  colorId,
+  categoryId,
+  fallbackSelection = [],
+) {
+  const color = normalizePlayerColor(colorId);
+  const category = normalizeCategory(categoryId);
+
+  if (!color || !category) {
+    throw new Error("Escolha uma cor e uma categoria para salvar o slot.");
+  }
+
+  const item = await getSelectedImage(OBR, fallbackSelection);
+  const state = await getSceneState(OBR);
+
+  state.slots[color][category] = capturePlacement(item);
+  await setSceneState(OBR, state);
+
+  return { color, category };
+}
+
+function clearAssignmentsForItem(state, itemId) {
+  for (const color of PLAYER_COLORS) {
+    for (const category of CARD_CATEGORIES) {
+      if (state.assigned[color.id][category.id] === itemId) {
+        state.assigned[color.id][category.id] = null;
+      }
+    }
+  }
+}
+
+function isAssignedItem(state, itemId) {
+  return PLAYER_COLORS.some((color) =>
+    CARD_CATEGORIES.some((category) => state.assigned[color.id][category.id] === itemId),
+  );
+}
+
+async function returnSelectedCardToOrigin(OBR, fallbackSelection = []) {
+  const selectedItem = await getSelectedImage(OBR, fallbackSelection);
+  const state = await getSceneState(OBR);
+  const origin = state.origins[selectedItem.id];
+
+  if (!origin) {
+    throw new Error("Nao encontrei a posicao original dessa carta.");
+  }
+
+  clearAssignmentsForItem(state, selectedItem.id);
+
+  await OBR.scene.items.updateItems([selectedItem], (items) => {
+    applyPlacement(items[0], origin);
+    items[0].locked = origin.locked;
+  });
+  await setSceneState(OBR, state);
+
+  return true;
+}
+
+const PRESET_DECKS_URL = new URL("../assets/preset-decks/decks.json", import.meta.url);
+const ITEM_LAYERS = new Set([
+  "DRAWING",
+  "PROP",
+  "MOUNT",
+  "CHARACTER",
+  "ATTACHMENT",
+  "NOTE",
+  "TEXT",
+]);
+
+function isExternalUrl(value) {
+  return /^(https?:|data:|blob:)/i.test(value);
+}
+
+function resolveAssetUrl(path) {
+  if (!path || typeof path !== "string") {
+    return "";
+  }
+
+  if (isExternalUrl(path)) {
+    return path;
+  }
+
+  return new URL(`../${path.replace(/^\/+/, "")}`, import.meta.url).toString();
+}
+
+function getNameFromPath(path, fallback) {
+  if (!path || typeof path !== "string") {
+    return fallback;
+  }
+
+  try {
+    const pathname = isExternalUrl(path) ? new URL(path).pathname : path;
+    const filename = pathname.split("/").filter(Boolean).pop();
+
+    if (!filename) {
+      return fallback;
+    }
+
+    return decodeURIComponent(filename.replace(/\.[^.]+$/, "")) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function normalizeAsset(value, fallbackName) {
+  if (typeof value === "string") {
+    return {
+      name: getNameFromPath(value, fallbackName),
+      path: value,
+    };
+  }
+
+  if (!value || typeof value !== "object") {
+    return {
+      name: fallbackName,
+      path: "",
+    };
+  }
+
+  return {
+    name: value.name || getNameFromPath(value.path || value.url, fallbackName),
+    path: value.path || value.url || "",
+    width: value.width,
+    height: value.height,
+    mime: value.mime,
+  };
+}
+
+function normalizePresetDeck(value, index) {
+  const name = value?.name || `Pilha ${index + 1}`;
+  const layer = ITEM_LAYERS.has(value?.layer) ? value.layer : "PROP";
+
+  return {
+    id: value?.id || `deck-${index + 1}`,
+    name,
+    gridWidth: Number.isFinite(value?.gridWidth) && value.gridWidth > 0 ? value.gridWidth : 2,
+    layer,
+    back: normalizeAsset(value?.back, `${name} verso`),
+    cards: Array.isArray(value?.cards)
+      ? value.cards.map((card, cardIndex) => {
+          if (typeof card === "string") {
+            return {
+              name: getNameFromPath(card, `Carta ${cardIndex + 1}`),
+              front: normalizeAsset(card, `Carta ${cardIndex + 1}`),
+            };
+          }
+
+          return {
+            name: card?.name || `Carta ${cardIndex + 1}`,
+            front: normalizeAsset(card?.front || card?.path || card?.url, `Carta ${cardIndex + 1}`),
+          };
+        })
+      : [],
+  };
+}
+
+async function loadPresetDecks() {
+  const response = await fetch(`${PRESET_DECKS_URL.toString()}?t=${Date.now()}`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error("Nao consegui carregar a biblioteca de pilhas.");
+  }
+
+  const data = await response.json();
+  const decks = Array.isArray(data?.decks) ? data.decks : [];
+
+  return decks.map(normalizePresetDeck);
+}
+
+function isPresetDeckReady(deck) {
+  return Boolean(deck?.back?.path && deck.cards?.length);
+}
+
+function readImage(url) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      if (!image.naturalWidth || !image.naturalHeight) {
+        reject(new Error(`Imagem sem tamanho valido: ${url}`));
+        return;
+      }
+
+      resolve({
+        width: image.naturalWidth,
+        height: image.naturalHeight,
+      });
+    };
+    image.onerror = () => reject(new Error(`Nao consegui carregar a imagem: ${url}`));
+    image.src = url;
+  });
+}
+
+async function buildFace(asset) {
+  const url = resolveAssetUrl(asset.path);
+
+  if (!url) {
+    throw new Error("A pilha padrao ainda nao tem verso configurado.");
+  }
+
+  const dimensions =
+    Number.isFinite(asset.width) && Number.isFinite(asset.height)
+      ? { width: asset.width, height: asset.height }
+      : await readImage(url);
+
+  return {
+    url,
+    width: dimensions.width,
+    height: dimensions.height,
+    mime: asset.mime || getMimeFromUrl(url),
+  };
+}
+
+async function buildPresetDeckData(deck) {
+  if (!isPresetDeckReady(deck)) {
+    throw new Error(`A pilha "${deck?.name || "padrao"}" ainda nao tem cartas configuradas.`);
+  }
+
+  const [back, cards] = await Promise.all([
+    buildFace(deck.back),
+    Promise.all(
+      deck.cards.map(async (card, index) => ({
+        name: card.name || `Carta ${index + 1}`,
+        front: await buildFace(card.front),
+      })),
+    ),
+  ]);
+
+  return {
+    name: deck.name,
+    back,
+    cards,
+    gridWidth: deck.gridWidth,
+    layer: deck.layer,
+  };
+}
+
+const PRESET_VERSION = 1;
+const ITEM_CHUNK_SIZE = 80;
+const DEFAULT_BOARD_PRESET_URL = "./assets/scene-preset.json";
+const READONLY_UPDATE_KEYS = new Set([
+  "id",
+  "type",
+  "createdUserId",
+  "lastModified",
+  "lastModifiedUserId",
+]);
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function chunk(values, size = ITEM_CHUNK_SIZE) {
+  const chunks = [];
+
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+
+  return chunks;
+}
+
+function isDefaultBoardPreset(value) {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      value.version === PRESET_VERSION &&
+      Array.isArray(value.items) &&
+      value.metadata &&
+      typeof value.metadata === "object",
+  );
+}
+
+function createDefaultBoardPreset(items, metadata) {
+  return {
+    version: PRESET_VERSION,
+    savedAt: new Date().toISOString(),
+    itemCount: items.length,
+    items: clone(items),
+    metadata: clone(metadata || {}),
+  };
+}
+
+function restoreItemState(item, presetItem) {
+  for (const key of Object.keys(item)) {
+    if (!READONLY_UPDATE_KEYS.has(key) && !(key in presetItem)) {
+      delete item[key];
+    }
+  }
+
+  for (const [key, value] of Object.entries(presetItem)) {
+    if (!READONLY_UPDATE_KEYS.has(key)) {
+      item[key] = clone(value);
+    }
+  }
+}
+
+async function loadDefaultBoardPreset() {
+  const response = await fetch(`${DEFAULT_BOARD_PRESET_URL}?v=${Date.now()}`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const preset = await response.json();
+  return isDefaultBoardPreset(preset) ? preset : null;
+}
+
+async function saveDefaultBoardPreset(OBR) {
+  const [items, metadata] = await Promise.all([
+    OBR.scene.items.getItems(),
+    OBR.scene.getMetadata(),
+  ]);
+  const preset = createDefaultBoardPreset(items, metadata);
+  const response = await fetch("./__scene_preset", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(preset),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      "Nao consegui criar o tabuleiro padrao. Essa acao precisa do servidor localhost.",
+    );
+  }
+
+  return response.json();
+}
+
+async function restoreDefaultBoardPreset(OBR, preset) {
+  if (!isDefaultBoardPreset(preset)) {
+    throw new Error("Nenhum tabuleiro padrao foi cadastrado na extensao.");
+  }
+
+  const presetItems = clone(preset.items);
+  const currentItems = await OBR.scene.items.getItems();
+  const presetById = new Map(presetItems.map((item) => [item.id, item]));
+  const currentById = new Map(currentItems.map((item) => [item.id, item]));
+  const itemsToUpdate = currentItems.filter(
+    (item) => presetById.has(item.id) && presetById.get(item.id).type === item.type,
+  );
+  const idsToDelete = currentItems
+    .filter((item) => !presetById.has(item.id) || presetById.get(item.id).type !== item.type)
+    .map((item) => item.id);
+  const itemsToAdd = presetItems.filter(
+    (item) => !currentById.has(item.id) || currentById.get(item.id).type !== item.type,
+  );
+
+  for (const items of chunk(itemsToUpdate)) {
+    await OBR.scene.items.updateItems(items, (draftItems) => {
+      for (const item of draftItems) {
+        restoreItemState(item, presetById.get(item.id));
+      }
+    });
+  }
+
+  for (const ids of chunk(idsToDelete)) {
+    await OBR.scene.items.deleteItems(ids);
+  }
+
+  for (const items of chunk(itemsToAdd)) {
+    await OBR.scene.items.addItems(items);
+  }
+
+  await OBR.scene.setMetadata(clone(preset.metadata || {}));
+
+  return {
+    added: itemsToAdd.length,
+    deleted: idsToDelete.length,
+    updated: itemsToUpdate.length,
+  };
+}
+
 const elements = {
   form: document.querySelector("#cardForm"),
   deckForm: document.querySelector("#deckForm"),
+  presetDeckSelect: document.querySelector("#presetDeckSelect"),
+  presetDeckGridWidth: document.querySelector("#presetDeckGridWidth"),
+  presetDeckLayer: document.querySelector("#presetDeckLayer"),
+  presetDeckInfo: document.querySelector("#presetDeckInfo"),
+  importPresetDeckButton: document.querySelector("#importPresetDeckButton"),
   name: document.querySelector("#cardName"),
   frontUrl: document.querySelector("#frontUrl"),
   frontFile: document.querySelector("#frontFile"),
@@ -508,8 +1134,18 @@ const elements = {
   panelShuffleButton: document.querySelector("#panelShuffleButton"),
   panelReturnButton: document.querySelector("#panelReturnButton"),
   panelRepairButton: document.querySelector("#panelRepairButton"),
+  activeColorSelect: document.querySelector("#activeColorSelect"),
+  colorTokenButtons: [...document.querySelectorAll("[data-token-color]")],
+  slotColorSelect: document.querySelector("#slotColorSelect"),
+  slotCategorySelect: document.querySelector("#slotCategorySelect"),
+  saveSlotButton: document.querySelector("#saveSlotButton"),
+  categoryCardButtons: [...document.querySelectorAll("[data-card-category]")],
+  returnOriginButton: document.querySelector("#returnOriginButton"),
   publicBaseUrl: document.querySelector("#publicBaseUrl"),
   migratePublicButton: document.querySelector("#migratePublicButton"),
+  createDefaultBoardButton: document.querySelector("#createDefaultBoardButton"),
+  restoreDefaultBoardButton: document.querySelector("#restoreDefaultBoardButton"),
+  defaultBoardInfo: document.querySelector("#defaultBoardInfo"),
   importButton: document.querySelector("#importButton"),
   importDeckButton: document.querySelector("#importDeckButton"),
   connectionStatus: document.querySelector("#connectionStatus"),
@@ -523,6 +1159,8 @@ let obr = null;
 let buildImage = null;
 let lastCardSelection = [];
 let lastDeckSelection = [];
+let presetDecks = [];
+let defaultBoardPreset = null;
 const selectedAssets = {
   front: null,
   back: null,
@@ -555,11 +1193,64 @@ function setConnectionStatus(text, isConnected) {
   elements.pickDeckBackAssetButton.disabled = !isConnected;
   elements.pickDeckFrontAssetsButton.disabled = !isConnected;
   elements.migratePublicButton.disabled = !isConnected;
+  updateDefaultBoardControls(isConnected);
   elements.panelFlipButton.disabled = !isConnected;
   elements.panelDrawButton.disabled = !isConnected;
   elements.panelShuffleButton.disabled = !isConnected;
   elements.panelReturnButton.disabled = !isConnected;
   elements.panelRepairButton.disabled = !isConnected;
+  elements.activeColorSelect.disabled = !isConnected;
+  elements.slotColorSelect.disabled = !isConnected;
+  elements.slotCategorySelect.disabled = !isConnected;
+  elements.saveSlotButton.disabled = !isConnected;
+  elements.returnOriginButton.disabled = !isConnected;
+  updatePresetDeckControls(isConnected);
+  for (const button of elements.colorTokenButtons) {
+    button.disabled = !isConnected;
+  }
+  for (const button of elements.categoryCardButtons) {
+    button.disabled = !isConnected;
+  }
+}
+
+function isLocalhost() {
+  return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+}
+
+function formatPresetDate(value) {
+  try {
+    return new Intl.DateTimeFormat("pt-BR", {
+      dateStyle: "short",
+      timeStyle: "short",
+    }).format(new Date(value));
+  } catch {
+    return value || "";
+  }
+}
+
+function updateDefaultBoardControls(isConnected = Boolean(obr)) {
+  elements.createDefaultBoardButton.disabled = !isConnected || !isLocalhost();
+  elements.restoreDefaultBoardButton.disabled = !isConnected || !defaultBoardPreset;
+
+  if (!defaultBoardPreset) {
+    elements.defaultBoardInfo.textContent = isLocalhost()
+      ? "Nenhum tabuleiro padrao criado no localhost."
+      : "Nenhum tabuleiro padrao cadastrado na extensao.";
+    return;
+  }
+
+  const itemLabel =
+    defaultBoardPreset.itemCount === 1
+      ? "1 item no tabuleiro padrao"
+      : `${defaultBoardPreset.itemCount} itens no tabuleiro padrao`;
+  elements.defaultBoardInfo.textContent = `${itemLabel} criado em ${formatPresetDate(
+    defaultBoardPreset.savedAt,
+  )}.`;
+}
+
+async function refreshDefaultBoardInfo() {
+  defaultBoardPreset = await loadDefaultBoardPreset();
+  updateDefaultBoardControls(Boolean(obr));
 }
 
 async function rememberCardSelection(selection) {
@@ -624,6 +1315,45 @@ async function runPanelAction(button, action) {
     setMessage(error.message || "Nao consegui executar a acao.", "error");
   } finally {
     button.disabled = false;
+  }
+}
+
+function syncColorControls(color) {
+  const activeColor = color || "";
+  elements.activeColorSelect.value = activeColor;
+
+  if (color) {
+    elements.slotColorSelect.value = color;
+  }
+}
+
+async function refreshActiveColorControls() {
+  if (!obr) {
+    syncColorControls(null);
+    return;
+  }
+
+  syncColorControls(await getActivePlayerColor(obr));
+}
+
+function populateSelectionBoardControls() {
+  for (const color of PLAYER_COLORS) {
+    const activeOption = document.createElement("option");
+    activeOption.value = color.id;
+    activeOption.textContent = color.label;
+    elements.activeColorSelect.append(activeOption);
+
+    const slotOption = document.createElement("option");
+    slotOption.value = color.id;
+    slotOption.textContent = color.label;
+    elements.slotColorSelect.append(slotOption);
+  }
+
+  for (const category of CARD_CATEGORIES) {
+    const option = document.createElement("option");
+    option.value = category.id;
+    option.textContent = category.label;
+    elements.slotCategorySelect.append(option);
   }
 }
 
@@ -913,6 +1643,49 @@ async function migrateSceneLocalAssets() {
   const urlLabel = stats.urls === 1 ? "1 imagem" : `${stats.urls} imagens`;
   setMessage(`Migrei ${itemLabel} da cena para usar ${urlLabel} publicas.`, "success");
   await obr.notification.show("Links locais migrados para o GitHub Pages.", "SUCCESS");
+}
+
+async function createDefaultBoardFromCurrentScene() {
+  if (!obr) {
+    setMessage("Abra esta extensao dentro do Owlbear para criar o tabuleiro padrao.", "warning");
+    return;
+  }
+
+  const result = await saveDefaultBoardPreset(obr);
+  await refreshDefaultBoardInfo();
+
+  const itemLabel = result.itemCount === 1 ? "1 item" : `${result.itemCount} itens`;
+  const message = `Tabuleiro padrao criado com ${itemLabel}.`;
+  setMessage(message, "success");
+  await obr.notification.show("Tabuleiro padrao criado.", "SUCCESS");
+}
+
+async function restoreDefaultBoard() {
+  if (!obr) {
+    setMessage("Abra esta extensao dentro do Owlbear para restaurar o tabuleiro.", "warning");
+    return;
+  }
+
+  if (!defaultBoardPreset) {
+    setMessage("Nenhum tabuleiro padrao cadastrado na extensao.", "warning");
+    await obr.notification.show("Nenhum tabuleiro padrao cadastrado.", "WARNING");
+    return;
+  }
+
+  const confirmed = window.confirm(
+    "Restaurar o tabuleiro padrao vai substituir a cena atual. Continuar?",
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  const result = await restoreDefaultBoardPreset(obr, defaultBoardPreset);
+  updateDefaultBoardControls(true);
+
+  const message = `Cena restaurada: ${result.updated} atualizados, ${result.added} recriados, ${result.deleted} removidos.`;
+  setMessage(message, "success");
+  await obr.notification.show("Tabuleiro padrao restaurado.", "SUCCESS");
 }
 
 async function loadImageInfo(rawUrl) {
@@ -1227,6 +2000,104 @@ function getDeckName() {
   return typedName || "Pilha";
 }
 
+function getSelectedPresetDeck() {
+  const selectedId = elements.presetDeckSelect.value;
+  return presetDecks.find((deck) => deck.id === selectedId) || null;
+}
+
+function setPresetDeckDefaultControls(deck) {
+  if (!deck) {
+    elements.presetDeckGridWidth.value = "2";
+    elements.presetDeckLayer.value = "PROP";
+    return;
+  }
+
+  elements.presetDeckGridWidth.value = String(deck.gridWidth || 2);
+  if (
+    [...elements.presetDeckLayer.options].some((option) => option.value === deck.layer)
+  ) {
+    elements.presetDeckLayer.value = deck.layer;
+  } else {
+    elements.presetDeckLayer.value = "PROP";
+  }
+}
+
+function updatePresetDeckControls(isConnected = Boolean(obr), syncDefaults = false) {
+  const hasDecks = presetDecks.length > 0;
+  const deck = hasDecks ? getSelectedPresetDeck() : null;
+  const isReady = isPresetDeckReady(deck);
+
+  elements.presetDeckSelect.disabled = !hasDecks;
+  elements.presetDeckGridWidth.disabled = !hasDecks;
+  elements.presetDeckLayer.disabled = !hasDecks;
+  elements.importPresetDeckButton.disabled = !isConnected || !isReady;
+
+  if (syncDefaults) {
+    setPresetDeckDefaultControls(deck);
+  }
+
+  if (!hasDecks) {
+    elements.presetDeckInfo.textContent = "Nenhuma pilha cadastrada na biblioteca.";
+    return;
+  }
+
+  if (!deck) {
+    elements.presetDeckInfo.textContent = "Escolha uma pilha da biblioteca.";
+    return;
+  }
+
+  if (!isReady) {
+    elements.presetDeckInfo.textContent =
+      "Esta pilha ja existe no catalogo, mas ainda precisa de verso e cartas.";
+    return;
+  }
+
+  const count = deck.cards.length;
+  elements.presetDeckInfo.textContent =
+    count === 1
+      ? `1 carta cadastrada. Padrao: ${deck.gridWidth} no grid.`
+      : `${count} cartas cadastradas. Padrao: ${deck.gridWidth} no grid.`;
+}
+
+function populatePresetDeckSelect() {
+  elements.presetDeckSelect.replaceChildren();
+
+  if (!presetDecks.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "Nenhuma pilha cadastrada";
+    elements.presetDeckSelect.append(option);
+    updatePresetDeckControls(Boolean(obr), true);
+    return;
+  }
+
+  for (const deck of presetDecks) {
+    const option = document.createElement("option");
+    option.value = deck.id;
+    option.textContent = isPresetDeckReady(deck)
+      ? `${deck.name} (${deck.cards.length})`
+      : `${deck.name} (configurar imagens)`;
+    elements.presetDeckSelect.append(option);
+  }
+
+  updatePresetDeckControls(Boolean(obr), true);
+}
+
+async function loadPresetLibrary() {
+  presetDecks = await loadPresetDecks();
+  populatePresetDeckSelect();
+}
+
+function getPresetDeckGridWidth() {
+  const gridWidth = Number.parseFloat(elements.presetDeckGridWidth.value);
+
+  if (!Number.isFinite(gridWidth) || gridWidth <= 0) {
+    throw new Error("A largura no grid da biblioteca precisa ser maior que zero.");
+  }
+
+  return gridWidth;
+}
+
 function parseDeckLines() {
   const lines = elements.deckFrontUrls.value
     .split(/\r?\n/)
@@ -1274,6 +2145,22 @@ async function loadDeckFronts() {
     name: cardLines[index].name,
     front,
   }));
+}
+
+async function addDeckToScene({ name, back, cards, gridWidth, layer }) {
+  const position = await getViewportCenter();
+  const metadata = createDeckMetadata({ name, back, cards, gridWidth });
+  const item = buildImage(createImageData(back), createGridData(back, gridWidth))
+    .name(`${name} (${cards.length})`)
+    .description(deckDescription(cards.length))
+    .text(createDeckText(cards.length))
+    .layer(layer)
+    .position(position)
+    .metadata(createDeckMetadataMap(metadata))
+    .build();
+
+  await obr.scene.items.addItems([item]);
+  return item;
 }
 
 async function createCard(event) {
@@ -1349,18 +2236,13 @@ async function createDeck(event) {
     }
 
     const name = getDeckName();
-    const position = await getViewportCenter();
-    const metadata = createDeckMetadata({ name, back, cards, gridWidth });
-    const item = buildImage(createImageData(back), createGridData(back, gridWidth))
-      .name(`${name} (${cards.length})`)
-      .description(deckDescription(cards.length))
-      .text(createDeckText(cards.length))
-      .layer(elements.deckLayer.value)
-      .position(position)
-      .metadata(createDeckMetadataMap(metadata))
-      .build();
-
-    await obr.scene.items.addItems([item]);
+    await addDeckToScene({
+      name,
+      back,
+      cards,
+      gridWidth,
+      layer: elements.deckLayer.value,
+    });
     await obr.notification.show(`Pilha "${name}" importada.`);
 
     setMessage("Pilha importada.", "success");
@@ -1372,9 +2254,64 @@ async function createDeck(event) {
   }
 }
 
+async function createPresetDeck() {
+  if (!obr || !buildImage) {
+    setMessage("Abra esta extensao dentro do Owlbear Rodeo para criar uma pilha.", "warning");
+    return;
+  }
+
+  const deck = getSelectedPresetDeck();
+  if (!deck) {
+    setMessage("Escolha uma pilha da biblioteca.", "warning");
+    return;
+  }
+
+  if (!isPresetDeckReady(deck)) {
+    setMessage("Esta pilha ainda precisa de verso e cartas no catalogo.", "warning");
+    return;
+  }
+
+  elements.importPresetDeckButton.disabled = true;
+  setMessage("Criando pilha da biblioteca...", "neutral");
+
+  try {
+    const deckData = await buildPresetDeckData(deck);
+    const gridWidth = getPresetDeckGridWidth();
+    await addDeckToScene({
+      ...deckData,
+      gridWidth,
+      layer: elements.presetDeckLayer.value || deckData.layer,
+    });
+    await obr.notification.show(`Pilha "${deckData.name}" criada.`);
+    setMessage(`Pilha "${deckData.name}" criada da biblioteca.`, "success");
+  } catch (error) {
+    console.error(error);
+    setMessage(error.message || "Nao consegui criar a pilha da biblioteca.", "error");
+  } finally {
+    updatePresetDeckControls(Boolean(obr));
+  }
+}
+
 async function init() {
+  populateSelectionBoardControls();
   elements.form.addEventListener("submit", createCard);
   elements.deckForm.addEventListener("submit", createDeck);
+  elements.presetDeckSelect.addEventListener("change", () =>
+    updatePresetDeckControls(Boolean(obr), true),
+  );
+  elements.importPresetDeckButton.addEventListener("click", () =>
+    createPresetDeck().catch((error) => {
+      console.error(error);
+      setMessage(error.message || "Nao consegui criar a pilha da biblioteca.", "error");
+    }),
+  );
+  loadPresetLibrary().catch((error) => {
+    console.warn(error);
+    presetDecks = [];
+    populatePresetDeckSelect();
+    elements.presetDeckInfo.textContent =
+      error.message || "Nao consegui carregar a biblioteca de pilhas.";
+  });
   elements.publicBaseUrl.value = getDefaultPublicBaseUrl();
   elements.panelFlipButton.addEventListener("click", () =>
     runPanelAction(elements.panelFlipButton, async () => {
@@ -1416,12 +2353,17 @@ async function init() {
         lastCardSelection,
         lastDeckSelection,
       );
-      await showPanelActionResult(
-        count,
-        "Carta devolvida para a pilha.",
-        (total) => `${total} cartas devolvidas para a pilha.`,
-        "Selecione uma carta comprada e uma pilha alvo.",
-      );
+      if (!count) {
+        await showPanelActionResult(
+          count,
+          "",
+          () => "",
+          "Selecione uma carta comprada e uma pilha alvo.",
+        );
+        return;
+      }
+
+      setMessage("", "neutral");
     }),
   );
   elements.panelRepairButton.addEventListener("click", () =>
@@ -1437,6 +2379,65 @@ async function init() {
       }
 
       const message = getRepairMessage(stats);
+      setMessage(message, "success");
+      await obr.notification.show(message, "SUCCESS");
+    }),
+  );
+  elements.activeColorSelect.addEventListener("change", () => {
+    const color = elements.activeColorSelect.value;
+
+    if (!color || !obr) {
+      return;
+    }
+
+    setActivePlayerColor(obr, color)
+      .then(() => {
+        syncColorControls(color);
+        setMessage(`Cor ativa: ${getColorLabel(color)}.`, "success");
+      })
+      .catch((error) => {
+        console.error(error);
+        setMessage(error.message || "Nao consegui definir a cor.", "error");
+      });
+  });
+  for (const button of elements.colorTokenButtons) {
+    button.addEventListener("click", () =>
+      runPanelAction(button, async () => {
+        const color = await markSelectedTokenColor(obr, button.dataset.tokenColor);
+        syncColorControls(color);
+        const message = `Token marcado como ${getColorLabel(color)}.`;
+        setMessage(message, "success");
+        await obr.notification.show(message, "SUCCESS");
+      }),
+    );
+  }
+  elements.saveSlotButton.addEventListener("click", () =>
+    runPanelAction(elements.saveSlotButton, async () => {
+      const result = await saveSlotFromSelectedItem(
+        obr,
+        elements.slotColorSelect.value,
+        elements.slotCategorySelect.value,
+      );
+      const message = `Slot salvo: ${getCategoryLabel(result.category)} de ${getColorLabel(result.color)}.`;
+      setMessage(message, "success");
+      await obr.notification.show(message, "SUCCESS");
+    }),
+  );
+  for (const button of elements.categoryCardButtons) {
+    button.addEventListener("click", () =>
+      runPanelAction(button, async () => {
+        const result = await markSelectedCardsCategory(obr, button.dataset.cardCategory);
+        const cardLabel = result.count === 1 ? "1 carta" : `${result.count} cartas`;
+        const message = `${cardLabel} marcadas como ${getCategoryLabel(result.category)}.`;
+        setMessage(message, "success");
+        await obr.notification.show(message, "SUCCESS");
+      }),
+    );
+  }
+  elements.returnOriginButton.addEventListener("click", () =>
+    runPanelAction(elements.returnOriginButton, async () => {
+      await returnSelectedCardToOrigin(obr);
+      const message = "Carta devolvida para a posicao original.";
       setMessage(message, "success");
       await obr.notification.show(message, "SUCCESS");
     }),
@@ -1503,6 +2504,12 @@ async function init() {
         elements.migratePublicButton.disabled = !obr;
       });
   });
+  elements.createDefaultBoardButton.addEventListener("click", () =>
+    runPanelAction(elements.createDefaultBoardButton, createDefaultBoardFromCurrentScene),
+  );
+  elements.restoreDefaultBoardButton.addEventListener("click", () =>
+    runPanelAction(elements.restoreDefaultBoardButton, restoreDefaultBoard),
+  );
 
   updatePreview(elements.frontUrl, elements.frontFile, elements.frontPreview, selectedAssets.front);
   updatePreview(elements.backUrl, elements.backFile, elements.backPreview, selectedAssets.back);
@@ -1526,18 +2533,21 @@ async function init() {
     obr.broadcast
       .sendMessage(COMMANDS_CHANNEL, { type: "register-commands" }, { destination: "LOCAL" })
       .catch((error) => {
-        console.warn("Unable to request command registration", error);
-      });
+        console.warn("Nao consegui pedir o registro dos comandos", error);
+    });
     const selection = await obr.player.getSelection();
     await Promise.all([rememberCardSelection(selection), rememberDeckSelection(selection)]);
+    await refreshDefaultBoardInfo();
     obr.player.onChange((player) => {
       rememberCardSelection(player.selection).catch((error) => {
-        console.warn("Unable to update card selection", error);
+        console.warn("Nao consegui atualizar a selecao de cartas", error);
       });
       rememberDeckSelection(player.selection).catch((error) => {
-        console.warn("Unable to update deck selection", error);
+        console.warn("Nao consegui atualizar a selecao de pilhas", error);
       });
+      syncColorControls(player.metadata?.[ACTIVE_COLOR_KEY]?.color);
     });
+    await refreshActiveColorControls();
     setConnectionStatus("Conectado ao Owlbear", true);
     setMessage("", "neutral");
   } catch (error) {

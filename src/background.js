@@ -2,14 +2,14 @@ import {
   COMMANDS_CHANNEL,
   DECK_METADATA_KEY,
   EXTENSION_ID,
-  LEGACY_DECK_METADATA_KEY,
-  LEGACY_EXTENSION_ID,
-  LEGACY_METADATA_KEY,
+  getCardMetadata,
+  getDeckMetadata,
   METADATA_KEY,
 } from "./card-data.js";
 import {
   drawFromDecks,
   drawSelectedDecks,
+  getCardItems,
   getDeckItems,
   returnCardsToDeck,
   returnSelectedCardsToDeck,
@@ -20,20 +20,37 @@ import {
 import { showActionFeedback } from "./feedback.js";
 import { flipItems, flipSelectedItems, getDoubleSidedCards } from "./flip.js";
 import { loadOwlbearSdk } from "./obr.js";
+import {
+  ACTIVE_COLOR_KEY,
+  detectCardCategoryFromItem,
+  detectPlayerColorFromItem,
+  getColorLabel,
+  placeSelectedCardInCategory,
+  setActivePlayerColor,
+} from "./selection-board.js";
 
 function assetUrl(path) {
   return new URL(`../${path}`, import.meta.url).toString();
 }
 
 async function removePreviousRegistrations(OBR) {
-  const extensionIds = [EXTENSION_ID, LEGACY_EXTENSION_ID];
+  const extensionIds = [EXTENSION_ID];
   const contextMenuIds = [
     "flip",
     "draw-from-deck",
     "shuffle-deck",
     "return-to-deck",
   ];
-  const actionIds = ["flip-action", "draw-action", "shuffle-action", "return-action"];
+  const actionIds = [
+    "flip-action",
+    "draw-action",
+    "shuffle-action",
+    "return-action",
+    "use-color-action",
+    "place-race-action",
+    "place-class-action",
+    "place-divinity-action",
+  ];
   const toolIds = ["flip-tool"];
 
   for (const extensionId of extensionIds) {
@@ -65,6 +82,19 @@ async function setupContextMenu() {
   const { OBR, sdk } = await loadOwlbearSdk(20000);
   let lastCardSelection = [];
   let lastDeckSelection = [];
+  let lastImageSelection = [];
+  let activePlayerColor = null;
+  const autoReturnPositions = new Map();
+  const autoReturnTimers = new Map();
+  const autoReturningCardIds = new Set();
+  let autoReturnQueue = Promise.resolve();
+  const deckPositions = new Map();
+  const autoDrawDeckTimers = new Map();
+  const autoDrawingDeckIds = new Set();
+  let autoDrawQueue = Promise.resolve();
+  const autoDrawDeckDelayMs = 90;
+  const autoDrawDeckCooldownMs = 120;
+  const autoDrawDeckMinDistance = 84;
 
   async function rememberCardSelection(selection) {
     if (!selection?.length) {
@@ -89,6 +119,43 @@ async function setupContextMenu() {
 
     if (deckIds.length) {
       lastDeckSelection = deckIds;
+    }
+  }
+
+  async function rememberImageSelection(selection) {
+    if (!selection?.length) {
+      return;
+    }
+
+    const selectedItems = await OBR.scene.items.getItems(selection);
+    const imageItems = selectedItems.filter((item) => item.type === "IMAGE");
+
+    if (!imageItems.length) {
+      return;
+    }
+
+    lastImageSelection = imageItems.map((item) => item.id);
+
+    const color = detectPlayerColorFromItem(imageItems[0]);
+
+    if (color && color !== activePlayerColor) {
+      try {
+        await setActivePlayerColor(OBR, color);
+        activePlayerColor = color;
+        await OBR.notification.show(`Cor ativa: ${getColorLabel(color)}.`, "SUCCESS");
+      } catch (error) {
+        await showCommandError(error);
+      }
+    }
+
+    const category = detectCardCategoryFromItem(imageItems[0]);
+
+    if (category) {
+      try {
+        await placeSelectedCardInCategory(OBR, category, [imageItems[0].id]);
+      } catch (error) {
+        await showCommandError(error);
+      }
     }
   }
 
@@ -117,46 +184,303 @@ async function setupContextMenu() {
     await showActionFeedback(OBR, sdk.buildLabel, message, anchorItems);
   }
 
+  async function showCommandError(error) {
+    console.warn(error);
+    await OBR.notification.show(error.message || "Nao consegui executar o comando.", "WARNING");
+  }
+
+  function pointInBounds(point, bounds) {
+    return (
+      point.x >= bounds.min.x &&
+      point.x <= bounds.max.x &&
+      point.y >= bounds.min.y &&
+      point.y <= bounds.max.y
+    );
+  }
+
+  function didPositionChange(previous, current) {
+    if (!previous) {
+      return false;
+    }
+
+    return Math.hypot(current.x - previous.x, current.y - previous.y) > 1;
+  }
+
+  function distanceBetween(left, right) {
+    return Math.hypot(left.x - right.x, left.y - right.y);
+  }
+
+  function rememberAutoReturnCardPositions(items) {
+    for (const card of getDoubleSidedCards(items)) {
+      if (!getCardMetadata(card)?.sourceDeckId) {
+        continue;
+      }
+
+      autoReturnPositions.set(card.id, { ...card.position });
+    }
+  }
+
+  function getMovedAutoReturnCardIds(items) {
+    const movedCardIds = [];
+
+    for (const card of getDoubleSidedCards(items)) {
+      if (!getCardMetadata(card)?.sourceDeckId) {
+        continue;
+      }
+
+      const previousPosition = autoReturnPositions.get(card.id);
+      const currentPosition = { ...card.position };
+      autoReturnPositions.set(card.id, currentPosition);
+
+      if (
+        !autoReturningCardIds.has(card.id) &&
+        didPositionChange(previousPosition, currentPosition)
+      ) {
+        movedCardIds.push(card.id);
+      }
+    }
+
+    return movedCardIds;
+  }
+
+  function scheduleAutoReturnCheck(cardId) {
+    const existingTimer = autoReturnTimers.get(cardId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+
+    const timer = setTimeout(() => {
+      autoReturnTimers.delete(cardId);
+      queueAutoReturnCheck(cardId);
+    }, 250);
+
+    autoReturnTimers.set(cardId, timer);
+  }
+
+  function queueAutoReturnCheck(cardId) {
+    autoReturnQueue = autoReturnQueue
+      .catch(() => {})
+      .then(() => returnCardIfDroppedOnSourceDeck(cardId))
+      .catch((error) => {
+        console.warn("Nao consegui devolver a carta automaticamente para a pilha", error);
+      });
+  }
+
+  async function returnCardIfDroppedOnSourceDeck(cardId) {
+    if (autoReturningCardIds.has(cardId)) {
+      return;
+    }
+
+    autoReturningCardIds.add(cardId);
+
+    try {
+      const [card] = getCardItems(await OBR.scene.items.getItems([cardId]));
+      const metadata = card ? getCardMetadata(card) : null;
+      const sourceDeckId = metadata?.sourceDeckId;
+
+      if (!card || !sourceDeckId) {
+        autoReturnPositions.delete(cardId);
+        return;
+      }
+
+      const [sourceDeck] = getDeckItems(await OBR.scene.items.getItems([sourceDeckId]));
+
+      if (!sourceDeck) {
+        return;
+      }
+
+      const sourceDeckBounds = await OBR.scene.items.getItemBounds([sourceDeck.id]);
+
+      if (!pointInBounds(card.position, sourceDeckBounds)) {
+        return;
+      }
+
+      const count = await returnCardsToDeck(OBR, [card], [sourceDeck.id]);
+
+      if (count) {
+        autoReturnPositions.delete(cardId);
+      }
+    } finally {
+      autoReturningCardIds.delete(cardId);
+    }
+  }
+
+  function rememberDeckPositions(items) {
+    for (const deck of getDeckItems(items)) {
+      if (!deckPositions.has(deck.id)) {
+        deckPositions.set(deck.id, { ...deck.position });
+      }
+    }
+  }
+
+  function getMovedDeckDraws(items) {
+    const movedDecks = [];
+
+    for (const deck of getDeckItems(items)) {
+      const previousPosition = deckPositions.get(deck.id);
+      const currentPosition = { ...deck.position };
+
+      if (!previousPosition) {
+        deckPositions.set(deck.id, currentPosition);
+        continue;
+      }
+
+      if (autoDrawingDeckIds.has(deck.id)) {
+        deckPositions.set(deck.id, currentPosition);
+        continue;
+      }
+
+      if (distanceBetween(previousPosition, currentPosition) > autoDrawDeckMinDistance) {
+        movedDecks.push({
+          id: deck.id,
+          from: previousPosition,
+          to: currentPosition,
+        });
+      } else {
+        deckPositions.set(deck.id, currentPosition);
+      }
+    }
+
+    return movedDecks;
+  }
+
+  function scheduleDeckDragDraw(movedDeck) {
+    const existingTimer = autoDrawDeckTimers.get(movedDeck.id);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+
+    const timer = setTimeout(() => {
+      autoDrawDeckTimers.delete(movedDeck.id);
+      queueDeckDragDraw(movedDeck);
+    }, autoDrawDeckDelayMs);
+
+    autoDrawDeckTimers.set(movedDeck.id, timer);
+  }
+
+  function queueDeckDragDraw(movedDeck) {
+    autoDrawQueue = autoDrawQueue
+      .catch(() => {})
+      .then(() => drawCardFromDraggedDeck(movedDeck))
+      .catch((error) => {
+        console.warn("Nao consegui comprar carta ao arrastar a pilha", error);
+      });
+  }
+
+  async function restoreDeckPosition(deckId, position) {
+    const [deck] = getDeckItems(await OBR.scene.items.getItems([deckId]));
+
+    if (!deck) {
+      return;
+    }
+
+    await OBR.scene.items.updateItems([deck], (items) => {
+      if (items[0]) {
+        items[0].position = position;
+      }
+    });
+  }
+
+  async function drawCardFromDraggedDeck(movedDeck) {
+    if (autoDrawingDeckIds.has(movedDeck.id)) {
+      return;
+    }
+
+    autoDrawingDeckIds.add(movedDeck.id);
+
+    try {
+      const [deck] = getDeckItems(await OBR.scene.items.getItems([movedDeck.id]));
+
+      if (!deck) {
+        deckPositions.delete(movedDeck.id);
+        return;
+      }
+
+      const dropPosition = { ...deck.position };
+
+      if (distanceBetween(movedDeck.from, dropPosition) <= autoDrawDeckMinDistance) {
+        deckPositions.set(deck.id, dropPosition);
+        return;
+      }
+
+      const metadata = getDeckMetadata(deck);
+      deckPositions.set(deck.id, { ...movedDeck.from });
+
+      if (!metadata.cards.length) {
+        await restoreDeckPosition(deck.id, movedDeck.from);
+        await OBR.notification.show("A pilha esta vazia.", "WARNING");
+        return;
+      }
+
+      await drawFromDecks(OBR, sdk.buildImage, [deck], {
+        drawPositionsByDeckId: new Map([[deck.id, dropPosition]]),
+        deckPositionsById: new Map([[deck.id, movedDeck.from]]),
+      });
+    } finally {
+      setTimeout(() => {
+        autoDrawingDeckIds.delete(movedDeck.id);
+      }, autoDrawDeckCooldownMs);
+    }
+  }
+
   function cardMetadataFilter() {
     return [
       { key: ["metadata", METADATA_KEY], value: undefined, operator: "!=" },
-      { key: ["metadata", LEGACY_METADATA_KEY], value: undefined, operator: "!=" },
     ];
   }
 
   function deckMetadataFilter() {
     return [
       { key: ["metadata", DECK_METADATA_KEY], value: undefined, operator: "!=" },
-      { key: ["metadata", LEGACY_DECK_METADATA_KEY], value: undefined, operator: "!=" },
     ];
   }
 
   OBR.player
     .getSelection()
     .then(async (selection) => {
-      await Promise.all([rememberCardSelection(selection), rememberDeckSelection(selection)]);
+      await Promise.all([
+        rememberCardSelection(selection),
+        rememberDeckSelection(selection),
+        rememberImageSelection(selection),
+      ]);
     })
     .catch((error) => {
-      console.warn("Unable to read initial selection", error);
+      console.warn("Nao consegui ler a selecao inicial", error);
     });
 
   OBR.player.onChange((player) => {
+    activePlayerColor = player.metadata?.[ACTIVE_COLOR_KEY]?.color || activePlayerColor;
     rememberCardSelection(player.selection).catch((error) => {
-      console.warn("Unable to update card selection", error);
+      console.warn("Nao consegui atualizar a selecao de cartas", error);
     });
     rememberDeckSelection(player.selection).catch((error) => {
-      console.warn("Unable to update deck selection", error);
+      console.warn("Nao consegui atualizar a selecao de pilhas", error);
+    });
+    rememberImageSelection(player.selection).catch((error) => {
+      console.warn("Nao consegui atualizar a selecao de imagens", error);
     });
   });
   OBR.scene.items
     .getItems()
-    .then((items) => syncDeckDisplays(OBR, items))
+    .then((items) => {
+      rememberAutoReturnCardPositions(items);
+      rememberDeckPositions(items);
+      return syncDeckDisplays(OBR, items);
+    })
     .catch((error) => {
-      console.warn("Unable to sync deck counters", error);
+      console.warn("Nao consegui sincronizar os contadores das pilhas", error);
     });
   OBR.scene.items.onChange((items) => {
+    for (const cardId of getMovedAutoReturnCardIds(items)) {
+      scheduleAutoReturnCheck(cardId);
+    }
+
+    for (const movedDeck of getMovedDeckDraws(items)) {
+      scheduleDeckDragDraw(movedDeck);
+    }
+
     syncDeckDisplays(OBR, items).catch((error) => {
-      console.warn("Unable to sync changed deck counters", error);
+      console.warn("Nao consegui sincronizar os contadores alterados das pilhas", error);
     });
   });
 
@@ -253,13 +577,12 @@ async function setupContextMenu() {
       ],
       async onClick(context) {
         const count = await returnCardsToDeck(OBR, context.items, lastDeckSelection);
-        await showActionResult(
-          count,
-          "Carta devolvida para a pilha.",
-          (total) => `${total} cartas devolvidas para a pilha.`,
-          "Selecione uma carta e tenha uma pilha alvo selecionada recentemente.",
-          context.items,
-        );
+        if (!count) {
+          await OBR.notification.show(
+            "Selecione uma carta e tenha uma pilha alvo selecionada recentemente.",
+            "WARNING",
+          );
+        }
       },
     });
 
@@ -293,6 +616,7 @@ async function setupContextMenu() {
           label: "Comprar carta",
         },
       ],
+      shortcut: "C",
       async onClick() {
         const anchors = await getAnchorItems(lastDeckSelection);
         const count = await drawSelectedDecks(OBR, sdk.buildImage, lastDeckSelection);
@@ -314,6 +638,7 @@ async function setupContextMenu() {
           label: "Embaralhar pilha",
         },
       ],
+      shortcut: "E",
       async onClick() {
         const anchors = await getAnchorItems(lastDeckSelection);
         const count = await shuffleSelectedDecks(OBR, lastDeckSelection);
@@ -335,6 +660,7 @@ async function setupContextMenu() {
           label: "Devolver para pilha",
         },
       ],
+      shortcut: "R",
       async onClick() {
         const anchors = await getAnchorItems(lastCardSelection);
         const count = await returnSelectedCardsToDeck(
@@ -342,15 +668,15 @@ async function setupContextMenu() {
           lastCardSelection,
           lastDeckSelection,
         );
-        await showActionResult(
-          count,
-          "Carta devolvida para a pilha.",
-          (total) => `${total} cartas devolvidas para a pilha.`,
-          "Selecione uma carta comprada e uma pilha alvo.",
-          anchors,
-        );
+        if (!count) {
+          await OBR.notification.show(
+            "Selecione uma carta comprada e uma pilha alvo.",
+            "WARNING",
+          );
+        }
       },
     });
+
   }
 
   let commandRegistration = Promise.resolve();
@@ -359,35 +685,35 @@ async function setupContextMenu() {
       .catch(() => {})
       .then(() => registerCommands())
       .catch((error) => {
-        console.warn(`Unable to register Double-Sided Cards commands (${reason})`, error);
+        console.warn(`Nao consegui registrar os comandos das Cartas Duplas (${reason})`, error);
       });
 
     return commandRegistration;
   }
 
   OBR.broadcast.onMessage(COMMANDS_CHANNEL, () => {
-    queueCommandRegistration("panel request");
+    queueCommandRegistration("pedido do painel");
   });
 
-  await queueCommandRegistration("initial load");
+  await queueCommandRegistration("carregamento inicial");
 
   for (const delayMs of [250, 1000, 2500, 5000]) {
     window.setTimeout(() => {
-      queueCommandRegistration(`delayed ${delayMs}ms`);
+      queueCommandRegistration(`atraso de ${delayMs}ms`);
     }, delayMs);
   }
 
   window.addEventListener("focus", () => {
-    queueCommandRegistration("window focus");
+    queueCommandRegistration("foco da janela");
   });
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
-      queueCommandRegistration("visibility change");
+      queueCommandRegistration("mudanca de visibilidade");
     }
   });
 }
 
 setupContextMenu().catch((error) => {
-  console.error("Double-Sided Cards background error", error);
+  console.error("Erro no plano de fundo das Cartas Duplas", error);
 });

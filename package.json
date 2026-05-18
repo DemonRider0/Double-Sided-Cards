@@ -1,11 +1,12 @@
 {
-  "name": "double-sided-cards-owlbear",
+  "name": "cartas-duplas-owlbear",
   "version": "0.1.0",
   "author": "DemonRider",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
+    "build:preset-decks": "node scripts/build-preset-decks.mjs",
     "prepare:github-assets": "node scripts/prepare-github-assets.mjs"
   },
   "dependencies": {

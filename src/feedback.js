@@ -24,7 +24,7 @@ async function getFeedbackPosition(OBR, anchorItems) {
         y: bounds.min.y - Math.max(48, bounds.height * 0.12),
       };
     } catch {
-      // Fall back to the viewport center when a selected item was just removed.
+      // Usa o centro da tela quando o item selecionado acabou de ser removido.
     }
   }
 
@@ -105,7 +105,7 @@ export async function showActionFeedback(OBR, buildLabel, message, anchorItems =
     await OBR.scene.local.addItems([label]);
     await animateFeedback(OBR, label, position);
   } catch (error) {
-    console.warn("Unable to show action feedback", error);
+    console.warn("Nao consegui mostrar a animacao da acao", error);
     await OBR.notification.show(message, "SUCCESS").catch(() => {});
   }
 }

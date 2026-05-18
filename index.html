@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Double-Sided Cards</title>
+    <title>Cartas Duplas</title>
     <script type="module" src="./dist/sdk-boot.js?v=33"></script>
     <link rel="stylesheet" href="./src/styles.css" />
   </head>
@@ -34,6 +34,94 @@
           </button>
           <button id="panelRepairButton" class="button button--secondary" type="button" disabled>
             Sincronizar cena
+          </button>
+        </div>
+      </section>
+
+      <section class="form">
+        <h2>Biblioteca</h2>
+        <label class="field">
+          <span>Pilha padrao</span>
+          <select id="presetDeckSelect" disabled></select>
+        </label>
+        <p id="presetDeckInfo" class="field-note"></p>
+        <div class="row">
+          <label class="field">
+            <span>Largura no grid</span>
+            <input id="presetDeckGridWidth" name="presetDeckGridWidth" type="number" min="0.25" max="20" step="0.25" value="2" disabled />
+          </label>
+
+          <label class="field">
+            <span>Camada</span>
+            <select id="presetDeckLayer" disabled>
+              <option value="DRAWING">Drawing</option>
+              <option value="PROP" selected>Prop</option>
+              <option value="MOUNT">Mount</option>
+              <option value="CHARACTER">Character</option>
+              <option value="ATTACHMENT">Attachment</option>
+              <option value="NOTE">Note</option>
+              <option value="TEXT">Text</option>
+            </select>
+          </label>
+        </div>
+        <button id="importPresetDeckButton" class="button button--secondary" type="button" disabled>
+          Criar pilha da biblioteca
+        </button>
+      </section>
+
+      <section class="form">
+        <h2>Selecao de personagem</h2>
+        <label class="field">
+          <span>Cor ativa</span>
+          <select id="activeColorSelect" disabled>
+            <option value="">Escolha uma cor</option>
+          </select>
+        </label>
+        <div class="action-grid">
+          <button class="button button--secondary swatch-button swatch-button--red" type="button" data-token-color="red" disabled>
+            Marcar vermelho
+          </button>
+          <button class="button button--secondary swatch-button swatch-button--white" type="button" data-token-color="white" disabled>
+            Marcar branco
+          </button>
+          <button class="button button--secondary swatch-button swatch-button--green" type="button" data-token-color="green" disabled>
+            Marcar verde
+          </button>
+          <button class="button button--secondary swatch-button swatch-button--blue" type="button" data-token-color="blue" disabled>
+            Marcar azul
+          </button>
+        </div>
+
+        <div class="row">
+          <label class="field">
+            <span>Cor do slot</span>
+            <select id="slotColorSelect" disabled></select>
+          </label>
+
+          <label class="field">
+            <span>Categoria do slot</span>
+            <select id="slotCategorySelect" disabled></select>
+          </label>
+        </div>
+        <button id="saveSlotButton" class="button button--secondary" type="button" disabled>
+          Salvar slot pela carta selecionada
+        </button>
+
+        <div class="action-grid">
+          <button class="button button--secondary" type="button" data-card-category="race" disabled>
+            Marcar como raca
+          </button>
+          <button class="button button--secondary" type="button" data-card-category="class" disabled>
+            Marcar como classe
+          </button>
+          <button class="button button--secondary" type="button" data-card-category="divinity" disabled>
+            Marcar como divindade
+          </button>
+        </div>
+
+        <div class="action-grid">
+          <button id="returnOriginButton" class="button button--secondary" type="button" disabled>
+            Devolver origem
           </button>
         </div>
       </section>
@@ -80,9 +168,13 @@
           <label class="field">
             <span>Camada</span>
             <select id="layer" name="layer">
-              <option value="PROP" selected>Mesa</option>
-              <option value="CHARACTER">Personagem</option>
-              <option value="ATTACHMENT">Anexo</option>
+              <option value="DRAWING">Drawing</option>
+              <option value="PROP" selected>Prop</option>
+              <option value="MOUNT">Mount</option>
+              <option value="CHARACTER">Character</option>
+              <option value="ATTACHMENT">Attachment</option>
+              <option value="NOTE">Note</option>
+              <option value="TEXT">Text</option>
             </select>
           </label>
         </div>
@@ -150,9 +242,13 @@
           <label class="field">
             <span>Camada</span>
             <select id="deckLayer" name="deckLayer">
-              <option value="PROP" selected>Mesa</option>
-              <option value="CHARACTER">Personagem</option>
-              <option value="ATTACHMENT">Anexo</option>
+              <option value="DRAWING">Drawing</option>
+              <option value="PROP" selected>Prop</option>
+              <option value="MOUNT">Mount</option>
+              <option value="CHARACTER">Character</option>
+              <option value="ATTACHMENT">Attachment</option>
+              <option value="NOTE">Note</option>
+              <option value="TEXT">Text</option>
             </select>
           </label>
         </div>
@@ -183,6 +279,19 @@
         <button id="migratePublicButton" class="button button--secondary" type="button" disabled>
           Migrar links locais da cena
         </button>
+      </section>
+
+      <section class="form">
+        <h2>Tabuleiro padrÃ£o</h2>
+        <p id="defaultBoardInfo" class="field-note">Nenhum tabuleiro padrao criado no localhost.</p>
+        <div class="action-grid">
+          <button id="createDefaultBoardButton" class="button button--secondary" type="button" disabled>
+            Criar tabuleiro padrão
+          </button>
+          <button id="restoreDefaultBoardButton" class="button button--secondary" type="button" disabled>
+            Restaurar tabuleiro padrão
+          </button>
+        </div>
       </section>
 
       <p id="message" class="message" role="status" aria-live="polite"></p>

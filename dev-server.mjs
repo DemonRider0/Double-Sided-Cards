@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 const port = Number.parseInt(process.argv[2] ?? "5173", 10);
 const localAssetsDir = path.join(root, ".local-assets");
+const scenePresetPath = path.join(root, "assets", "scene-preset.json");
 
 const contentTypes = new Map([
   [".css", "text/css; charset=utf-8"],
@@ -91,7 +92,7 @@ async function readRequestBody(request) {
 async function handleLocalAssetUpload(request, requestUrl, response) {
   if (request.method !== "POST") {
     response.writeHead(405, getCorsHeaders(request));
-    response.end("Method not allowed");
+    response.end("Metodo nao permitido");
     return;
   }
 
@@ -121,26 +122,26 @@ async function handleRemoteAssetCache(request, requestUrl, response) {
 
   if (!remoteUrl) {
     response.writeHead(400, getCorsHeaders(request));
-    response.end("Missing url");
+    response.end("URL ausente");
     return;
   }
 
   const remoteResponse = await fetch(remoteUrl, {
     headers: {
-      "User-Agent": "Mozilla/5.0 Double-Sided-Cards-Dev-Server",
+      "User-Agent": "Mozilla/5.0 Cartas-Duplas-Servidor-Local",
     },
   });
 
   if (!remoteResponse.ok) {
     response.writeHead(502, getCorsHeaders(request));
-    response.end("Remote image unavailable");
+    response.end("Imagem remota indisponivel");
     return;
   }
 
   const mime = remoteResponse.headers.get("content-type")?.split(";")[0] || "image/png";
   if (!mime.startsWith("image/")) {
     response.writeHead(415, getCorsHeaders(request));
-    response.end("Remote URL is not an image");
+    response.end("A URL remota nao e uma imagem");
     return;
   }
 
@@ -164,6 +165,50 @@ async function handleRemoteAssetCache(request, requestUrl, response) {
   response.end(JSON.stringify({ url: assetUrl }));
 }
 
+function isScenePreset(value) {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      value.version === 1 &&
+      Array.isArray(value.items) &&
+      value.metadata &&
+      typeof value.metadata === "object",
+  );
+}
+
+async function handleScenePresetSave(request, response) {
+  if (request.method !== "POST") {
+    response.writeHead(405, getCorsHeaders(request));
+    response.end("Metodo nao permitido");
+    return;
+  }
+
+  const body = await readRequestBody(request);
+  const preset = JSON.parse(body.toString("utf8"));
+
+  if (!isScenePreset(preset)) {
+    response.writeHead(400, getCorsHeaders(request));
+    response.end("Tabuleiro padrao invalido");
+    return;
+  }
+
+  await mkdir(path.dirname(scenePresetPath), { recursive: true });
+  await writeFile(scenePresetPath, `${JSON.stringify(preset, null, 2)}\n`, "utf8");
+
+  response.writeHead(200, {
+    ...getCorsHeaders(request),
+    "Cache-Control": "no-store",
+    "Content-Type": "application/json; charset=utf-8",
+  });
+  response.end(
+    JSON.stringify({
+      itemCount: preset.items.length,
+      savedAt: preset.savedAt,
+      url: "/assets/scene-preset.json",
+    }),
+  );
+}
+
 const server = createServer(async (request, response) => {
   try {
     if (request.method === "OPTIONS") {
@@ -184,11 +229,16 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    if (requestUrl.pathname === "/__scene_preset") {
+      await handleScenePresetSave(request, response);
+      return;
+    }
+
     const filePath = resolveRequestPath(requestUrl.pathname);
 
     if (!filePath) {
       response.writeHead(403, getCorsHeaders(request));
-      response.end("Forbidden");
+      response.end("Acesso negado");
       return;
     }
 
@@ -206,7 +256,7 @@ const server = createServer(async (request, response) => {
       ...getCorsHeaders(request),
       "Content-Type": "text/plain; charset=utf-8",
     });
-    response.end("Not found");
+    response.end("Nao encontrado");
   }
 });
 
@@ -221,15 +271,15 @@ async function resolveServedPath(filePath) {
           await readFile(candidate);
           return candidate;
         } catch {
-          // Try the next browser-style module resolution fallback.
+          // Tenta a proxima opcao de resolucao de modulo para navegador.
         }
       }
     }
 
-    throw new Error("Not found");
+    throw new Error("Nao encontrado");
   }
 }
 
 server.listen(port, () => {
-  console.log(`Double-Sided Cards dev server: http://localhost:${port}/manifest.json`);
+  console.log(`Servidor local de Cartas Duplas: http://localhost:${port}/manifest.json`);
 });

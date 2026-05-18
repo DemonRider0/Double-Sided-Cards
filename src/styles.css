@@ -207,6 +207,39 @@ figcaption {
   background: rgba(14, 124, 134, 0.12);
 }
 
+.swatch-button {
+  position: relative;
+  padding-left: 28px;
+}
+
+.swatch-button::before {
+  position: absolute;
+  top: 50%;
+  left: 10px;
+  width: 12px;
+  height: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  border-radius: 999px;
+  content: "";
+  transform: translateY(-50%);
+}
+
+.swatch-button--red::before {
+  background: #d93030;
+}
+
+.swatch-button--white::before {
+  background: #f7f3e7;
+}
+
+.swatch-button--green::before {
+  background: #2f8a45;
+}
+
+.swatch-button--blue::before {
+  background: #2477d9;
+}
+
 .button:disabled {
   cursor: not-allowed;
   opacity: 0.5;

@@ -2,3 +2,4 @@ node_modules/
 .npm-cache/
 .local-assets/
 *.log
+*.bak

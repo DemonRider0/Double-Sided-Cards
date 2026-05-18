@@ -1,13 +1,6 @@
 export const EXTENSION_ID = "br.demonrider.double-sided-cards";
-export const LEGACY_EXTENSION_ID = [
-  "br",
-  String.fromCharCode(99, 111, 100, 101, 120),
-  "double-sided-cards",
-].join(".");
 export const METADATA_KEY = `${EXTENSION_ID}/card`;
 export const DECK_METADATA_KEY = `${EXTENSION_ID}/deck`;
-export const LEGACY_METADATA_KEY = `${LEGACY_EXTENSION_ID}/card`;
-export const LEGACY_DECK_METADATA_KEY = `${LEGACY_EXTENSION_ID}/deck`;
 export const COMMANDS_CHANNEL = `${EXTENSION_ID}/commands`;
 
 export function isCardMetadata(value) {
@@ -37,47 +30,33 @@ export function isDeckMetadata(value) {
 
 export function getCardMetadata(item) {
   const metadata = item.metadata?.[METADATA_KEY];
-  if (isCardMetadata(metadata)) {
-    return metadata;
-  }
-
-  const legacyMetadata = item.metadata?.[LEGACY_METADATA_KEY];
-  return isCardMetadata(legacyMetadata) ? legacyMetadata : null;
+  return isCardMetadata(metadata) ? metadata : null;
 }
 
 export function getDeckMetadata(item) {
   const metadata = item.metadata?.[DECK_METADATA_KEY];
-  if (isDeckMetadata(metadata)) {
-    return metadata;
-  }
-
-  const legacyMetadata = item.metadata?.[LEGACY_DECK_METADATA_KEY];
-  return isDeckMetadata(legacyMetadata) ? legacyMetadata : null;
+  return isDeckMetadata(metadata) ? metadata : null;
 }
 
 export function setCardMetadata(item, metadata) {
   item.metadata ||= {};
   item.metadata[METADATA_KEY] = metadata;
-  item.metadata[LEGACY_METADATA_KEY] = metadata;
 }
 
 export function setDeckMetadata(item, metadata) {
   item.metadata ||= {};
   item.metadata[DECK_METADATA_KEY] = metadata;
-  item.metadata[LEGACY_DECK_METADATA_KEY] = metadata;
 }
 
 export function createCardMetadataMap(metadata) {
   return {
     [METADATA_KEY]: metadata,
-    [LEGACY_METADATA_KEY]: metadata,
   };
 }
 
 export function createDeckMetadataMap(metadata) {
   return {
     [DECK_METADATA_KEY]: metadata,
-    [LEGACY_DECK_METADATA_KEY]: metadata,
   };
 }
 

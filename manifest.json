@@ -1,12 +1,12 @@
 {
-  "name": "Double-Sided Cards",
-  "version": "0.2.15",
+  "name": "Cartas Duplas",
+  "version": "0.2.33",
   "manifest_version": 1,
   "author": "DemonRider",
   "icon": "/Double-Sided-Cards/icons/card.svg",
-  "description": "Import two-sided cards and flip them in Owlbear Rodeo.",
+  "description": "Importa cartas com frente e verso e permite vira-las no Owlbear Rodeo.",
   "action": {
-    "title": "Cards",
+    "title": "Cartas",
     "icon": "/Double-Sided-Cards/icons/card.svg",
     "popover": "/Double-Sided-Cards/index.html",
     "height": 680,

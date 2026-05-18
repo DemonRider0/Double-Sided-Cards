@@ -1,0 +1,468 @@
+{
+  "version": 1,
+  "decks": [
+    {
+      "id": "elite",
+      "name": "Ameacas Elite",
+      "gridWidth": 4.5,
+      "layer": "PROP",
+      "back": "assets/preset-decks/elite/Verso.png",
+      "cards": [
+        {
+          "name": "Burodron",
+          "front": "assets/preset-decks/elite/Burodron.png"
+        },
+        {
+          "name": "Hurobak",
+          "front": "assets/preset-decks/elite/Hurobak.png"
+        },
+        {
+          "name": "Morgadrel",
+          "front": "assets/preset-decks/elite/Morgadrel.png"
+        },
+        {
+          "name": "Senhor do Senhor Rubro",
+          "front": "assets/preset-decks/elite/Senhor do Senhor Rubro.png"
+        },
+        {
+          "name": "Veridak",
+          "front": "assets/preset-decks/elite/Veridak.png"
+        }
+      ]
+    },
+    {
+      "id": "armas",
+      "name": "Armas",
+      "gridWidth": 2.25,
+      "layer": "PROP",
+      "back": "assets/preset-decks/armas/Verso.png",
+      "cards": [
+        {
+          "name": "Carta 1",
+          "front": "assets/preset-decks/armas/Carta 1.png"
+        },
+        {
+          "name": "Carta 2",
+          "front": "assets/preset-decks/armas/Carta 2.png"
+        },
+        {
+          "name": "Carta 3",
+          "front": "assets/preset-decks/armas/Carta 3.png"
+        },
+        {
+          "name": "Carta 4",
+          "front": "assets/preset-decks/armas/Carta 4.png"
+        },
+        {
+          "name": "Carta 5",
+          "front": "assets/preset-decks/armas/Carta 5.png"
+        },
+        {
+          "name": "Carta 6",
+          "front": "assets/preset-decks/armas/Carta 6.png"
+        },
+        {
+          "name": "Carta 7",
+          "front": "assets/preset-decks/armas/Carta 7.png"
+        },
+        {
+          "name": "Carta 8",
+          "front": "assets/preset-decks/armas/Carta 8.png"
+        },
+        {
+          "name": "Carta 9",
+          "front": "assets/preset-decks/armas/Carta 9.png"
+        },
+        {
+          "name": "Carta 10",
+          "front": "assets/preset-decks/armas/Carta 10.png"
+        },
+        {
+          "name": "Carta 11",
+          "front": "assets/preset-decks/armas/Carta 11.png"
+        },
+        {
+          "name": "Carta 12",
+          "front": "assets/preset-decks/armas/Carta 12.png"
+        },
+        {
+          "name": "Carta 13",
+          "front": "assets/preset-decks/armas/Carta 13.png"
+        },
+        {
+          "name": "Carta 14",
+          "front": "assets/preset-decks/armas/Carta 14.png"
+        },
+        {
+          "name": "Carta 15",
+          "front": "assets/preset-decks/armas/Carta 15.png"
+        },
+        {
+          "name": "Carta 16",
+          "front": "assets/preset-decks/armas/Carta 16.png"
+        },
+        {
+          "name": "Carta 17",
+          "front": "assets/preset-decks/armas/Carta 17.png"
+        },
+        {
+          "name": "Carta 18",
+          "front": "assets/preset-decks/armas/Carta 18.png"
+        },
+        {
+          "name": "Carta 19",
+          "front": "assets/preset-decks/armas/Carta 19.png"
+        },
+        {
+          "name": "Carta 20",
+          "front": "assets/preset-decks/armas/Carta 20.png"
+        },
+        {
+          "name": "Carta 21",
+          "front": "assets/preset-decks/armas/Carta 21.png"
+        },
+        {
+          "name": "Carta 22",
+          "front": "assets/preset-decks/armas/Carta 22.png"
+        },
+        {
+          "name": "Carta 23",
+          "front": "assets/preset-decks/armas/Carta 23.png"
+        },
+        {
+          "name": "Carta 24",
+          "front": "assets/preset-decks/armas/Carta 24.png"
+        }
+      ]
+    },
+    {
+      "id": "salas",
+      "name": "Salas",
+      "gridWidth": 1.5,
+      "layer": "PROP",
+      "back": "assets/preset-decks/salas/Verso.png",
+      "cards": [
+        {
+          "name": "Carta 1",
+          "front": "assets/preset-decks/salas/Carta 1.png"
+        },
+        {
+          "name": "Carta 2",
+          "front": "assets/preset-decks/salas/Carta 2.png"
+        },
+        {
+          "name": "Carta 3",
+          "front": "assets/preset-decks/salas/Carta 3.png"
+        },
+        {
+          "name": "Carta 4",
+          "front": "assets/preset-decks/salas/Carta 4.png"
+        },
+        {
+          "name": "Carta 5",
+          "front": "assets/preset-decks/salas/Carta 5.png"
+        },
+        {
+          "name": "Carta 6",
+          "front": "assets/preset-decks/salas/Carta 6.png"
+        },
+        {
+          "name": "Carta 7",
+          "front": "assets/preset-decks/salas/Carta 7.png"
+        },
+        {
+          "name": "Carta 8",
+          "front": "assets/preset-decks/salas/Carta 8.png"
+        },
+        {
+          "name": "Carta 9",
+          "front": "assets/preset-decks/salas/Carta 9.png"
+        },
+        {
+          "name": "Carta 10",
+          "front": "assets/preset-decks/salas/Carta 10.png"
+        },
+        {
+          "name": "Carta 11",
+          "front": "assets/preset-decks/salas/Carta 11.png"
+        },
+        {
+          "name": "Carta 12",
+          "front": "assets/preset-decks/salas/Carta 12.png"
+        },
+        {
+          "name": "Carta 13",
+          "front": "assets/preset-decks/salas/Carta 13.png"
+        },
+        {
+          "name": "Carta 14",
+          "front": "assets/preset-decks/salas/Carta 14.png"
+        },
+        {
+          "name": "Carta 15",
+          "front": "assets/preset-decks/salas/Carta 15.png"
+        },
+        {
+          "name": "Carta 16",
+          "front": "assets/preset-decks/salas/Carta 16.png"
+        },
+        {
+          "name": "Carta 17",
+          "front": "assets/preset-decks/salas/Carta 17.png"
+        },
+        {
+          "name": "Carta 18",
+          "front": "assets/preset-decks/salas/Carta 18.png"
+        }
+      ]
+    },
+    {
+      "id": "tormenta-nivel-1",
+      "name": "Poderes da Tormenta Nivel 1",
+      "gridWidth": 2,
+      "layer": "PROP",
+      "back": "assets/preset-decks/tormenta-nivel-1/Verso.png",
+      "cards": [
+        {
+          "name": "Carta 1",
+          "front": "assets/preset-decks/tormenta-nivel-1/Carta 1.png"
+        },
+        {
+          "name": "Carta 2",
+          "front": "assets/preset-decks/tormenta-nivel-1/Carta 2.png"
+        },
+        {
+          "name": "Carta 3",
+          "front": "assets/preset-decks/tormenta-nivel-1/Carta 3.png"
+        },
+        {
+          "name": "Carta 4",
+          "front": "assets/preset-decks/tormenta-nivel-1/Carta 4.png"
+        },
+        {
+          "name": "Carta 5",
+          "front": "assets/preset-decks/tormenta-nivel-1/Carta 5.png"
+        },
+        {
+          "name": "Carta 6",
+          "front": "assets/preset-decks/tormenta-nivel-1/Carta 6.png"
+        },
+        {
+          "name": "Carta 7",
+          "front": "assets/preset-decks/tormenta-nivel-1/Carta 7.png"
+        },
+        {
+          "name": "Carta 8",
+          "front": "assets/preset-decks/tormenta-nivel-1/Carta 8.png"
+        },
+        {
+          "name": "Carta 9",
+          "front": "assets/preset-decks/tormenta-nivel-1/Carta 9.png"
+        },
+        {
+          "name": "Carta 10",
+          "front": "assets/preset-decks/tormenta-nivel-1/Carta 10.png"
+        },
+        {
+          "name": "Carta 11",
+          "front": "assets/preset-decks/tormenta-nivel-1/Carta 11.png"
+        },
+        {
+          "name": "Carta 12",
+          "front": "assets/preset-decks/tormenta-nivel-1/Carta 12.png"
+        },
+        {
+          "name": "Carta 13",
+          "front": "assets/preset-decks/tormenta-nivel-1/Carta 13.png"
+        },
+        {
+          "name": "Carta 14",
+          "front": "assets/preset-decks/tormenta-nivel-1/Carta 14.png"
+        },
+        {
+          "name": "Carta 15",
+          "front": "assets/preset-decks/tormenta-nivel-1/Carta 15.png"
+        }
+      ]
+    },
+    {
+      "id": "tormenta-nivel-2",
+      "name": "Poderes da Tormenta Nivel 2",
+      "gridWidth": 2,
+      "layer": "PROP",
+      "back": "assets/preset-decks/tormenta-nivel-2/Verso.png",
+      "cards": [
+        {
+          "name": "Carta 1",
+          "front": "assets/preset-decks/tormenta-nivel-2/Carta 1.png"
+        },
+        {
+          "name": "Carta 2",
+          "front": "assets/preset-decks/tormenta-nivel-2/Carta 2.png"
+        },
+        {
+          "name": "Carta 3",
+          "front": "assets/preset-decks/tormenta-nivel-2/Carta 3.png"
+        },
+        {
+          "name": "Carta 4",
+          "front": "assets/preset-decks/tormenta-nivel-2/Carta 4.png"
+        },
+        {
+          "name": "Carta 5",
+          "front": "assets/preset-decks/tormenta-nivel-2/Carta 5.png"
+        },
+        {
+          "name": "Carta 6",
+          "front": "assets/preset-decks/tormenta-nivel-2/Carta 6.png"
+        },
+        {
+          "name": "Carta 7",
+          "front": "assets/preset-decks/tormenta-nivel-2/Carta 7.png"
+        },
+        {
+          "name": "Carta 8",
+          "front": "assets/preset-decks/tormenta-nivel-2/Carta 8.png"
+        },
+        {
+          "name": "Carta 9",
+          "front": "assets/preset-decks/tormenta-nivel-2/Carta 9.png"
+        },
+        {
+          "name": "Carta 10",
+          "front": "assets/preset-decks/tormenta-nivel-2/Carta 10.png"
+        },
+        {
+          "name": "Carta 11",
+          "front": "assets/preset-decks/tormenta-nivel-2/Carta 11.png"
+        },
+        {
+          "name": "Carta 12",
+          "front": "assets/preset-decks/tormenta-nivel-2/Carta 12.png"
+        },
+        {
+          "name": "Carta 13",
+          "front": "assets/preset-decks/tormenta-nivel-2/Carta 13.png"
+        },
+        {
+          "name": "Carta 14",
+          "front": "assets/preset-decks/tormenta-nivel-2/Carta 14.png"
+        },
+        {
+          "name": "Carta 15",
+          "front": "assets/preset-decks/tormenta-nivel-2/Carta 15.png"
+        }
+      ]
+    },
+    {
+      "id": "tormenta-nivel-3",
+      "name": "Poderes da Tormenta Nivel 3",
+      "gridWidth": 2,
+      "layer": "PROP",
+      "back": "assets/preset-decks/tormenta-nivel-3/Verso.png",
+      "cards": [
+        {
+          "name": "Carta 1",
+          "front": "assets/preset-decks/tormenta-nivel-3/Carta 1.png"
+        },
+        {
+          "name": "Carta 2",
+          "front": "assets/preset-decks/tormenta-nivel-3/Carta 2.png"
+        },
+        {
+          "name": "Carta 3",
+          "front": "assets/preset-decks/tormenta-nivel-3/Carta 3.png"
+        },
+        {
+          "name": "Carta 4",
+          "front": "assets/preset-decks/tormenta-nivel-3/Carta 4.png"
+        },
+        {
+          "name": "Carta 5",
+          "front": "assets/preset-decks/tormenta-nivel-3/Carta 5.png"
+        },
+        {
+          "name": "Carta 6",
+          "front": "assets/preset-decks/tormenta-nivel-3/Carta 6.png"
+        },
+        {
+          "name": "Carta 7",
+          "front": "assets/preset-decks/tormenta-nivel-3/Carta 7.png"
+        },
+        {
+          "name": "Carta 8",
+          "front": "assets/preset-decks/tormenta-nivel-3/Carta 8.png"
+        },
+        {
+          "name": "Carta 9",
+          "front": "assets/preset-decks/tormenta-nivel-3/Carta 9.png"
+        },
+        {
+          "name": "Carta 10",
+          "front": "assets/preset-decks/tormenta-nivel-3/Carta 10.png"
+        },
+        {
+          "name": "Carta 11",
+          "front": "assets/preset-decks/tormenta-nivel-3/Carta 11.png"
+        },
+        {
+          "name": "Carta 12",
+          "front": "assets/preset-decks/tormenta-nivel-3/Carta 12.png"
+        },
+        {
+          "name": "Carta 13",
+          "front": "assets/preset-decks/tormenta-nivel-3/Carta 13.png"
+        },
+        {
+          "name": "Carta 14",
+          "front": "assets/preset-decks/tormenta-nivel-3/Carta 14.png"
+        },
+        {
+          "name": "Carta 15",
+          "front": "assets/preset-decks/tormenta-nivel-3/Carta 15.png"
+        }
+      ]
+    },
+    {
+      "id": "eventos",
+      "name": "Eventos",
+      "gridWidth": 2.25,
+      "layer": "PROP",
+      "back": "assets/preset-decks/eventos/Verso.png",
+      "cards": [
+        {
+          "name": "Carta 1",
+          "front": "assets/preset-decks/eventos/Carta 1.png"
+        },
+        {
+          "name": "Carta 2",
+          "front": "assets/preset-decks/eventos/Carta 2.png"
+        },
+        {
+          "name": "Carta 3",
+          "front": "assets/preset-decks/eventos/Carta 3.png"
+        },
+        {
+          "name": "Carta 4",
+          "front": "assets/preset-decks/eventos/Carta 4.png"
+        },
+        {
+          "name": "Carta 5",
+          "front": "assets/preset-decks/eventos/Carta 5.png"
+        },
+        {
+          "name": "Carta 6",
+          "front": "assets/preset-decks/eventos/Carta 6.png"
+        },
+        {
+          "name": "Carta 7",
+          "front": "assets/preset-decks/eventos/Carta 7.png"
+        },
+        {
+          "name": "Carta 8",
+          "front": "assets/preset-decks/eventos/Carta 8.png"
+        }
+      ]
+    }
+  ]
+}
