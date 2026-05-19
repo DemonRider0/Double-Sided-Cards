@@ -4273,8 +4273,12 @@ async function createToolAction(OBR, action) {
 
 async function setupContextMenu() {
   const { OBR, sdk } = await loadOwlbearSdk(20000);
+  const autoDrawClientId = await OBR.player
+    .getId()
+    .catch(() => `cliente-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   let lastCardSelection = [];
   let lastDeckSelection = [];
+  let currentSelectionIds = new Set();
   let activePlayerColor = null;
   const autoReturnPositions = new Map();
   const autoReturnTimers = new Map();
@@ -4282,11 +4286,17 @@ async function setupContextMenu() {
   let autoReturnQueue = Promise.resolve();
   const deckPositions = new Map();
   const autoDrawDeckTimers = new Map();
+  const autoDrawPendingDeckIds = new Set();
   const autoDrawingDeckIds = new Set();
   let autoDrawQueue = Promise.resolve();
   const autoDrawDeckDelayMs = 90;
   const autoDrawDeckCooldownMs = 120;
   const autoDrawDeckMinDistance = 84;
+  const autoDrawDeckLockMs = 1000;
+  const autoDrawDeckLockSettleMs = 45;
+  function rememberCurrentSelection(selection) {
+    currentSelectionIds = new Set(Array.isArray(selection) ? selection : []);
+  }
 
   async function rememberCardSelection(selection) {
     if (!selection?.length) {
@@ -4400,6 +4410,60 @@ async function setupContextMenu() {
 
   function distanceBetween(left, right) {
     return Math.hypot(left.x - right.x, left.y - right.y);
+  }
+  function wait(delayMs) {
+    return new Promise((resolve) => {
+      setTimeout(resolve, delayMs);
+    });
+  }
+  function isActiveAutoDrawLock(lock) {
+    return Boolean(
+      lock &&
+        typeof lock === "object" &&
+        typeof lock.expiresAt === "number" &&
+        lock.expiresAt > Date.now()
+    );
+  }
+  async function acquireDeckDragDrawLock(deck) {
+    const lock = {
+      id: `${autoDrawClientId}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+      owner: autoDrawClientId,
+      expiresAt: Date.now() + autoDrawDeckLockMs,
+    };
+    let lockWasWritten = false;
+
+    await OBR.scene.items.updateItems([deck], (items) => {
+      const item = items[0];
+      const metadata = item ? getDeckMetadata(item) : null;
+
+      if (!metadata) {
+        return;
+      }
+
+      if (
+        isActiveAutoDrawLock(metadata.autoDrawLock) &&
+        metadata.autoDrawLock.owner !== autoDrawClientId
+      ) {
+        return;
+      }
+
+      setDeckMetadata(item, {
+        ...metadata,
+        autoDrawLock: lock,
+      });
+      lockWasWritten = true;
+    });
+
+    if (!lockWasWritten) {
+      return null;
+    }
+
+    await wait(autoDrawDeckLockSettleMs);
+
+    const [lockedDeck] = getDeckItems(await OBR.scene.items.getItems([deck.id]));
+    const metadata = lockedDeck ? getDeckMetadata(lockedDeck) : null;
+
+    return metadata?.autoDrawLock?.id === lock.id ? lockedDeck : null;
   }
 
   function rememberAutoReturnCardPositions(items) {
@@ -4517,7 +4581,12 @@ async function setupContextMenu() {
         continue;
       }
 
-      if (autoDrawingDeckIds.has(deck.id)) {
+      if (!currentSelectionIds.has(deck.id)) {
+        deckPositions.set(deck.id, currentPosition);
+        continue;
+      }
+
+      if (autoDrawPendingDeckIds.has(deck.id) || autoDrawingDeckIds.has(deck.id)) {
         deckPositions.set(deck.id, currentPosition);
         continue;
       }
@@ -4537,6 +4606,12 @@ async function setupContextMenu() {
   }
 
   function scheduleDeckDragDraw(movedDeck) {
+    if (autoDrawPendingDeckIds.has(movedDeck.id) || autoDrawingDeckIds.has(movedDeck.id)) {
+      return;
+    }
+
+    autoDrawPendingDeckIds.add(movedDeck.id);
+
     const existingTimer = autoDrawDeckTimers.get(movedDeck.id);
     if (existingTimer) {
       clearTimeout(existingTimer);
@@ -4575,9 +4650,11 @@ async function setupContextMenu() {
 
   async function drawCardFromDraggedDeck(movedDeck) {
     if (autoDrawingDeckIds.has(movedDeck.id)) {
+      autoDrawPendingDeckIds.delete(movedDeck.id);
       return;
     }
 
+    autoDrawPendingDeckIds.delete(movedDeck.id);
     autoDrawingDeckIds.add(movedDeck.id);
 
     try {
@@ -4595,18 +4672,26 @@ async function setupContextMenu() {
         return;
       }
 
-      const metadata = getDeckMetadata(deck);
-      deckPositions.set(deck.id, { ...movedDeck.from });
+      const lockedDeck = await acquireDeckDragDrawLock(deck);
+
+      if (!lockedDeck) {
+        deckPositions.set(deck.id, { ...movedDeck.from });
+        await restoreDeckPosition(deck.id, movedDeck.from);
+        return;
+      }
+
+      const metadata = getDeckMetadata(lockedDeck);
+      deckPositions.set(lockedDeck.id, { ...movedDeck.from });
 
       if (!metadata.cards.length) {
-        await restoreDeckPosition(deck.id, movedDeck.from);
+        await restoreDeckPosition(lockedDeck.id, movedDeck.from);
         await OBR.notification.show("A pilha esta vazia.", "WARNING");
         return;
       }
 
-      await drawFromDecks(OBR, sdk.buildImage, [deck], {
-        drawPositionsByDeckId: new Map([[deck.id, dropPosition]]),
-        deckPositionsById: new Map([[deck.id, movedDeck.from]]),
+      await drawFromDecks(OBR, sdk.buildImage, [lockedDeck], {
+        drawPositionsByDeckId: new Map([[lockedDeck.id, dropPosition]]),
+        deckPositionsById: new Map([[lockedDeck.id, movedDeck.from]]),
       });
     } finally {
       setTimeout(() => {
@@ -4630,6 +4715,7 @@ async function setupContextMenu() {
   OBR.player
     .getSelection()
     .then(async (selection) => {
+      rememberCurrentSelection(selection);
       await Promise.all([
         rememberCardSelection(selection),
         rememberDeckSelection(selection),
@@ -4641,6 +4727,7 @@ async function setupContextMenu() {
     });
 
   OBR.player.onChange((player) => {
+    rememberCurrentSelection(player.selection);
     activePlayerColor = player.metadata?.[ACTIVE_COLOR_KEY]?.color || activePlayerColor;
     rememberCardSelection(player.selection).catch((error) => {
       console.warn("Nao consegui atualizar a selecao de cartas", error);
