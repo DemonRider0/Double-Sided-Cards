@@ -4273,6 +4273,9 @@ async function createToolAction(OBR, action) {
 
 async function setupContextMenu() {
   const { OBR, sdk } = await loadOwlbearSdk(20000);
+  const playerId = await OBR.player
+    .getId()
+    .catch(() => `jogador-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   let lastCardSelection = [];
   let lastDeckSelection = [];
   let activePlayerColor = null;
@@ -4280,6 +4283,15 @@ async function setupContextMenu() {
   const autoReturnTimers = new Map();
   const autoReturningCardIds = new Set();
   let autoReturnQueue = Promise.resolve();
+  const deckOrigins = new Map();
+  const deckDragRequests = new Map();
+  const deckDrawInFlight = new Set();
+  let deckDrawQueue = Promise.resolve();
+  const deckDragMinDistance = 84;
+  const deckDragSettleMs = 220;
+  const deckDrawCooldownMs = 900;
+  const deckDragLockMs = 1400;
+  const deckDragLockSettleMs = 90;
 
   async function rememberCardSelection(selection) {
     if (!selection?.length) {
@@ -4388,7 +4400,17 @@ async function setupContextMenu() {
       return false;
     }
 
-    return Math.hypot(current.x - previous.x, current.y - previous.y) > 1;
+    return distanceBetween(previous, current) > 1;
+  }
+
+  function distanceBetween(left, right) {
+    return Math.hypot(left.x - right.x, left.y - right.y);
+  }
+
+  function wait(delayMs) {
+    return new Promise((resolve) => {
+      setTimeout(resolve, delayMs);
+    });
   }
 
   function rememberAutoReturnCardPositions(items) {
@@ -4422,6 +4444,202 @@ async function setupContextMenu() {
     }
 
     return movedCardIds;
+  }
+
+  function rememberDeckOrigins(items) {
+    for (const deck of getDeckItems(items)) {
+      if (!deckOrigins.has(deck.id)) {
+        deckOrigins.set(deck.id, { ...deck.position });
+      }
+    }
+  }
+
+  function isActiveDeckDragLock(lock) {
+    return Boolean(
+      lock &&
+        typeof lock === "object" &&
+        typeof lock.expiresAt === "number" &&
+        lock.expiresAt > Date.now()
+    );
+  }
+
+  function isDeckLockedForDragDraw(metadata) {
+    return (
+      isActiveDeckDragLock(metadata.dragDrawLock) ||
+      isActiveDeckDragLock(metadata.autoDrawLock)
+    );
+  }
+
+  async function acquireDeckDragLock(deck) {
+    const [currentDeck] = getDeckItems(await OBR.scene.items.getItems([deck.id]));
+
+    if (!currentDeck) {
+      return null;
+    }
+
+    const lock = {
+      id: `${playerId}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+      owner: playerId,
+      expiresAt: Date.now() + deckDragLockMs,
+    };
+    let lockWasWritten = false;
+
+    await OBR.scene.items.updateItems([currentDeck], (items) => {
+      const item = items[0];
+      const metadata = item ? getDeckMetadata(item) : null;
+
+      if (!metadata || !metadata.cards.length || isDeckLockedForDragDraw(metadata)) {
+        return;
+      }
+
+      setDeckMetadata(item, {
+        ...metadata,
+        dragDrawLock: lock,
+      });
+      lockWasWritten = true;
+    });
+
+    if (!lockWasWritten) {
+      return null;
+    }
+
+    await wait(deckDragLockSettleMs);
+
+    const [lockedDeck] = getDeckItems(await OBR.scene.items.getItems([deck.id]));
+    const metadata = lockedDeck ? getDeckMetadata(lockedDeck) : null;
+
+    return metadata?.dragDrawLock?.id === lock.id ? lockedDeck : null;
+  }
+
+  function getMovedDeckDrawRequests(items) {
+    const requests = [];
+
+    for (const deck of getDeckItems(items)) {
+      if (!deckOrigins.has(deck.id)) {
+        deckOrigins.set(deck.id, { ...deck.position });
+        continue;
+      }
+
+      if (deck.lastModifiedUserId !== playerId || deckDrawInFlight.has(deck.id)) {
+        continue;
+      }
+
+      const origin = deckOrigins.get(deck.id);
+      const currentPosition = { ...deck.position };
+
+      if (distanceBetween(origin, currentPosition) <= deckDragMinDistance) {
+        continue;
+      }
+
+      requests.push({
+        id: deck.id,
+        from: { ...origin },
+        to: currentPosition,
+      });
+    }
+
+    return requests;
+  }
+
+  function scheduleDeckDragDraw(request) {
+    const existingRequest = deckDragRequests.get(request.id);
+
+    if (existingRequest?.timer) {
+      clearTimeout(existingRequest.timer);
+    }
+
+    const nextRequest = {
+      id: request.id,
+      from: existingRequest?.from || request.from,
+      to: request.to,
+    };
+
+    const timer = setTimeout(() => {
+      deckDragRequests.delete(request.id);
+      queueDeckDragDraw(nextRequest);
+    }, deckDragSettleMs);
+
+    deckDragRequests.set(request.id, {
+      ...nextRequest,
+      timer,
+    });
+  }
+
+  function queueDeckDragDraw(request) {
+    deckDrawQueue = deckDrawQueue
+      .catch(() => {})
+      .then(() => drawCardFromDraggedDeck(request))
+      .catch((error) => {
+        console.warn("Nao consegui comprar carta ao arrastar a pilha", error);
+      });
+  }
+
+  async function restoreDeckPosition(deckId, position) {
+    const [deck] = getDeckItems(await OBR.scene.items.getItems([deckId]));
+
+    if (!deck) {
+      return;
+    }
+
+    await OBR.scene.items.updateItems([deck], (items) => {
+      if (items[0]) {
+        items[0].position = position;
+      }
+    });
+    deckOrigins.set(deckId, { ...position });
+  }
+
+  async function drawCardFromDraggedDeck(request) {
+    if (deckDrawInFlight.has(request.id)) {
+      return;
+    }
+
+    deckDrawInFlight.add(request.id);
+
+    try {
+      const [deck] = getDeckItems(await OBR.scene.items.getItems([request.id]));
+
+      if (!deck) {
+        deckOrigins.delete(request.id);
+        return;
+      }
+
+      const dropPosition = { ...deck.position };
+
+      if (distanceBetween(request.from, dropPosition) <= deckDragMinDistance) {
+        deckOrigins.set(deck.id, dropPosition);
+        return;
+      }
+
+      await restoreDeckPosition(deck.id, request.from);
+
+      if (deck.lastModifiedUserId !== playerId) {
+        return;
+      }
+
+      const lockedDeck = await acquireDeckDragLock(deck);
+
+      if (!lockedDeck) {
+        return;
+      }
+
+      const metadata = getDeckMetadata(lockedDeck);
+
+      if (!metadata.cards.length) {
+        await OBR.notification.show("A pilha esta vazia.", "WARNING");
+        return;
+      }
+
+      await drawFromDecks(OBR, sdk.buildImage, [lockedDeck], {
+        drawPositionsByDeckId: new Map([[lockedDeck.id, dropPosition]]),
+        deckPositionsById: new Map([[lockedDeck.id, request.from]]),
+      });
+      deckOrigins.set(lockedDeck.id, { ...request.from });
+    } finally {
+      setTimeout(() => {
+        deckDrawInFlight.delete(request.id);
+      }, deckDrawCooldownMs);
+    }
   }
 
   function scheduleAutoReturnCheck(cardId) {
@@ -4527,6 +4745,7 @@ async function setupContextMenu() {
     .getItems()
     .then((items) => {
       rememberAutoReturnCardPositions(items);
+      rememberDeckOrigins(items);
       return syncDeckDisplays(OBR, items);
     })
     .catch((error) => {
@@ -4535,6 +4754,10 @@ async function setupContextMenu() {
   OBR.scene.items.onChange((items) => {
     for (const cardId of getMovedAutoReturnCardIds(items)) {
       scheduleAutoReturnCheck(cardId);
+    }
+
+    for (const request of getMovedDeckDrawRequests(items)) {
+      scheduleDeckDragDraw(request);
     }
 
     syncDeckDisplays(OBR, items).catch((error) => {
