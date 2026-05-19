@@ -12,11 +12,6 @@ import {
   setDeckMetadata,
 } from "./card-data.js";
 
-const RETURN_LOCK_MS = 30000;
-const RETURN_LOCK_SETTLE_MS = 180;
-const DRAW_EVENT_DEDUPE_MS = 30000;
-const DRAW_POST_LOCK_MS = 1200;
-
 export function getDeckItems(items) {
   return items.filter((item) => isDeckMetadata(getDeckMetadata(item)));
 }
@@ -105,124 +100,6 @@ function shuffleCards(cards) {
   return shuffled;
 }
 
-function wait(delayMs) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, delayMs);
-  });
-}
-
-function isActiveReturnLock(lock, now = Date.now()) {
-  return Boolean(
-    lock &&
-      typeof lock === "object" &&
-      typeof lock.expiresAt === "number" &&
-      lock.expiresAt > now,
-  );
-}
-
-function getActiveReturnLocks(metadata, now = Date.now()) {
-  const locks = metadata.returnLocks;
-
-  if (!locks || typeof locks !== "object") {
-    return {};
-  }
-
-  return Object.fromEntries(
-    Object.entries(locks).filter(([, lock]) => isActiveReturnLock(lock, now)),
-  );
-}
-
-function isActiveTimedEntry(entry, now = Date.now()) {
-  return Boolean(
-    entry &&
-      typeof entry === "object" &&
-      typeof entry.expiresAt === "number" &&
-      entry.expiresAt > now,
-  );
-}
-
-function getActiveTimedEntries(entries, now = Date.now()) {
-  if (!entries || typeof entries !== "object") {
-    return {};
-  }
-
-  return Object.fromEntries(
-    Object.entries(entries).filter(([, entry]) => isActiveTimedEntry(entry, now)),
-  );
-}
-
-async function acquireDeckReturnLocks(OBR, targetDeck, cards) {
-  const cardIds = [...new Set(cards.map((card) => card.id).filter(Boolean))];
-
-  if (!cardIds.length) {
-    return null;
-  }
-
-  const lockId = `return:${Date.now()}:${Math.random().toString(36).slice(2)}`;
-  const expiresAt = Date.now() + RETURN_LOCK_MS;
-  let requestedCardIds = [];
-
-  await OBR.scene.items.updateItems([targetDeck], (items) => {
-    const item = items[0];
-    const metadata = item ? getDeckMetadata(item) : null;
-
-    if (!metadata) {
-      return;
-    }
-
-    const now = Date.now();
-    const activeLocks = getActiveReturnLocks(metadata, now);
-    const returnedCardIds =
-      metadata.returnedCardIds && typeof metadata.returnedCardIds === "object"
-        ? metadata.returnedCardIds
-        : {};
-    const availableCardIds = cardIds.filter(
-      (cardId) => !returnedCardIds[cardId] && !isActiveReturnLock(activeLocks[cardId], now),
-    );
-
-    if (!availableCardIds.length) {
-      return;
-    }
-
-    const returnLocks = { ...activeLocks };
-
-    for (const cardId of availableCardIds) {
-      returnLocks[cardId] = {
-        id: lockId,
-        expiresAt,
-      };
-    }
-
-    requestedCardIds = availableCardIds;
-    setDeckMetadata(item, {
-      ...metadata,
-      returnLocks,
-    });
-  });
-
-  if (!requestedCardIds.length) {
-    return null;
-  }
-
-  await wait(RETURN_LOCK_SETTLE_MS);
-
-  const [lockedDeck] = getDeckItems(await OBR.scene.items.getItems([targetDeck.id]));
-  const metadata = lockedDeck ? getDeckMetadata(lockedDeck) : null;
-  const lockedCardIds = requestedCardIds.filter(
-    (cardId) => metadata?.returnLocks?.[cardId]?.id === lockId,
-  );
-
-  if (!lockedCardIds.length) {
-    return null;
-  }
-
-  return {
-    deck: lockedDeck,
-    cardIds: lockedCardIds,
-    lockId,
-  };
-}
-
 async function getDrawOffset(OBR) {
   try {
     return Math.max(48, (await OBR.scene.grid.getDpi()) * 0.6);
@@ -241,82 +118,53 @@ export async function drawFromDecks(OBR, buildImage, items, options = {}) {
   }
 
   const offset = await getDrawOffset(OBR);
+  const nextMetadataById = new Map();
   const drawnItems = [];
 
-  await OBR.scene.items.updateItems(decks, (draftItems) => {
-    for (const [index, item] of draftItems.entries()) {
-      const metadata = getDeckMetadata(item);
+  for (const [index, deck] of decks.entries()) {
+    const metadata = getDeckMetadata(deck);
+    const [card, ...remainingCards] = metadata.cards;
+    const cardMetadata = createCardMetadata({
+      name: card.name,
+      front: card.front,
+      back: metadata.back,
+      gridWidth: metadata.gridWidth,
+      currentFace: "back",
+      sourceDeckId: deck.id,
+      sourceDeckName: metadata.name,
+    });
+    const drawOffset = offset * (index + 1);
+    const position = options.drawPositionsByDeckId?.get(deck.id) || {
+      x: deck.position.x + drawOffset,
+      y: deck.position.y + drawOffset,
+    };
+    const item = buildImage(
+      createImageData(metadata.back),
+      createGridData(metadata.back, metadata.gridWidth),
+    )
+      .name(card.name)
+      .description("Carta dupla: verso")
+      .layer(deck.layer)
+      .position(position)
+      .metadata(createCardMetadataMap(cardMetadata))
+      .build();
 
-      if (!metadata?.cards?.length) {
+    drawnItems.push(item);
+    nextMetadataById.set(deck.id, {
+      ...metadata,
+      cards: remainingCards,
+    });
+  }
+
+  await OBR.scene.items.updateItems(decks, (draftItems) => {
+    for (const item of draftItems) {
+      const metadata = nextMetadataById.get(item.id);
+      if (!metadata) {
         continue;
       }
 
-      const expectedDraw = options.expectedDrawsByDeckId?.get(item.id);
-      const now = Date.now();
-      const handledDragDraws = getActiveTimedEntries(metadata.handledDragDraws, now);
-
-      if (expectedDraw) {
-        const alreadyHandled = isActiveTimedEntry(
-          handledDragDraws[expectedDraw.signature],
-          now,
-        );
-        const matchingLock = metadata.dragDrawLock?.id === expectedDraw.lockId;
-        const matchingPending =
-          metadata.pendingDragDraw?.signature === expectedDraw.signature;
-
-        if (alreadyHandled || !matchingLock || !matchingPending) {
-          continue;
-        }
-      }
-
-      const [card, ...remainingCards] = metadata.cards;
-      const drawOffset = offset * (index + 1);
-      const position = options.drawPositionsByDeckId?.get(item.id) || {
-        x: item.position.x + drawOffset,
-        y: item.position.y + drawOffset,
-      };
-      const cardMetadata = createCardMetadata({
-        name: card.name,
-        front: card.front,
-        back: metadata.back,
-        gridWidth: metadata.gridWidth,
-        currentFace: "back",
-        sourceDeckId: item.id,
-        sourceDeckName: metadata.name,
-      });
-      const drawnItem = buildImage(
-        createImageData(metadata.back),
-        createGridData(metadata.back, metadata.gridWidth),
-      )
-        .name(card.name)
-        .description("Carta dupla: verso")
-        .layer(item.layer)
-        .position(position)
-        .metadata(createCardMetadataMap(cardMetadata))
-        .build();
-
-      const nextMetadata = {
-        ...metadata,
-        cards: remainingCards,
-      };
-
-      if (expectedDraw) {
-        nextMetadata.handledDragDraws = {
-          ...handledDragDraws,
-          [expectedDraw.signature]: {
-            id: expectedDraw.lockId,
-            expiresAt: now + DRAW_EVENT_DEDUPE_MS,
-          },
-        };
-        nextMetadata.dragDrawLock = {
-          ...(metadata.dragDrawLock || {}),
-          expiresAt: now + DRAW_POST_LOCK_MS,
-        };
-      }
-
-      drawnItems.push(drawnItem);
-      applyDeckDisplay(item, nextMetadata);
-      setDeckMetadata(item, nextMetadata);
+      applyDeckDisplay(item, metadata);
+      setDeckMetadata(item, metadata);
 
       const restoredPosition = options.deckPositionsById?.get(item.id);
       if (restoredPosition) {
@@ -422,20 +270,7 @@ export async function returnCardsToDeck(OBR, cards, fallbackDeckSelection = []) 
     return 0;
   }
 
-  const returnLock = await acquireDeckReturnLocks(OBR, targetDeck, cardsToReturn);
-
-  if (!returnLock) {
-    return 0;
-  }
-
-  const lockedCardIds = new Set(returnLock.cardIds);
-  const lockedCards = cardsToReturn.filter((card) => lockedCardIds.has(card.id));
-
-  if (!lockedCards.length) {
-    return 0;
-  }
-
-  let returnedCards = lockedCards.map((item) => {
+  const returnedCards = cardsToReturn.map((item) => {
     const metadata = getCardMetadata(item);
 
     return {
@@ -443,53 +278,19 @@ export async function returnCardsToDeck(OBR, cards, fallbackDeckSelection = []) 
       front: metadata.faces.front,
     };
   });
+  const returnedCardIds = cardsToReturn.map((item) => item.id);
 
-  let returnedCardIds = [];
-
-  await OBR.scene.items.updateItems([returnLock.deck], (items) => {
+  await OBR.scene.items.updateItems([targetDeck], (items) => {
     const item = items[0];
     const metadata = getDeckMetadata(item);
-    const activeLocks = getActiveReturnLocks(metadata);
-    const cardsStillLocked = lockedCards.filter(
-      (card) => activeLocks[card.id]?.id === returnLock.lockId,
-    );
-
-    if (!cardsStillLocked.length) {
-      returnedCards = [];
-      return;
-    }
-
-    returnedCardIds = cardsStillLocked.map((card) => card.id);
-    returnedCards = cardsStillLocked.map((card) => {
-      const cardMetadata = getCardMetadata(card);
-
-      return {
-        name: cardMetadata.name || card.name || "Carta",
-        front: cardMetadata.faces.front,
-      };
-    });
-
-    const returnedCardMap =
-      metadata.returnedCardIds && typeof metadata.returnedCardIds === "object"
-        ? metadata.returnedCardIds
-        : {};
     const nextMetadata = {
       ...metadata,
       cards: [...metadata.cards, ...returnedCards],
-      returnLocks: activeLocks,
-      returnedCardIds: {
-        ...returnedCardMap,
-        ...Object.fromEntries(returnedCardIds.map((cardId) => [cardId, true])),
-      },
     };
 
     applyDeckDisplay(item, nextMetadata);
     setDeckMetadata(item, nextMetadata);
   });
-
-  if (!returnedCardIds.length) {
-    return 0;
-  }
 
   await OBR.scene.items.deleteItems(returnedCardIds);
 
