@@ -159,8 +159,8 @@ function getMimeFromUrl(rawUrl) {
   return "image/png";
 }
 
-const RETURN_LOCK_MS = 1800;
-const RETURN_LOCK_SETTLE_MS = 100;
+const RETURN_LOCK_MS = 30000;
+const RETURN_LOCK_SETTLE_MS = 180;
 
 function getDeckItems(items) {
   return items.filter((item) => isDeckMetadata(getDeckMetadata(item)));
@@ -2793,7 +2793,7 @@ async function init() {
   try {
     const loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=39").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=40").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
     obr = loaded.OBR;

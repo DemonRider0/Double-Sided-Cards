@@ -12,8 +12,8 @@ import {
   setDeckMetadata,
 } from "./card-data.js";
 
-const RETURN_LOCK_MS = 1800;
-const RETURN_LOCK_SETTLE_MS = 100;
+const RETURN_LOCK_MS = 30000;
+const RETURN_LOCK_SETTLE_MS = 180;
 
 export function getDeckItems(items) {
   return items.filter((item) => isDeckMetadata(getDeckMetadata(item)));

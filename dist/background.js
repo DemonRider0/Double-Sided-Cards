@@ -120,8 +120,8 @@ function createGridData(face, gridWidth) {
   };
 }
 
-const RETURN_LOCK_MS = 1800;
-const RETURN_LOCK_SETTLE_MS = 100;
+const RETURN_LOCK_MS = 30000;
+const RETURN_LOCK_SETTLE_MS = 180;
 
 function getDeckItems(items) {
   return items.filter((item) => isDeckMetadata(getDeckMetadata(item)));
@@ -4497,6 +4497,7 @@ async function setupContextMenu() {
   const autoReturningCardIds = new Set();
   const autoReturningDeckIds = new Set();
   const autoReturnDeckCooldowns = new Map();
+  const autoReturnedCardCooldowns = new Map();
   let autoReturnQueue = Promise.resolve();
   const deckOrigins = new Map();
   const deckDragRequests = new Map();
@@ -4507,8 +4508,12 @@ async function setupContextMenu() {
   const deckDrawCooldownMs = 900;
   const deckDragLockMs = 1400;
   const deckDragLockSettleMs = 90;
-  const autoReturnSettleMs = 300;
-  const autoReturnDeckCooldownMs = 1000;
+  const hasCoarsePointer =
+    window.matchMedia?.("(pointer: coarse)")?.matches ||
+    navigator.maxTouchPoints > 0;
+  const autoReturnSettleMs = hasCoarsePointer ? 900 : 300;
+  const autoReturnDeckCooldownMs = hasCoarsePointer ? 4000 : 1200;
+  const autoReturnCardCooldownMs = hasCoarsePointer ? 10000 : 3500;
 
   async function rememberCardSelection(selection) {
     if (!selection?.length) {
@@ -4650,6 +4655,11 @@ async function setupContextMenu() {
         continue;
       }
 
+      if (isCardAutoReturnCoolingDown(card.id)) {
+        autoReturnPositions.set(card.id, { ...card.position });
+        continue;
+      }
+
       const previousPosition = autoReturnPositions.get(card.id);
       const currentPosition = { ...card.position };
       autoReturnPositions.set(card.id, currentPosition);
@@ -4690,19 +4700,43 @@ async function setupContextMenu() {
     );
   }
 
-  function isDeckAutoReturnCoolingDown(deckId) {
+  function getDeckAutoReturnCooldownRemaining(deckId) {
     const expiresAt = autoReturnDeckCooldowns.get(deckId) || 0;
+    const remainingMs = expiresAt - Date.now();
+
+    if (remainingMs <= 0) {
+      autoReturnDeckCooldowns.delete(deckId);
+      return 0;
+    }
+
+    return remainingMs;
+  }
+
+  function isDeckAutoReturnCoolingDown(deckId) {
+    return getDeckAutoReturnCooldownRemaining(deckId) > 0;
+  }
+
+  function setDeckAutoReturnCooldown(deckId) {
+    autoReturnDeckCooldowns.set(deckId, Date.now() + autoReturnDeckCooldownMs);
+  }
+
+  function isCardAutoReturnCoolingDown(cardId) {
+    const expiresAt = autoReturnedCardCooldowns.get(cardId) || 0;
 
     if (expiresAt <= Date.now()) {
-      autoReturnDeckCooldowns.delete(deckId);
+      autoReturnedCardCooldowns.delete(cardId);
       return false;
     }
 
     return true;
   }
 
-  function setDeckAutoReturnCooldown(deckId) {
-    autoReturnDeckCooldowns.set(deckId, Date.now() + autoReturnDeckCooldownMs);
+  function setCardsAutoReturnCooldown(cardIds) {
+    const expiresAt = Date.now() + autoReturnCardCooldownMs;
+
+    for (const cardId of cardIds) {
+      autoReturnedCardCooldowns.set(cardId, expiresAt);
+    }
   }
 
   async function acquireDeckDragLock(deck) {
@@ -4888,10 +4922,11 @@ async function setupContextMenu() {
       clearTimeout(existingTimer);
     }
 
+    const delayMs = autoReturnSettleMs + getDeckAutoReturnCooldownRemaining(deckId);
     const timer = setTimeout(() => {
       autoReturnTimers.delete(deckId);
       queueAutoReturnCheck(deckId);
-    }, autoReturnSettleMs);
+    }, delayMs);
 
     autoReturnTimers.set(deckId, timer);
   }
@@ -4920,6 +4955,7 @@ async function setupContextMenu() {
         return;
       }
 
+      setDeckAutoReturnCooldown(sourceDeck.id);
       const sourceDeckBounds = await OBR.scene.items.getItemBounds([sourceDeck.id]);
       const sceneItems = await OBR.scene.items.getItems();
       const cardsToReturn = getCardItems(sceneItems).filter((card) => {
@@ -4929,6 +4965,7 @@ async function setupContextMenu() {
           metadata?.sourceDeckId === sourceDeck.id &&
           card.lastModifiedUserId === playerId &&
           !autoReturningCardIds.has(card.id) &&
+          !isCardAutoReturnCoolingDown(card.id) &&
           pointInBounds(card.position, sourceDeckBounds)
         );
       });
@@ -4938,6 +4975,7 @@ async function setupContextMenu() {
       }
 
       returningCardIds = cardsToReturn.map((card) => card.id);
+      setCardsAutoReturnCooldown(returningCardIds);
       for (const id of returningCardIds) {
         autoReturningCardIds.add(id);
       }
