@@ -122,6 +122,8 @@ function createGridData(face, gridWidth) {
 
 const RETURN_LOCK_MS = 30000;
 const RETURN_LOCK_SETTLE_MS = 180;
+const DRAW_EVENT_DEDUPE_MS = 30000;
+const DRAW_POST_LOCK_MS = 1200;
 
 function getDeckItems(items) {
   return items.filter((item) => isDeckMetadata(getDeckMetadata(item)));
@@ -238,6 +240,25 @@ function getActiveReturnLocks(metadata, now = Date.now()) {
   );
 }
 
+function isActiveTimedEntry(entry, now = Date.now()) {
+  return Boolean(
+    entry &&
+      typeof entry === "object" &&
+      typeof entry.expiresAt === "number" &&
+      entry.expiresAt > now,
+  );
+}
+
+function getActiveTimedEntries(entries, now = Date.now()) {
+  if (!entries || typeof entries !== "object") {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(entries).filter(([, entry]) => isActiveTimedEntry(entry, now)),
+  );
+}
+
 async function acquireDeckReturnLocks(OBR, targetDeck, cards) {
   const cardIds = [...new Set(cards.map((card) => card.id).filter(Boolean))];
 
@@ -328,53 +349,82 @@ async function drawFromDecks(OBR, buildImage, items, options = {}) {
   }
 
   const offset = await getDrawOffset(OBR);
-  const nextMetadataById = new Map();
   const drawnItems = [];
 
-  for (const [index, deck] of decks.entries()) {
-    const metadata = getDeckMetadata(deck);
-    const [card, ...remainingCards] = metadata.cards;
-    const cardMetadata = createCardMetadata({
-      name: card.name,
-      front: card.front,
-      back: metadata.back,
-      gridWidth: metadata.gridWidth,
-      currentFace: "back",
-      sourceDeckId: deck.id,
-      sourceDeckName: metadata.name,
-    });
-    const drawOffset = offset * (index + 1);
-    const position = options.drawPositionsByDeckId?.get(deck.id) || {
-      x: deck.position.x + drawOffset,
-      y: deck.position.y + drawOffset,
-    };
-    const item = buildImage(
-      createImageData(metadata.back),
-      createGridData(metadata.back, metadata.gridWidth),
-    )
-      .name(card.name)
-      .description("Carta dupla: verso")
-      .layer(deck.layer)
-      .position(position)
-      .metadata(createCardMetadataMap(cardMetadata))
-      .build();
-
-    drawnItems.push(item);
-    nextMetadataById.set(deck.id, {
-      ...metadata,
-      cards: remainingCards,
-    });
-  }
-
   await OBR.scene.items.updateItems(decks, (draftItems) => {
-    for (const item of draftItems) {
-      const metadata = nextMetadataById.get(item.id);
-      if (!metadata) {
+    for (const [index, item] of draftItems.entries()) {
+      const metadata = getDeckMetadata(item);
+
+      if (!metadata?.cards?.length) {
         continue;
       }
 
-      applyDeckDisplay(item, metadata);
-      setDeckMetadata(item, metadata);
+      const expectedDraw = options.expectedDrawsByDeckId?.get(item.id);
+      const now = Date.now();
+      const handledDragDraws = getActiveTimedEntries(metadata.handledDragDraws, now);
+
+      if (expectedDraw) {
+        const alreadyHandled = isActiveTimedEntry(
+          handledDragDraws[expectedDraw.signature],
+          now,
+        );
+        const matchingLock = metadata.dragDrawLock?.id === expectedDraw.lockId;
+        const matchingPending =
+          metadata.pendingDragDraw?.signature === expectedDraw.signature;
+
+        if (alreadyHandled || !matchingLock || !matchingPending) {
+          continue;
+        }
+      }
+
+      const [card, ...remainingCards] = metadata.cards;
+      const drawOffset = offset * (index + 1);
+      const position = options.drawPositionsByDeckId?.get(item.id) || {
+        x: item.position.x + drawOffset,
+        y: item.position.y + drawOffset,
+      };
+      const cardMetadata = createCardMetadata({
+        name: card.name,
+        front: card.front,
+        back: metadata.back,
+        gridWidth: metadata.gridWidth,
+        currentFace: "back",
+        sourceDeckId: item.id,
+        sourceDeckName: metadata.name,
+      });
+      const drawnItem = buildImage(
+        createImageData(metadata.back),
+        createGridData(metadata.back, metadata.gridWidth),
+      )
+        .name(card.name)
+        .description("Carta dupla: verso")
+        .layer(item.layer)
+        .position(position)
+        .metadata(createCardMetadataMap(cardMetadata))
+        .build();
+
+      const nextMetadata = {
+        ...metadata,
+        cards: remainingCards,
+      };
+
+      if (expectedDraw) {
+        nextMetadata.handledDragDraws = {
+          ...handledDragDraws,
+          [expectedDraw.signature]: {
+            id: expectedDraw.lockId,
+            expiresAt: now + DRAW_EVENT_DEDUPE_MS,
+          },
+        };
+        nextMetadata.dragDrawLock = {
+          ...(metadata.dragDrawLock || {}),
+          expiresAt: now + DRAW_POST_LOCK_MS,
+        };
+      }
+
+      drawnItems.push(drawnItem);
+      applyDeckDisplay(item, nextMetadata);
+      setDeckMetadata(item, nextMetadata);
 
       const restoredPosition = options.deckPositionsById?.get(item.id);
       if (restoredPosition) {
@@ -4505,9 +4555,9 @@ async function setupContextMenu() {
   let deckDrawQueue = Promise.resolve();
   const deckDragMinDistance = 84;
   const deckDragSettleMs = 220;
-  const deckDrawCooldownMs = 900;
-  const deckDragLockMs = 1400;
-  const deckDragLockSettleMs = 90;
+  const deckDrawCooldownMs = 1800;
+  const deckDragLockMs = 10000;
+  const deckDragLockSettleMs = 1000;
   const hasCoarsePointer =
     window.matchMedia?.("(pointer: coarse)")?.matches ||
     navigator.maxTouchPoints > 0;
@@ -4693,6 +4743,18 @@ async function setupContextMenu() {
     );
   }
 
+  function createDeckDragSignature(request) {
+    const quantize = (value) => Math.round(value / 10) * 10;
+
+    return [
+      request.id,
+      quantize(request.from.x),
+      quantize(request.from.y),
+      quantize(request.to.x),
+      quantize(request.to.y),
+    ].join(":");
+  }
+
   function isDeckLockedForDragDraw(metadata) {
     return (
       isActiveDeckDragLock(metadata.dragDrawLock) ||
@@ -4739,13 +4801,14 @@ async function setupContextMenu() {
     }
   }
 
-  async function acquireDeckDragLock(deck) {
+  async function acquireDeckDragLock(deck, request) {
     const [currentDeck] = getDeckItems(await OBR.scene.items.getItems([deck.id]));
 
     if (!currentDeck) {
       return null;
     }
 
+    const signature = createDeckDragSignature(request);
     const lock = {
       id: `${playerId}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
       owner: playerId,
@@ -4757,13 +4820,23 @@ async function setupContextMenu() {
       const item = items[0];
       const metadata = item ? getDeckMetadata(item) : null;
 
-      if (!metadata || !metadata.cards.length || isDeckLockedForDragDraw(metadata)) {
+      if (
+        !metadata ||
+        !metadata.cards.length ||
+        isDeckLockedForDragDraw(metadata) ||
+        metadata.handledDragDraws?.[signature]?.expiresAt > Date.now()
+      ) {
         return;
       }
 
       setDeckMetadata(item, {
         ...metadata,
         dragDrawLock: lock,
+        pendingDragDraw: {
+          signature,
+          owner: playerId,
+          expiresAt: Date.now() + deckDragLockMs,
+        },
       });
       lockWasWritten = true;
     });
@@ -4777,7 +4850,19 @@ async function setupContextMenu() {
     const [lockedDeck] = getDeckItems(await OBR.scene.items.getItems([deck.id]));
     const metadata = lockedDeck ? getDeckMetadata(lockedDeck) : null;
 
-    return metadata?.dragDrawLock?.id === lock.id ? lockedDeck : null;
+    if (
+      metadata?.dragDrawLock?.id !== lock.id ||
+      metadata?.pendingDragDraw?.signature !== signature ||
+      metadata?.handledDragDraws?.[signature]?.expiresAt > Date.now()
+    ) {
+      return null;
+    }
+
+    return {
+      deck: lockedDeck,
+      lockId: lock.id,
+      signature,
+    };
   }
 
   function getMovedDeckDrawRequests(items) {
@@ -4891,24 +4976,33 @@ async function setupContextMenu() {
         return;
       }
 
-      const lockedDeck = await acquireDeckDragLock(deck);
+      const lockedDraw = await acquireDeckDragLock(deck, request);
 
-      if (!lockedDeck) {
+      if (!lockedDraw) {
         return;
       }
 
-      const metadata = getDeckMetadata(lockedDeck);
+      const metadata = getDeckMetadata(lockedDraw.deck);
 
       if (!metadata.cards.length) {
         await OBR.notification.show("A pilha esta vazia.", "WARNING");
         return;
       }
 
-      await drawFromDecks(OBR, sdk.buildImage, [lockedDeck], {
-        drawPositionsByDeckId: new Map([[lockedDeck.id, dropPosition]]),
-        deckPositionsById: new Map([[lockedDeck.id, request.from]]),
+      await drawFromDecks(OBR, sdk.buildImage, [lockedDraw.deck], {
+        drawPositionsByDeckId: new Map([[lockedDraw.deck.id, dropPosition]]),
+        deckPositionsById: new Map([[lockedDraw.deck.id, request.from]]),
+        expectedDrawsByDeckId: new Map([
+          [
+            lockedDraw.deck.id,
+            {
+              lockId: lockedDraw.lockId,
+              signature: lockedDraw.signature,
+            },
+          ],
+        ]),
       });
-      deckOrigins.set(lockedDeck.id, { ...request.from });
+      deckOrigins.set(lockedDraw.deck.id, { ...request.from });
     } finally {
       setTimeout(() => {
         deckDrawInFlight.delete(request.id);

@@ -1,6 +1,6 @@
 {
   "name": "Cartas Duplas",
-  "version": "0.2.40",
+  "version": "0.2.41",
   "manifest_version": 1,
   "author": "DemonRider",
   "icon": "/Double-Sided-Cards/icons/card.svg",
@@ -8,9 +8,9 @@
   "action": {
     "title": "Cartas",
     "icon": "/Double-Sided-Cards/icons/card.svg",
-    "popover": "/Double-Sided-Cards/index.html?v=40",
+    "popover": "/Double-Sided-Cards/index.html?v=41",
     "height": 680,
     "width": 420
   },
-  "background_url": "/Double-Sided-Cards/background.html?v=40"
+  "background_url": "/Double-Sided-Cards/background.html?v=41"
 }

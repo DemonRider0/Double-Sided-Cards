@@ -7,7 +7,7 @@ Extensao para Owlbear Rodeo criada por DemonRider. Ela adiciona cartas 2D com fr
 Depois que o GitHub Pages publicar este repositorio, use este link no Owlbear:
 
 ```text
-https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=40
+https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=41
 ```
 
 Se o usuario ou o nome do repositorio mudar, tambem sera necessario trocar os caminhos de `manifest.json` e as URLs dentro de `assets/scene-preset.json`.
@@ -99,7 +99,7 @@ node dev-server.mjs 5180
 Abra no Owlbear:
 
 ```text
-http://localhost:5180/manifest.json?v=40
+http://localhost:5180/manifest.json?v=41
 ```
 
 Para testar a versao local separada sem mexer na pasta do Git, use a pasta local de testes.

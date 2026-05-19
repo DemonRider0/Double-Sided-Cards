@@ -101,9 +101,9 @@ async function setupContextMenu() {
   let deckDrawQueue = Promise.resolve();
   const deckDragMinDistance = 84;
   const deckDragSettleMs = 220;
-  const deckDrawCooldownMs = 900;
-  const deckDragLockMs = 1400;
-  const deckDragLockSettleMs = 90;
+  const deckDrawCooldownMs = 1800;
+  const deckDragLockMs = 10000;
+  const deckDragLockSettleMs = 1000;
   const hasCoarsePointer =
     window.matchMedia?.("(pointer: coarse)")?.matches ||
     navigator.maxTouchPoints > 0;
@@ -289,6 +289,18 @@ async function setupContextMenu() {
     );
   }
 
+  function createDeckDragSignature(request) {
+    const quantize = (value) => Math.round(value / 10) * 10;
+
+    return [
+      request.id,
+      quantize(request.from.x),
+      quantize(request.from.y),
+      quantize(request.to.x),
+      quantize(request.to.y),
+    ].join(":");
+  }
+
   function isDeckLockedForDragDraw(metadata) {
     return (
       isActiveDeckDragLock(metadata.dragDrawLock) ||
@@ -335,13 +347,14 @@ async function setupContextMenu() {
     }
   }
 
-  async function acquireDeckDragLock(deck) {
+  async function acquireDeckDragLock(deck, request) {
     const [currentDeck] = getDeckItems(await OBR.scene.items.getItems([deck.id]));
 
     if (!currentDeck) {
       return null;
     }
 
+    const signature = createDeckDragSignature(request);
     const lock = {
       id: `${playerId}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
       owner: playerId,
@@ -353,13 +366,23 @@ async function setupContextMenu() {
       const item = items[0];
       const metadata = item ? getDeckMetadata(item) : null;
 
-      if (!metadata || !metadata.cards.length || isDeckLockedForDragDraw(metadata)) {
+      if (
+        !metadata ||
+        !metadata.cards.length ||
+        isDeckLockedForDragDraw(metadata) ||
+        metadata.handledDragDraws?.[signature]?.expiresAt > Date.now()
+      ) {
         return;
       }
 
       setDeckMetadata(item, {
         ...metadata,
         dragDrawLock: lock,
+        pendingDragDraw: {
+          signature,
+          owner: playerId,
+          expiresAt: Date.now() + deckDragLockMs,
+        },
       });
       lockWasWritten = true;
     });
@@ -373,7 +396,19 @@ async function setupContextMenu() {
     const [lockedDeck] = getDeckItems(await OBR.scene.items.getItems([deck.id]));
     const metadata = lockedDeck ? getDeckMetadata(lockedDeck) : null;
 
-    return metadata?.dragDrawLock?.id === lock.id ? lockedDeck : null;
+    if (
+      metadata?.dragDrawLock?.id !== lock.id ||
+      metadata?.pendingDragDraw?.signature !== signature ||
+      metadata?.handledDragDraws?.[signature]?.expiresAt > Date.now()
+    ) {
+      return null;
+    }
+
+    return {
+      deck: lockedDeck,
+      lockId: lock.id,
+      signature,
+    };
   }
 
   function getMovedDeckDrawRequests(items) {
@@ -487,24 +522,33 @@ async function setupContextMenu() {
         return;
       }
 
-      const lockedDeck = await acquireDeckDragLock(deck);
+      const lockedDraw = await acquireDeckDragLock(deck, request);
 
-      if (!lockedDeck) {
+      if (!lockedDraw) {
         return;
       }
 
-      const metadata = getDeckMetadata(lockedDeck);
+      const metadata = getDeckMetadata(lockedDraw.deck);
 
       if (!metadata.cards.length) {
         await OBR.notification.show("A pilha esta vazia.", "WARNING");
         return;
       }
 
-      await drawFromDecks(OBR, sdk.buildImage, [lockedDeck], {
-        drawPositionsByDeckId: new Map([[lockedDeck.id, dropPosition]]),
-        deckPositionsById: new Map([[lockedDeck.id, request.from]]),
+      await drawFromDecks(OBR, sdk.buildImage, [lockedDraw.deck], {
+        drawPositionsByDeckId: new Map([[lockedDraw.deck.id, dropPosition]]),
+        deckPositionsById: new Map([[lockedDraw.deck.id, request.from]]),
+        expectedDrawsByDeckId: new Map([
+          [
+            lockedDraw.deck.id,
+            {
+              lockId: lockedDraw.lockId,
+              signature: lockedDraw.signature,
+            },
+          ],
+        ]),
       });
-      deckOrigins.set(lockedDeck.id, { ...request.from });
+      deckOrigins.set(lockedDraw.deck.id, { ...request.from });
     } finally {
       setTimeout(() => {
         deckDrawInFlight.delete(request.id);
