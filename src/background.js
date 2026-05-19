@@ -5,7 +5,6 @@ import {
   getCardMetadata,
   getDeckMetadata,
   METADATA_KEY,
-  setCardMetadata,
   setDeckMetadata,
 } from "./card-data.js";
 import {
@@ -92,6 +91,8 @@ async function setupContextMenu() {
   const autoReturnPositions = new Map();
   const autoReturnTimers = new Map();
   const autoReturningCardIds = new Set();
+  const autoReturningDeckIds = new Set();
+  const autoReturnDeckCooldowns = new Map();
   let autoReturnQueue = Promise.resolve();
   const deckOrigins = new Map();
   const deckDragRequests = new Map();
@@ -102,8 +103,8 @@ async function setupContextMenu() {
   const deckDrawCooldownMs = 900;
   const deckDragLockMs = 1400;
   const deckDragLockSettleMs = 90;
-  const cardReturnLockMs = 1400;
-  const cardReturnLockSettleMs = 90;
+  const autoReturnSettleMs = 300;
+  const autoReturnDeckCooldownMs = 1000;
 
   async function rememberCardSelection(selection) {
     if (!selection?.length) {
@@ -235,11 +236,13 @@ async function setupContextMenu() {
     }
   }
 
-  function getMovedAutoReturnCardIds(items) {
-    const movedCardIds = [];
+  function getMovedAutoReturnDeckIds(items) {
+    const movedDeckIds = new Set();
 
     for (const card of getDoubleSidedCards(items)) {
-      if (!getCardMetadata(card)?.sourceDeckId) {
+      const sourceDeckId = getCardMetadata(card)?.sourceDeckId;
+
+      if (!sourceDeckId) {
         continue;
       }
 
@@ -248,14 +251,15 @@ async function setupContextMenu() {
       autoReturnPositions.set(card.id, currentPosition);
 
       if (
+        !autoReturningDeckIds.has(sourceDeckId) &&
         !autoReturningCardIds.has(card.id) &&
         didPositionChange(previousPosition, currentPosition)
       ) {
-        movedCardIds.push(card.id);
+        movedDeckIds.add(sourceDeckId);
       }
     }
 
-    return movedCardIds;
+    return [...movedDeckIds];
   }
 
   function rememberDeckOrigins(items) {
@@ -275,15 +279,26 @@ async function setupContextMenu() {
     );
   }
 
-  function isActiveCardReturnLock(lock) {
-    return isActiveDeckDragLock(lock);
-  }
-
   function isDeckLockedForDragDraw(metadata) {
     return (
       isActiveDeckDragLock(metadata.dragDrawLock) ||
       isActiveDeckDragLock(metadata.autoDrawLock)
     );
+  }
+
+  function isDeckAutoReturnCoolingDown(deckId) {
+    const expiresAt = autoReturnDeckCooldowns.get(deckId) || 0;
+
+    if (expiresAt <= Date.now()) {
+      autoReturnDeckCooldowns.delete(deckId);
+      return false;
+    }
+
+    return true;
+  }
+
+  function setDeckAutoReturnCooldown(deckId) {
+    autoReturnDeckCooldowns.set(deckId, Date.now() + autoReturnDeckCooldownMs);
   }
 
   async function acquireDeckDragLock(deck) {
@@ -327,52 +342,16 @@ async function setupContextMenu() {
     return metadata?.dragDrawLock?.id === lock.id ? lockedDeck : null;
   }
 
-  async function acquireCardReturnLock(card) {
-    const [currentCard] = getCardItems(await OBR.scene.items.getItems([card.id]));
-
-    if (!currentCard || currentCard.lastModifiedUserId !== playerId) {
-      return null;
-    }
-
-    const lock = {
-      id: `${playerId}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
-      owner: playerId,
-      expiresAt: Date.now() + cardReturnLockMs,
-    };
-    let lockWasWritten = false;
-
-    await OBR.scene.items.updateItems([currentCard], (items) => {
-      const item = items[0];
-      const metadata = item ? getCardMetadata(item) : null;
-
-      if (!metadata || !metadata.sourceDeckId || isActiveCardReturnLock(metadata.returnLock)) {
-        return;
-      }
-
-      setCardMetadata(item, {
-        ...metadata,
-        returnLock: lock,
-      });
-      lockWasWritten = true;
-    });
-
-    if (!lockWasWritten) {
-      return null;
-    }
-
-    await wait(cardReturnLockSettleMs);
-
-    const [lockedCard] = getCardItems(await OBR.scene.items.getItems([card.id]));
-    const metadata = lockedCard ? getCardMetadata(lockedCard) : null;
-
-    return metadata?.returnLock?.id === lock.id ? lockedCard : null;
-  }
-
   function getMovedDeckDrawRequests(items) {
     const requests = [];
 
     for (const deck of getDeckItems(items)) {
       if (!deckOrigins.has(deck.id)) {
+        deckOrigins.set(deck.id, { ...deck.position });
+        continue;
+      }
+
+      if (isDeckAutoReturnCoolingDown(deck.id)) {
         deckOrigins.set(deck.id, { ...deck.position });
         continue;
       }
@@ -499,75 +478,79 @@ async function setupContextMenu() {
     }
   }
 
-  function scheduleAutoReturnCheck(cardId) {
-    const existingTimer = autoReturnTimers.get(cardId);
+  function scheduleAutoReturnCheck(deckId) {
+    const existingTimer = autoReturnTimers.get(deckId);
     if (existingTimer) {
       clearTimeout(existingTimer);
     }
 
     const timer = setTimeout(() => {
-      autoReturnTimers.delete(cardId);
-      queueAutoReturnCheck(cardId);
-    }, 250);
+      autoReturnTimers.delete(deckId);
+      queueAutoReturnCheck(deckId);
+    }, autoReturnSettleMs);
 
-    autoReturnTimers.set(cardId, timer);
+    autoReturnTimers.set(deckId, timer);
   }
 
-  function queueAutoReturnCheck(cardId) {
+  function queueAutoReturnCheck(deckId) {
     autoReturnQueue = autoReturnQueue
       .catch(() => {})
-      .then(() => returnCardIfDroppedOnSourceDeck(cardId))
+      .then(() => returnCardsDroppedOnSourceDeck(deckId))
       .catch((error) => {
         console.warn("Nao consegui devolver a carta automaticamente para a pilha", error);
       });
   }
 
-  async function returnCardIfDroppedOnSourceDeck(cardId) {
-    if (autoReturningCardIds.has(cardId)) {
+  async function returnCardsDroppedOnSourceDeck(deckId) {
+    if (autoReturningDeckIds.has(deckId)) {
       return;
     }
 
-    autoReturningCardIds.add(cardId);
+    autoReturningDeckIds.add(deckId);
+    let returningCardIds = [];
 
     try {
-      const [card] = getCardItems(await OBR.scene.items.getItems([cardId]));
-      const metadata = card ? getCardMetadata(card) : null;
-      const sourceDeckId = metadata?.sourceDeckId;
-
-      if (!card || !sourceDeckId) {
-        autoReturnPositions.delete(cardId);
-        return;
-      }
-
-      if (card.lastModifiedUserId !== playerId) {
-        return;
-      }
-
-      const [sourceDeck] = getDeckItems(await OBR.scene.items.getItems([sourceDeckId]));
+      const [sourceDeck] = getDeckItems(await OBR.scene.items.getItems([deckId]));
 
       if (!sourceDeck) {
         return;
       }
 
       const sourceDeckBounds = await OBR.scene.items.getItemBounds([sourceDeck.id]);
+      const sceneItems = await OBR.scene.items.getItems();
+      const cardsToReturn = getCardItems(sceneItems).filter((card) => {
+        const metadata = getCardMetadata(card);
 
-      if (!pointInBounds(card.position, sourceDeckBounds)) {
+        return (
+          metadata?.sourceDeckId === sourceDeck.id &&
+          card.lastModifiedUserId === playerId &&
+          !autoReturningCardIds.has(card.id) &&
+          pointInBounds(card.position, sourceDeckBounds)
+        );
+      });
+
+      if (!cardsToReturn.length) {
         return;
       }
 
-      const lockedCard = await acquireCardReturnLock(card);
-
-      if (!lockedCard) {
-        return;
+      returningCardIds = cardsToReturn.map((card) => card.id);
+      for (const id of returningCardIds) {
+        autoReturningCardIds.add(id);
       }
 
-      const count = await returnCardsToDeck(OBR, [lockedCard], [sourceDeck.id]);
+      const count = await returnCardsToDeck(OBR, cardsToReturn, [sourceDeck.id]);
 
       if (count) {
-        autoReturnPositions.delete(cardId);
+        setDeckAutoReturnCooldown(sourceDeck.id);
+        for (const cardId of returningCardIds) {
+          autoReturnPositions.delete(cardId);
+        }
       }
     } finally {
-      autoReturningCardIds.delete(cardId);
+      for (const cardId of returningCardIds) {
+        autoReturningCardIds.delete(cardId);
+      }
+      autoReturningDeckIds.delete(deckId);
     }
   }
 
@@ -619,8 +602,8 @@ async function setupContextMenu() {
       console.warn("Nao consegui sincronizar os contadores das pilhas", error);
     });
   OBR.scene.items.onChange((items) => {
-    for (const cardId of getMovedAutoReturnCardIds(items)) {
-      scheduleAutoReturnCheck(cardId);
+    for (const deckId of getMovedAutoReturnDeckIds(items)) {
+      scheduleAutoReturnCheck(deckId);
     }
 
     for (const request of getMovedDeckDrawRequests(items)) {
