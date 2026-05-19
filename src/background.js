@@ -5,6 +5,7 @@ import {
   getCardMetadata,
   getDeckMetadata,
   METADATA_KEY,
+  setCardMetadata,
   setDeckMetadata,
 } from "./card-data.js";
 import {
@@ -101,6 +102,8 @@ async function setupContextMenu() {
   const deckDrawCooldownMs = 900;
   const deckDragLockMs = 1400;
   const deckDragLockSettleMs = 90;
+  const cardReturnLockMs = 1400;
+  const cardReturnLockSettleMs = 90;
 
   async function rememberCardSelection(selection) {
     if (!selection?.length) {
@@ -272,6 +275,10 @@ async function setupContextMenu() {
     );
   }
 
+  function isActiveCardReturnLock(lock) {
+    return isActiveDeckDragLock(lock);
+  }
+
   function isDeckLockedForDragDraw(metadata) {
     return (
       isActiveDeckDragLock(metadata.dragDrawLock) ||
@@ -318,6 +325,47 @@ async function setupContextMenu() {
     const metadata = lockedDeck ? getDeckMetadata(lockedDeck) : null;
 
     return metadata?.dragDrawLock?.id === lock.id ? lockedDeck : null;
+  }
+
+  async function acquireCardReturnLock(card) {
+    const [currentCard] = getCardItems(await OBR.scene.items.getItems([card.id]));
+
+    if (!currentCard || currentCard.lastModifiedUserId !== playerId) {
+      return null;
+    }
+
+    const lock = {
+      id: `${playerId}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
+      owner: playerId,
+      expiresAt: Date.now() + cardReturnLockMs,
+    };
+    let lockWasWritten = false;
+
+    await OBR.scene.items.updateItems([currentCard], (items) => {
+      const item = items[0];
+      const metadata = item ? getCardMetadata(item) : null;
+
+      if (!metadata || !metadata.sourceDeckId || isActiveCardReturnLock(metadata.returnLock)) {
+        return;
+      }
+
+      setCardMetadata(item, {
+        ...metadata,
+        returnLock: lock,
+      });
+      lockWasWritten = true;
+    });
+
+    if (!lockWasWritten) {
+      return null;
+    }
+
+    await wait(cardReturnLockSettleMs);
+
+    const [lockedCard] = getCardItems(await OBR.scene.items.getItems([card.id]));
+    const metadata = lockedCard ? getCardMetadata(lockedCard) : null;
+
+    return metadata?.returnLock?.id === lock.id ? lockedCard : null;
   }
 
   function getMovedDeckDrawRequests(items) {
@@ -491,6 +539,10 @@ async function setupContextMenu() {
         return;
       }
 
+      if (card.lastModifiedUserId !== playerId) {
+        return;
+      }
+
       const [sourceDeck] = getDeckItems(await OBR.scene.items.getItems([sourceDeckId]));
 
       if (!sourceDeck) {
@@ -503,7 +555,13 @@ async function setupContextMenu() {
         return;
       }
 
-      const count = await returnCardsToDeck(OBR, [card], [sourceDeck.id]);
+      const lockedCard = await acquireCardReturnLock(card);
+
+      if (!lockedCard) {
+        return;
+      }
+
+      const count = await returnCardsToDeck(OBR, [lockedCard], [sourceDeck.id]);
 
       if (count) {
         autoReturnPositions.delete(cardId);

@@ -7,7 +7,7 @@ Extensao para Owlbear Rodeo criada por DemonRider. Ela adiciona cartas 2D com fr
 Depois que o GitHub Pages publicar este repositorio, use este link no Owlbear:
 
 ```text
-https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=36
+https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=37
 ```
 
 Se o usuario ou o nome do repositorio mudar, tambem sera necessario trocar os caminhos de `manifest.json` e as URLs dentro de `assets/scene-preset.json`.
@@ -44,7 +44,7 @@ Se o usuario ou o nome do repositorio mudar, tambem sera necessario trocar os ca
 
 O arquivo `assets/scene-preset.json` guarda o tabuleiro padrao que sera recriado pelo botao `Restaurar tabuleiro padrao`.
 
-Na versao publica, o botao `Criar tabuleiro padrao` fica desativado. Isso e intencional: GitHub Pages nao salva arquivos novos. O fluxo publico e commitar o `assets/scene-preset.json` pronto e usar apenas `Restaurar tabuleiro padrao` dentro do Owlbear.
+Na versao publica, o botao `Criar tabuleiro padrao` fica oculto. Isso e intencional: GitHub Pages nao salva arquivos novos. O fluxo publico e commitar o `assets/scene-preset.json` pronto e usar apenas `Restaurar tabuleiro padrao` dentro do Owlbear.
 
 ## Biblioteca de pilhas
 
@@ -99,7 +99,7 @@ node dev-server.mjs 5180
 Abra no Owlbear:
 
 ```text
-http://localhost:5180/manifest.json?v=36
+http://localhost:5180/manifest.json?v=37
 ```
 
 Para testar a versao local separada sem mexer na pasta do Git, use a pasta local de testes.

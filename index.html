@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Cartas Duplas</title>
-    <script type="module" src="./dist/sdk-boot.js?v=36"></script>
+    <script type="module" src="./dist/sdk-boot.js?v=37"></script>
     <link rel="stylesheet" href="./src/styles.css" />
   </head>
   <body>
@@ -126,7 +126,7 @@
         </div>
       </section>
 
-      <form id="cardForm" class="form">
+      <form id="cardForm" class="form" hidden>
         <h2>Carta</h2>
         <label class="field">
           <span>Nome</span>
@@ -199,7 +199,7 @@
         </button>
       </form>
 
-      <form id="deckForm" class="form">
+      <form id="deckForm" class="form" hidden>
         <h2>Pilha</h2>
         <label class="field">
           <span>Nome</span>
@@ -267,7 +267,7 @@
         </button>
       </form>
 
-      <section class="form">
+      <section class="form" hidden>
         <h2>Publicar</h2>
         <label class="field">
           <span>URL pública</span>
@@ -285,7 +285,7 @@
         <h2>Tabuleiro padrÃ£o</h2>
         <p id="defaultBoardInfo" class="field-note">Nenhum tabuleiro padrao criado no localhost.</p>
         <div class="action-grid">
-          <button id="createDefaultBoardButton" class="button button--secondary" type="button" disabled>
+          <button id="createDefaultBoardButton" class="button button--secondary" type="button" disabled hidden>
             Criar tabuleiro padrão
           </button>
           <button id="restoreDefaultBoardButton" class="button button--secondary" type="button" disabled>
@@ -297,6 +297,6 @@
       <p id="message" class="message" role="status" aria-live="polite"></p>
     </main>
 
-    <script type="module" src="./dist/app.js?v=36"></script>
+    <script type="module" src="./dist/app.js?v=37"></script>
   </body>
 </html>

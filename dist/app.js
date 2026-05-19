@@ -2525,7 +2525,7 @@ async function init() {
   try {
     const loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=33").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=37").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
     obr = loaded.OBR;
