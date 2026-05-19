@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Cartas Duplas</title>
-    <script type="module" src="./dist/sdk-boot.js?v=37"></script>
+    <script type="module" src="./dist/sdk-boot.js?v=38"></script>
     <link rel="stylesheet" href="./src/styles.css" />
   </head>
   <body>
@@ -126,148 +126,7 @@
         </div>
       </section>
 
-      <form id="cardForm" class="form" hidden>
-        <h2>Carta</h2>
-        <label class="field">
-          <span>Nome</span>
-          <input id="cardName" name="cardName" type="text" placeholder="Carta sem nome" autocomplete="off" />
-        </label>
-
-        <label class="field">
-          <span>Frente URL</span>
-          <input id="frontUrl" name="frontUrl" type="url" placeholder="https://..." />
-        </label>
-
-        <label class="field">
-          <span>Frente arquivo</span>
-          <input id="frontFile" name="frontFile" type="file" accept="image/*" />
-        </label>
-        <button id="pickFrontAssetButton" class="button button--secondary" type="button">
-          Escolher frente dos assets
-        </button>
-
-        <label class="field">
-          <span>Verso URL</span>
-          <input id="backUrl" name="backUrl" type="url" placeholder="https://..." />
-        </label>
-
-        <label class="field">
-          <span>Verso arquivo</span>
-          <input id="backFile" name="backFile" type="file" accept="image/*" />
-        </label>
-        <button id="pickBackAssetButton" class="button button--secondary" type="button">
-          Escolher verso dos assets
-        </button>
-
-        <div class="row">
-          <label class="field">
-            <span>Largura no grid</span>
-            <input id="gridWidth" name="gridWidth" type="number" min="0.25" max="20" step="0.25" value="2" required />
-          </label>
-
-          <label class="field">
-            <span>Camada</span>
-            <select id="layer" name="layer">
-              <option value="DRAWING">Drawing</option>
-              <option value="PROP" selected>Prop</option>
-              <option value="MOUNT">Mount</option>
-              <option value="CHARACTER">Character</option>
-              <option value="ATTACHMENT">Attachment</option>
-              <option value="NOTE">Note</option>
-              <option value="TEXT">Text</option>
-            </select>
-          </label>
-        </div>
-
-        <section class="preview" aria-label="Prévia">
-          <figure>
-            <div class="preview__image">
-              <img id="frontPreview" alt="Prévia da frente" hidden />
-            </div>
-            <figcaption>Frente</figcaption>
-          </figure>
-          <figure>
-            <div class="preview__image">
-              <img id="backPreview" alt="Prévia do verso" hidden />
-            </div>
-            <figcaption>Verso</figcaption>
-          </figure>
-        </section>
-
-        <button id="importButton" class="button" type="submit" disabled>
-          Importar carta
-        </button>
-      </form>
-
-      <form id="deckForm" class="form" hidden>
-        <h2>Pilha</h2>
-        <label class="field">
-          <span>Nome</span>
-          <input id="deckName" name="deckName" type="text" placeholder="Pilha sem nome" autocomplete="off" />
-        </label>
-
-        <label class="field">
-          <span>Verso URL</span>
-          <input id="deckBackUrl" name="deckBackUrl" type="url" placeholder="https://..." />
-        </label>
-
-        <label class="field">
-          <span>Verso arquivo</span>
-          <input id="deckBackFile" name="deckBackFile" type="file" accept="image/*" />
-        </label>
-        <button id="pickDeckBackAssetButton" class="button button--secondary" type="button">
-          Escolher verso dos assets
-        </button>
-
-        <label class="field">
-          <span>Frentes URLs</span>
-          <textarea id="deckFrontUrls" name="deckFrontUrls" rows="5" placeholder="Nome | https://..."></textarea>
-        </label>
-
-        <label class="field">
-          <span>Frentes arquivos</span>
-          <input id="deckFrontFiles" name="deckFrontFiles" type="file" accept="image/*" multiple />
-        </label>
-        <button id="pickDeckFrontAssetsButton" class="button button--secondary" type="button">
-          Escolher frentes dos assets
-        </button>
-        <p id="deckAssetsStatus" class="field-note"></p>
-
-        <div class="row">
-          <label class="field">
-            <span>Largura no grid</span>
-            <input id="deckGridWidth" name="deckGridWidth" type="number" min="0.25" max="20" step="0.25" value="2" />
-          </label>
-
-          <label class="field">
-            <span>Camada</span>
-            <select id="deckLayer" name="deckLayer">
-              <option value="DRAWING">Drawing</option>
-              <option value="PROP" selected>Prop</option>
-              <option value="MOUNT">Mount</option>
-              <option value="CHARACTER">Character</option>
-              <option value="ATTACHMENT">Attachment</option>
-              <option value="NOTE">Note</option>
-              <option value="TEXT">Text</option>
-            </select>
-          </label>
-        </div>
-
-        <section class="preview preview--single" aria-label="Previa da pilha">
-          <figure>
-            <div class="preview__image">
-              <img id="deckBackPreview" alt="Previa do verso da pilha" hidden />
-            </div>
-            <figcaption>Verso</figcaption>
-          </figure>
-        </section>
-
-        <button id="importDeckButton" class="button" type="submit" disabled>
-          Importar pilha
-        </button>
-      </form>
-
-      <section class="form" hidden>
+      <section class="form">
         <h2>Publicar</h2>
         <label class="field">
           <span>URL pública</span>
@@ -297,6 +156,6 @@
       <p id="message" class="message" role="status" aria-live="polite"></p>
     </main>
 
-    <script type="module" src="./dist/app.js?v=37"></script>
+    <script type="module" src="./dist/app.js?v=38"></script>
   </body>
 </html>

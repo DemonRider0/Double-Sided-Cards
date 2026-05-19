@@ -7,6 +7,7 @@ import {
   nextFace,
   setCardMetadata,
 } from "./card-data.js";
+import { applyDivinitySizing } from "./divinity-sizing.js";
 
 export function getDoubleSidedCards(items) {
   return items.filter((item) => isCardMetadata(getCardMetadata(item)));
@@ -27,6 +28,7 @@ export async function flipItems(OBR, items) {
 
       item.image = createImageData(face);
       item.grid = createGridData(face, metadata.gridWidth);
+      applyDivinitySizing(item, face);
       item.description = `Carta dupla: ${faceLabel(targetFace)}`;
       setCardMetadata(item, {
         ...metadata,

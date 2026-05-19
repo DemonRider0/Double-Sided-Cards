@@ -20,6 +20,7 @@ import {
   returnSelectedCardsToDeck,
   shuffleSelectedDecks,
 } from "./deck.js";
+import { applyDivinitySizing, needsDivinitySizing } from "./divinity-sizing.js";
 import { flipSelectedItems, getDoubleSidedCards } from "./flip.js";
 import {
   ACTIVE_COLOR_KEY,
@@ -129,12 +130,24 @@ function setMessage(text, tone = "neutral") {
 function setConnectionStatus(text, isConnected) {
   elements.connectionStatus.textContent = text;
   elements.connectionStatus.dataset.connected = String(isConnected);
-  elements.importButton.disabled = !isConnected;
-  elements.importDeckButton.disabled = !isConnected;
-  elements.pickFrontAssetButton.disabled = !isConnected;
-  elements.pickBackAssetButton.disabled = !isConnected;
-  elements.pickDeckBackAssetButton.disabled = !isConnected;
-  elements.pickDeckFrontAssetsButton.disabled = !isConnected;
+  if (elements.importButton) {
+    elements.importButton.disabled = !isConnected;
+  }
+  if (elements.importDeckButton) {
+    elements.importDeckButton.disabled = !isConnected;
+  }
+  if (elements.pickFrontAssetButton) {
+    elements.pickFrontAssetButton.disabled = !isConnected;
+  }
+  if (elements.pickBackAssetButton) {
+    elements.pickBackAssetButton.disabled = !isConnected;
+  }
+  if (elements.pickDeckBackAssetButton) {
+    elements.pickDeckBackAssetButton.disabled = !isConnected;
+  }
+  if (elements.pickDeckFrontAssetsButton) {
+    elements.pickDeckFrontAssetsButton.disabled = !isConnected;
+  }
   elements.migratePublicButton.disabled = !isConnected;
   updateDefaultBoardControls(isConnected);
   elements.panelFlipButton.disabled = !isConnected;
@@ -344,6 +357,7 @@ async function repairSceneMetadata() {
 
         item.image = createImageData(face);
         item.grid = createGridData(face, cardMetadata.gridWidth);
+        applyDivinitySizing(item, face);
         item.description = currentFace === "back" ? "Carta dupla: verso" : "Carta dupla: frente";
         setCardMetadata(item, {
           ...cardMetadata,
@@ -456,6 +470,16 @@ function encodeAssetFilename(filename) {
     .join("/");
 }
 
+function normalizeComparableUrl(value) {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
 function getMigratableAssetFilename(rawUrl) {
   try {
     const url = new URL(rawUrl);
@@ -481,10 +505,16 @@ function migrateFaceUrl(face, publicBaseUrl, stats) {
     return face;
   }
 
+  const nextUrl = `${publicBaseUrl}/assets/local-assets/${encodeAssetFilename(filename)}`;
+
+  if (normalizeComparableUrl(face.url) === normalizeComparableUrl(nextUrl)) {
+    return face;
+  }
+
   stats.urls += 1;
   return {
     ...face,
-    url: `${publicBaseUrl}/assets/local-assets/${encodeAssetFilename(filename)}`,
+    url: nextUrl,
   };
 }
 
@@ -503,14 +533,20 @@ function migrateCardItem(item, publicBaseUrl, stats) {
       back: migrateFaceUrl(metadata.faces.back, publicBaseUrl, stats),
     },
   };
+  const currentFace = nextMetadata.faces[nextMetadata.currentFace] || nextMetadata.faces.front;
+  const urlsChanged = stats.urls !== urlCountBefore;
+  const divinitySizingChanged = needsDivinitySizing(item, currentFace);
 
-  if (stats.urls === urlCountBefore) {
+  if (!urlsChanged && !divinitySizingChanged) {
     return false;
   }
 
-  const currentFace = nextMetadata.faces[nextMetadata.currentFace] || nextMetadata.faces.front;
   item.image = createImageData(currentFace);
   item.grid = createGridData(currentFace, nextMetadata.gridWidth);
+  applyDivinitySizing(item, currentFace);
+  if (divinitySizingChanged) {
+    stats.sized += 1;
+  }
   setCardMetadata(item, nextMetadata);
   return true;
 }
@@ -563,6 +599,7 @@ async function migrateSceneLocalAssets() {
   const stats = {
     items: 0,
     urls: 0,
+    sized: 0,
   };
 
   await obr.scene.items.updateItems(items, (draftItems) => {
@@ -578,14 +615,25 @@ async function migrateSceneLocalAssets() {
   });
 
   if (!stats.items) {
-    setMessage("Nao encontrei cartas ou pilhas com links locais nesta cena.", "warning");
+    setMessage("Nao encontrei links locais ou divindades fora do padrao nesta cena.", "warning");
     return;
   }
 
   const itemLabel = stats.items === 1 ? "1 item" : `${stats.items} itens`;
   const urlLabel = stats.urls === 1 ? "1 imagem" : `${stats.urls} imagens`;
-  setMessage(`Migrei ${itemLabel} da cena para usar ${urlLabel} publicas.`, "success");
-  await obr.notification.show("Links locais migrados para o GitHub Pages.", "SUCCESS");
+  const divinityLabel =
+    stats.sized === 1 ? "1 divindade ajustada" : `${stats.sized} divindades ajustadas`;
+  const message = stats.urls
+    ? `Migrei ${itemLabel} da cena para usar ${urlLabel} publicas${
+        stats.sized ? `; ${divinityLabel}.` : "."
+      }`
+    : `${divinityLabel}.`;
+
+  setMessage(message, "success");
+  await obr.notification.show(
+    stats.urls ? "Links locais migrados para o GitHub Pages." : "Divindades ajustadas.",
+    "SUCCESS",
+  );
 }
 
 async function createDefaultBoardFromCurrentScene() {
@@ -1237,8 +1285,12 @@ async function createPresetDeck() {
 
 async function init() {
   populateSelectionBoardControls();
-  elements.form.addEventListener("submit", createCard);
-  elements.deckForm.addEventListener("submit", createDeck);
+  if (elements.form) {
+    elements.form.addEventListener("submit", createCard);
+  }
+  if (elements.deckForm) {
+    elements.deckForm.addEventListener("submit", createDeck);
+  }
   elements.presetDeckSelect.addEventListener("change", () =>
     updatePresetDeckControls(Boolean(obr), true),
   );
@@ -1385,56 +1437,58 @@ async function init() {
       await obr.notification.show(message, "SUCCESS");
     }),
   );
-  elements.frontUrl.addEventListener("input", () =>
-    clearAsset("front") ||
-    updatePreview(elements.frontUrl, elements.frontFile, elements.frontPreview),
-  );
-  elements.frontFile.addEventListener("change", () =>
-    clearAsset("front") ||
-    updatePreview(elements.frontUrl, elements.frontFile, elements.frontPreview),
-  );
-  elements.pickFrontAssetButton.addEventListener("click", () =>
-    pickSingleAsset("front", elements.frontPreview, elements.layer).catch((error) => {
-      console.error(error);
-      setMessage(error.message || "Nao consegui escolher a frente dos assets.", "error");
-    }),
-  );
-  elements.backUrl.addEventListener("input", () =>
-    clearAsset("back") ||
-    updatePreview(elements.backUrl, elements.backFile, elements.backPreview),
-  );
-  elements.backFile.addEventListener("change", () =>
-    clearAsset("back") ||
-    updatePreview(elements.backUrl, elements.backFile, elements.backPreview),
-  );
-  elements.pickBackAssetButton.addEventListener("click", () =>
-    pickSingleAsset("back", elements.backPreview, elements.layer).catch((error) => {
-      console.error(error);
-      setMessage(error.message || "Nao consegui escolher o verso dos assets.", "error");
-    }),
-  );
-  elements.deckBackUrl.addEventListener("input", () =>
-    clearAsset("deckBack") ||
-    updatePreview(elements.deckBackUrl, elements.deckBackFile, elements.deckBackPreview),
-  );
-  elements.deckBackFile.addEventListener("change", () =>
-    clearAsset("deckBack") ||
-    updatePreview(elements.deckBackUrl, elements.deckBackFile, elements.deckBackPreview),
-  );
-  elements.pickDeckBackAssetButton.addEventListener("click", () =>
-    pickSingleAsset("deckBack", elements.deckBackPreview, elements.deckLayer).catch((error) => {
-      console.error(error);
-      setMessage(error.message || "Nao consegui escolher o verso dos assets.", "error");
-    }),
-  );
-  elements.deckFrontUrls.addEventListener("input", () => clearAsset("deckFronts"));
-  elements.deckFrontFiles.addEventListener("change", () => clearAsset("deckFronts"));
-  elements.pickDeckFrontAssetsButton.addEventListener("click", () =>
-    pickDeckFrontAssets().catch((error) => {
-      console.error(error);
-      setMessage(error.message || "Nao consegui escolher as frentes dos assets.", "error");
-    }),
-  );
+  if (elements.form && elements.deckForm) {
+    elements.frontUrl.addEventListener("input", () =>
+      clearAsset("front") ||
+      updatePreview(elements.frontUrl, elements.frontFile, elements.frontPreview),
+    );
+    elements.frontFile.addEventListener("change", () =>
+      clearAsset("front") ||
+      updatePreview(elements.frontUrl, elements.frontFile, elements.frontPreview),
+    );
+    elements.pickFrontAssetButton.addEventListener("click", () =>
+      pickSingleAsset("front", elements.frontPreview, elements.layer).catch((error) => {
+        console.error(error);
+        setMessage(error.message || "Nao consegui escolher a frente dos assets.", "error");
+      }),
+    );
+    elements.backUrl.addEventListener("input", () =>
+      clearAsset("back") ||
+      updatePreview(elements.backUrl, elements.backFile, elements.backPreview),
+    );
+    elements.backFile.addEventListener("change", () =>
+      clearAsset("back") ||
+      updatePreview(elements.backUrl, elements.backFile, elements.backPreview),
+    );
+    elements.pickBackAssetButton.addEventListener("click", () =>
+      pickSingleAsset("back", elements.backPreview, elements.layer).catch((error) => {
+        console.error(error);
+        setMessage(error.message || "Nao consegui escolher o verso dos assets.", "error");
+      }),
+    );
+    elements.deckBackUrl.addEventListener("input", () =>
+      clearAsset("deckBack") ||
+      updatePreview(elements.deckBackUrl, elements.deckBackFile, elements.deckBackPreview),
+    );
+    elements.deckBackFile.addEventListener("change", () =>
+      clearAsset("deckBack") ||
+      updatePreview(elements.deckBackUrl, elements.deckBackFile, elements.deckBackPreview),
+    );
+    elements.pickDeckBackAssetButton.addEventListener("click", () =>
+      pickSingleAsset("deckBack", elements.deckBackPreview, elements.deckLayer).catch((error) => {
+        console.error(error);
+        setMessage(error.message || "Nao consegui escolher o verso dos assets.", "error");
+      }),
+    );
+    elements.deckFrontUrls.addEventListener("input", () => clearAsset("deckFronts"));
+    elements.deckFrontFiles.addEventListener("change", () => clearAsset("deckFronts"));
+    elements.pickDeckFrontAssetsButton.addEventListener("click", () =>
+      pickDeckFrontAssets().catch((error) => {
+        console.error(error);
+        setMessage(error.message || "Nao consegui escolher as frentes dos assets.", "error");
+      }),
+    );
+  }
   elements.migratePublicButton.addEventListener("click", () => {
     elements.migratePublicButton.disabled = true;
     setMessage("Migrando links locais da cena...", "neutral");
@@ -1454,21 +1508,23 @@ async function init() {
     runPanelAction(elements.restoreDefaultBoardButton, restoreDefaultBoard),
   );
 
-  updatePreview(elements.frontUrl, elements.frontFile, elements.frontPreview, selectedAssets.front);
-  updatePreview(elements.backUrl, elements.backFile, elements.backPreview, selectedAssets.back);
-  updatePreview(
-    elements.deckBackUrl,
-    elements.deckBackFile,
-    elements.deckBackPreview,
-    selectedAssets.deckBack,
-  );
+  if (elements.form && elements.deckForm) {
+    updatePreview(elements.frontUrl, elements.frontFile, elements.frontPreview, selectedAssets.front);
+    updatePreview(elements.backUrl, elements.backFile, elements.backPreview, selectedAssets.back);
+    updatePreview(
+      elements.deckBackUrl,
+      elements.deckBackFile,
+      elements.deckBackPreview,
+      selectedAssets.deckBack,
+    );
+  }
   setConnectionStatus("Painel carregado; conectando...", false);
   setMessage("Previa ativa. Conectando ao Owlbear...", "neutral");
 
   try {
     const loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=37").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=38").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
     obr = loaded.OBR;

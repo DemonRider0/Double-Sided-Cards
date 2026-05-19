@@ -120,6 +120,9 @@ function createGridData(face, gridWidth) {
   };
 }
 
+const RETURN_LOCK_MS = 1800;
+const RETURN_LOCK_SETTLE_MS = 100;
+
 function getDeckItems(items) {
   return items.filter((item) => isDeckMetadata(getDeckMetadata(item)));
 }
@@ -206,6 +209,105 @@ function shuffleCards(cards) {
   }
 
   return shuffled;
+}
+
+function wait(delayMs) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
+}
+
+function isActiveReturnLock(lock, now = Date.now()) {
+  return Boolean(
+    lock &&
+      typeof lock === "object" &&
+      typeof lock.expiresAt === "number" &&
+      lock.expiresAt > now,
+  );
+}
+
+function getActiveReturnLocks(metadata, now = Date.now()) {
+  const locks = metadata.returnLocks;
+
+  if (!locks || typeof locks !== "object") {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(locks).filter(([, lock]) => isActiveReturnLock(lock, now)),
+  );
+}
+
+async function acquireDeckReturnLocks(OBR, targetDeck, cards) {
+  const cardIds = [...new Set(cards.map((card) => card.id).filter(Boolean))];
+
+  if (!cardIds.length) {
+    return null;
+  }
+
+  const lockId = `return:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+  const expiresAt = Date.now() + RETURN_LOCK_MS;
+  let requestedCardIds = [];
+
+  await OBR.scene.items.updateItems([targetDeck], (items) => {
+    const item = items[0];
+    const metadata = item ? getDeckMetadata(item) : null;
+
+    if (!metadata) {
+      return;
+    }
+
+    const now = Date.now();
+    const activeLocks = getActiveReturnLocks(metadata, now);
+    const returnedCardIds =
+      metadata.returnedCardIds && typeof metadata.returnedCardIds === "object"
+        ? metadata.returnedCardIds
+        : {};
+    const availableCardIds = cardIds.filter(
+      (cardId) => !returnedCardIds[cardId] && !isActiveReturnLock(activeLocks[cardId], now),
+    );
+
+    if (!availableCardIds.length) {
+      return;
+    }
+
+    const returnLocks = { ...activeLocks };
+
+    for (const cardId of availableCardIds) {
+      returnLocks[cardId] = {
+        id: lockId,
+        expiresAt,
+      };
+    }
+
+    requestedCardIds = availableCardIds;
+    setDeckMetadata(item, {
+      ...metadata,
+      returnLocks,
+    });
+  });
+
+  if (!requestedCardIds.length) {
+    return null;
+  }
+
+  await wait(RETURN_LOCK_SETTLE_MS);
+
+  const [lockedDeck] = getDeckItems(await OBR.scene.items.getItems([targetDeck.id]));
+  const metadata = lockedDeck ? getDeckMetadata(lockedDeck) : null;
+  const lockedCardIds = requestedCardIds.filter(
+    (cardId) => metadata?.returnLocks?.[cardId]?.id === lockId,
+  );
+
+  if (!lockedCardIds.length) {
+    return null;
+  }
+
+  return {
+    deck: lockedDeck,
+    cardIds: lockedCardIds,
+    lockId,
+  };
 }
 
 async function getDrawOffset(OBR) {
@@ -378,7 +480,20 @@ async function returnCardsToDeck(OBR, cards, fallbackDeckSelection = []) {
     return 0;
   }
 
-  const returnedCards = cardsToReturn.map((item) => {
+  const returnLock = await acquireDeckReturnLocks(OBR, targetDeck, cardsToReturn);
+
+  if (!returnLock) {
+    return 0;
+  }
+
+  const lockedCardIds = new Set(returnLock.cardIds);
+  const lockedCards = cardsToReturn.filter((card) => lockedCardIds.has(card.id));
+
+  if (!lockedCards.length) {
+    return 0;
+  }
+
+  let returnedCards = lockedCards.map((item) => {
     const metadata = getCardMetadata(item);
 
     return {
@@ -387,21 +502,56 @@ async function returnCardsToDeck(OBR, cards, fallbackDeckSelection = []) {
     };
   });
 
-  await OBR.scene.items.updateItems([targetDeck], (items) => {
+  let returnedCardIds = [];
+
+  await OBR.scene.items.updateItems([returnLock.deck], (items) => {
     const item = items[0];
     const metadata = getDeckMetadata(item);
+    const activeLocks = getActiveReturnLocks(metadata);
+    const cardsStillLocked = lockedCards.filter(
+      (card) => activeLocks[card.id]?.id === returnLock.lockId,
+    );
+
+    if (!cardsStillLocked.length) {
+      returnedCards = [];
+      return;
+    }
+
+    returnedCardIds = cardsStillLocked.map((card) => card.id);
+    returnedCards = cardsStillLocked.map((card) => {
+      const cardMetadata = getCardMetadata(card);
+
+      return {
+        name: cardMetadata.name || card.name || "Carta",
+        front: cardMetadata.faces.front,
+      };
+    });
+
+    const returnedCardMap =
+      metadata.returnedCardIds && typeof metadata.returnedCardIds === "object"
+        ? metadata.returnedCardIds
+        : {};
     const nextMetadata = {
       ...metadata,
       cards: [...metadata.cards, ...returnedCards],
+      returnLocks: activeLocks,
+      returnedCardIds: {
+        ...returnedCardMap,
+        ...Object.fromEntries(returnedCardIds.map((cardId) => [cardId, true])),
+      },
     };
 
     applyDeckDisplay(item, nextMetadata);
     setDeckMetadata(item, nextMetadata);
   });
 
-  await OBR.scene.items.deleteItems(cardsToReturn.map((item) => item.id));
+  if (!returnedCardIds.length) {
+    return 0;
+  }
 
-  return cardsToReturn.length;
+  await OBR.scene.items.deleteItems(returnedCardIds);
+
+  return returnedCardIds.length;
 }
 
 async function returnSelectedCardsToDeck(
@@ -525,6 +675,425 @@ async function showActionFeedback(OBR, buildLabel, message, anchorItems = []) {
   }
 }
 
+const COLOR_TOKEN_KEY = `${EXTENSION_ID}/color-token`;
+const CARD_CATEGORY_KEY = `${EXTENSION_ID}/card-category`;
+const ACTIVE_COLOR_KEY = `${EXTENSION_ID}/active-color`;
+const SELECTION_BOARD_KEY = `${EXTENSION_ID}/selection-board`;
+
+const PLAYER_COLORS = [
+  { id: "red", label: "Vermelho", aliases: ["vermelho", "red"] },
+  { id: "white", label: "Branco", aliases: ["branco", "white"] },
+  { id: "green", label: "Verde", aliases: ["verde", "green"] },
+  { id: "blue", label: "Azul", aliases: ["azul", "blue"] },
+];
+
+const CARD_CATEGORIES = [
+  { id: "race", label: "Raca" },
+  { id: "class", label: "Classe" },
+  { id: "divinity", label: "Divindade" },
+];
+
+const PLAYER_COLOR_IDS = new Set(PLAYER_COLORS.map((color) => color.id));
+const CATEGORY_IDS = new Set(CARD_CATEGORIES.map((category) => category.id));
+
+function getColorLabel(colorId) {
+  return PLAYER_COLORS.find((color) => color.id === colorId)?.label || "cor";
+}
+
+function getCategoryLabel(categoryId) {
+  return CARD_CATEGORIES.find((category) => category.id === categoryId)?.label || "categoria";
+}
+
+function normalizePlayerColor(colorId) {
+  return PLAYER_COLOR_IDS.has(colorId) ? colorId : null;
+}
+
+function normalizeCategory(categoryId) {
+  return CATEGORY_IDS.has(categoryId) ? categoryId : null;
+}
+
+function createEmptyState() {
+  const slots = {};
+  const assigned = {};
+  const tokens = {};
+
+  for (const color of PLAYER_COLORS) {
+    slots[color.id] = {};
+    assigned[color.id] = {};
+    tokens[color.id] = null;
+  }
+
+  return {
+    version: 1,
+    slots,
+    assigned,
+    origins: {},
+    tokens,
+  };
+}
+
+function normalizeState(value) {
+  const state = createEmptyState();
+
+  if (!value || typeof value !== "object") {
+    return state;
+  }
+
+  for (const color of PLAYER_COLORS) {
+    state.slots[color.id] = {
+      ...state.slots[color.id],
+      ...(value.slots?.[color.id] || {}),
+    };
+    state.assigned[color.id] = {
+      ...state.assigned[color.id],
+      ...(value.assigned?.[color.id] || {}),
+    };
+    state.tokens[color.id] = value.tokens?.[color.id] || null;
+  }
+
+  state.origins = value.origins && typeof value.origins === "object" ? value.origins : {};
+  return state;
+}
+
+async function getSceneState(OBR) {
+  const metadata = await OBR.scene.getMetadata();
+  return normalizeState(metadata[SELECTION_BOARD_KEY]);
+}
+
+async function setSceneState(OBR, state) {
+  await OBR.scene.setMetadata({
+    [SELECTION_BOARD_KEY]: state,
+  });
+}
+
+function capturePlacement(item) {
+  return {
+    position: { ...item.position },
+    rotation: item.rotation,
+    scale: { ...item.scale },
+    layer: item.layer,
+    zIndex: item.zIndex,
+    locked: item.locked,
+  };
+}
+
+function getTopZIndex(placement) {
+  return Math.max(Date.now(), Number.isFinite(placement?.zIndex) ? placement.zIndex + 1 : 0);
+}
+
+function applyPlacement(item, placement, options = {}) {
+  item.position = { ...placement.position };
+  item.rotation = placement.rotation;
+  item.scale = { ...placement.scale };
+  item.layer = placement.layer;
+
+  if (Number.isFinite(options.zIndex)) {
+    item.zIndex = options.zIndex;
+  } else if (Number.isFinite(placement.zIndex)) {
+    item.zIndex = placement.zIndex;
+  }
+}
+
+async function getSelectedItems(OBR, fallbackSelection = []) {
+  const selection = await OBR.player.getSelection();
+  const itemIds = selection?.length ? selection : fallbackSelection;
+
+  if (!itemIds.length) {
+    return [];
+  }
+
+  return OBR.scene.items.getItems(itemIds);
+}
+
+function getPrimaryImage(items) {
+  return items.find((item) => item.type === "IMAGE") || null;
+}
+
+async function getSelectedImage(OBR, fallbackSelection = []) {
+  const item = getPrimaryImage(await getSelectedItems(OBR, fallbackSelection));
+
+  if (!item) {
+    throw new Error("Selecione uma imagem na cena.");
+  }
+
+  return item;
+}
+
+async function safeGetItems(OBR, ids) {
+  const uniqueIds = [...new Set(ids.filter(Boolean))];
+
+  if (!uniqueIds.length) {
+    return [];
+  }
+
+  const itemResults = await Promise.all(
+    uniqueIds.map((id) =>
+      OBR.scene.items
+        .getItems([id])
+        .then((items) => items[0] || null)
+        .catch(() => null),
+    ),
+  );
+
+  return itemResults.filter(Boolean);
+}
+
+function colorFromText(text) {
+  const normalized = (text || "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+
+  for (const color of PLAYER_COLORS) {
+    if (color.aliases.some((alias) => normalized.includes(alias))) {
+      return color.id;
+    }
+  }
+
+  return null;
+}
+
+function detectPlayerColorFromItem(item) {
+  const metadataColor = normalizePlayerColor(item.metadata?.[COLOR_TOKEN_KEY]?.color);
+
+  if (metadataColor) {
+    return metadataColor;
+  }
+
+  return colorFromText(
+    [
+      item.name,
+      item.description,
+      item.text?.plainText,
+      item.image?.url,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+}
+
+function detectCardCategoryFromItem(item) {
+  return normalizeCategory(item.metadata?.[CARD_CATEGORY_KEY]?.category);
+}
+
+async function getActivePlayerColor(OBR) {
+  const metadata = await OBR.player.getMetadata();
+  return normalizePlayerColor(metadata[ACTIVE_COLOR_KEY]?.color);
+}
+
+async function getCurrentPlayerId(OBR) {
+  try {
+    return await OBR.player.getId();
+  } catch {
+    return OBR.player.id;
+  }
+}
+
+async function getPlayerUsingColor(OBR, color) {
+  if (!OBR.party?.getPlayers) {
+    return null;
+  }
+
+  const [currentPlayerId, players] = await Promise.all([
+    getCurrentPlayerId(OBR),
+    OBR.party.getPlayers(),
+  ]);
+
+  return (
+    players.find(
+      (player) =>
+        player.id !== currentPlayerId &&
+        normalizePlayerColor(player.metadata?.[ACTIVE_COLOR_KEY]?.color) === color,
+    ) || null
+  );
+}
+
+async function setActivePlayerColor(OBR, colorId) {
+  const color = normalizePlayerColor(colorId);
+
+  if (!color) {
+    throw new Error("Escolha uma cor valida.");
+  }
+
+  const claimedBy = await getPlayerUsingColor(OBR, color);
+
+  if (claimedBy) {
+    throw new Error(
+      `${getColorLabel(color)} ja esta em uso por ${claimedBy.name || "outro jogador"}.`,
+    );
+  }
+
+  await OBR.player.setMetadata({
+    [ACTIVE_COLOR_KEY]: {
+      version: 1,
+      color,
+    },
+  });
+
+  return color;
+}
+
+function clearAssignmentsForItem(state, itemId) {
+  for (const color of PLAYER_COLORS) {
+    for (const category of CARD_CATEGORIES) {
+      if (state.assigned[color.id][category.id] === itemId) {
+        state.assigned[color.id][category.id] = null;
+      }
+    }
+  }
+}
+
+function isAssignedItem(state, itemId) {
+  return PLAYER_COLORS.some((color) =>
+    CARD_CATEGORIES.some((category) => state.assigned[color.id][category.id] === itemId),
+  );
+}
+
+async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelection = []) {
+  const category = normalizeCategory(categoryId);
+
+  if (!category) {
+    throw new Error("Escolha uma categoria valida.");
+  }
+
+  const selectedItem = await getSelectedImage(OBR, fallbackSelection);
+  const state = await getSceneState(OBR);
+  const selectedWasAssigned = isAssignedItem(state, selectedItem.id);
+
+  if (selectedWasAssigned) {
+    return {
+      ignored: true,
+      category,
+    };
+  }
+
+  const color = await getActivePlayerColor(OBR);
+
+  if (!color) {
+    throw new Error("Escolha uma cor antes de posicionar a carta.");
+  }
+
+  const slot = state.slots[color]?.[category];
+
+  if (!slot) {
+    throw new Error(
+      `Salve primeiro o slot de ${getCategoryLabel(category)} para ${getColorLabel(color)}.`,
+    );
+  }
+
+  const previousItemId = state.assigned[color]?.[category];
+  const items = await safeGetItems(OBR, [selectedItem.id, previousItemId]);
+  const previousItem = previousItemId
+    ? items.find((item) => item.id === previousItemId)
+    : null;
+
+  if (!state.origins[selectedItem.id]) {
+    state.origins[selectedItem.id] = capturePlacement(selectedItem);
+  }
+
+  clearAssignmentsForItem(state, selectedItem.id);
+  state.assigned[color][category] = selectedItem.id;
+
+  if (previousItem && previousItem.id !== selectedItem.id) {
+    const origin = state.origins[previousItem.id];
+
+    if (origin) {
+      clearAssignmentsForItem(state, previousItem.id);
+    }
+  }
+
+  await OBR.scene.items.updateItems(items, (draftItems) => {
+    for (const item of draftItems) {
+      if (item.id === selectedItem.id) {
+        applyPlacement(item, slot, { zIndex: getTopZIndex(slot) });
+        item.locked = category !== "divinity";
+        continue;
+      }
+
+      if (previousItem && item.id === previousItem.id) {
+        const origin = state.origins[item.id];
+
+        if (origin) {
+          applyPlacement(item, origin);
+          item.locked = origin.locked;
+        } else {
+          item.locked = false;
+        }
+      }
+    }
+  });
+
+  await setSceneState(OBR, state);
+
+  return {
+    color,
+    category,
+    replaced: Boolean(previousItem && previousItem.id !== selectedItem.id),
+  };
+}
+
+const DIVINITY_GRID_WIDTH = 2;
+const DIVINITY_GRID_HEIGHT = 3;
+const DIVINITY_ORIGIN = {
+  x: 390,
+  y: 395,
+};
+const EPSILON = 0.0001;
+
+function isDivinityCategoryItem(item) {
+  return item?.metadata?.[CARD_CATEGORY_KEY]?.category === "divinity";
+}
+
+function getDivinityGridData(face) {
+  const dpi = Math.max(1, face.width / DIVINITY_GRID_WIDTH);
+
+  return {
+    dpi,
+    offset: { ...DIVINITY_ORIGIN },
+  };
+}
+
+function getDivinityScale(face) {
+  const dpi = Math.max(1, face.width / DIVINITY_GRID_WIDTH);
+
+  return {
+    x: 1,
+    y: (DIVINITY_GRID_HEIGHT * dpi) / Math.max(1, face.height),
+  };
+}
+
+function almostEqual(left, right) {
+  return Math.abs(Number(left || 0) - Number(right || 0)) <= EPSILON;
+}
+
+function needsDivinitySizing(item, face = item?.image) {
+  if (!isDivinityCategoryItem(item) || !face?.width || !face?.height) {
+    return false;
+  }
+
+  const grid = getDivinityGridData(face);
+  const scale = getDivinityScale(face);
+
+  return !(
+    almostEqual(item.grid?.dpi, grid.dpi) &&
+    almostEqual(item.grid?.offset?.x, grid.offset.x) &&
+    almostEqual(item.grid?.offset?.y, grid.offset.y) &&
+    almostEqual(item.scale?.x, scale.x) &&
+    almostEqual(item.scale?.y, scale.y)
+  );
+}
+
+function applyDivinitySizing(item, face = item?.image) {
+  if (!isDivinityCategoryItem(item) || !face?.width || !face?.height) {
+    return false;
+  }
+
+  const changed = needsDivinitySizing(item, face);
+  item.grid = getDivinityGridData(face);
+  item.scale = getDivinityScale(face);
+  return changed;
+}
+
 function getDoubleSidedCards(items) {
   return items.filter((item) => isCardMetadata(getCardMetadata(item)));
 }
@@ -544,6 +1113,7 @@ async function flipItems(OBR, items) {
 
       item.image = createImageData(face);
       item.grid = createGridData(face, metadata.gridWidth);
+      applyDivinitySizing(item, face);
       item.description = `Carta dupla: ${faceLabel(targetFace)}`;
       setCardMetadata(item, {
         ...metadata,
@@ -3865,363 +4435,6 @@ async function loadOwlbearSdk(timeoutMs = 5000) {
   return { OBR, sdk: { buildImage, buildLabel } };
 }
 
-const COLOR_TOKEN_KEY = `${EXTENSION_ID}/color-token`;
-const CARD_CATEGORY_KEY = `${EXTENSION_ID}/card-category`;
-const ACTIVE_COLOR_KEY = `${EXTENSION_ID}/active-color`;
-const SELECTION_BOARD_KEY = `${EXTENSION_ID}/selection-board`;
-
-const PLAYER_COLORS = [
-  { id: "red", label: "Vermelho", aliases: ["vermelho", "red"] },
-  { id: "white", label: "Branco", aliases: ["branco", "white"] },
-  { id: "green", label: "Verde", aliases: ["verde", "green"] },
-  { id: "blue", label: "Azul", aliases: ["azul", "blue"] },
-];
-
-const CARD_CATEGORIES = [
-  { id: "race", label: "Raca" },
-  { id: "class", label: "Classe" },
-  { id: "divinity", label: "Divindade" },
-];
-
-const PLAYER_COLOR_IDS = new Set(PLAYER_COLORS.map((color) => color.id));
-const CATEGORY_IDS = new Set(CARD_CATEGORIES.map((category) => category.id));
-
-function getColorLabel(colorId) {
-  return PLAYER_COLORS.find((color) => color.id === colorId)?.label || "cor";
-}
-
-function getCategoryLabel(categoryId) {
-  return CARD_CATEGORIES.find((category) => category.id === categoryId)?.label || "categoria";
-}
-
-function normalizePlayerColor(colorId) {
-  return PLAYER_COLOR_IDS.has(colorId) ? colorId : null;
-}
-
-function normalizeCategory(categoryId) {
-  return CATEGORY_IDS.has(categoryId) ? categoryId : null;
-}
-
-function createEmptyState() {
-  const slots = {};
-  const assigned = {};
-  const tokens = {};
-
-  for (const color of PLAYER_COLORS) {
-    slots[color.id] = {};
-    assigned[color.id] = {};
-    tokens[color.id] = null;
-  }
-
-  return {
-    version: 1,
-    slots,
-    assigned,
-    origins: {},
-    tokens,
-  };
-}
-
-function normalizeState(value) {
-  const state = createEmptyState();
-
-  if (!value || typeof value !== "object") {
-    return state;
-  }
-
-  for (const color of PLAYER_COLORS) {
-    state.slots[color.id] = {
-      ...state.slots[color.id],
-      ...(value.slots?.[color.id] || {}),
-    };
-    state.assigned[color.id] = {
-      ...state.assigned[color.id],
-      ...(value.assigned?.[color.id] || {}),
-    };
-    state.tokens[color.id] = value.tokens?.[color.id] || null;
-  }
-
-  state.origins = value.origins && typeof value.origins === "object" ? value.origins : {};
-  return state;
-}
-
-async function getSceneState(OBR) {
-  const metadata = await OBR.scene.getMetadata();
-  return normalizeState(metadata[SELECTION_BOARD_KEY]);
-}
-
-async function setSceneState(OBR, state) {
-  await OBR.scene.setMetadata({
-    [SELECTION_BOARD_KEY]: state,
-  });
-}
-
-function capturePlacement(item) {
-  return {
-    position: { ...item.position },
-    rotation: item.rotation,
-    scale: { ...item.scale },
-    layer: item.layer,
-    zIndex: item.zIndex,
-    locked: item.locked,
-  };
-}
-
-function getTopZIndex(placement) {
-  return Math.max(Date.now(), Number.isFinite(placement?.zIndex) ? placement.zIndex + 1 : 0);
-}
-
-function applyPlacement(item, placement, options = {}) {
-  item.position = { ...placement.position };
-  item.rotation = placement.rotation;
-  item.scale = { ...placement.scale };
-  item.layer = placement.layer;
-
-  if (Number.isFinite(options.zIndex)) {
-    item.zIndex = options.zIndex;
-  } else if (Number.isFinite(placement.zIndex)) {
-    item.zIndex = placement.zIndex;
-  }
-}
-
-async function getSelectedItems(OBR, fallbackSelection = []) {
-  const selection = await OBR.player.getSelection();
-  const itemIds = selection?.length ? selection : fallbackSelection;
-
-  if (!itemIds.length) {
-    return [];
-  }
-
-  return OBR.scene.items.getItems(itemIds);
-}
-
-function getPrimaryImage(items) {
-  return items.find((item) => item.type === "IMAGE") || null;
-}
-
-async function getSelectedImage(OBR, fallbackSelection = []) {
-  const item = getPrimaryImage(await getSelectedItems(OBR, fallbackSelection));
-
-  if (!item) {
-    throw new Error("Selecione uma imagem na cena.");
-  }
-
-  return item;
-}
-
-async function safeGetItems(OBR, ids) {
-  const uniqueIds = [...new Set(ids.filter(Boolean))];
-
-  if (!uniqueIds.length) {
-    return [];
-  }
-
-  const itemResults = await Promise.all(
-    uniqueIds.map((id) =>
-      OBR.scene.items
-        .getItems([id])
-        .then((items) => items[0] || null)
-        .catch(() => null),
-    ),
-  );
-
-  return itemResults.filter(Boolean);
-}
-
-function colorFromText(text) {
-  const normalized = (text || "")
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase();
-
-  for (const color of PLAYER_COLORS) {
-    if (color.aliases.some((alias) => normalized.includes(alias))) {
-      return color.id;
-    }
-  }
-
-  return null;
-}
-
-function detectPlayerColorFromItem(item) {
-  const metadataColor = normalizePlayerColor(item.metadata?.[COLOR_TOKEN_KEY]?.color);
-
-  if (metadataColor) {
-    return metadataColor;
-  }
-
-  return colorFromText(
-    [
-      item.name,
-      item.description,
-      item.text?.plainText,
-      item.image?.url,
-    ]
-      .filter(Boolean)
-      .join(" "),
-  );
-}
-
-function detectCardCategoryFromItem(item) {
-  return normalizeCategory(item.metadata?.[CARD_CATEGORY_KEY]?.category);
-}
-
-async function getActivePlayerColor(OBR) {
-  const metadata = await OBR.player.getMetadata();
-  return normalizePlayerColor(metadata[ACTIVE_COLOR_KEY]?.color);
-}
-
-async function getCurrentPlayerId(OBR) {
-  try {
-    return await OBR.player.getId();
-  } catch {
-    return OBR.player.id;
-  }
-}
-
-async function getPlayerUsingColor(OBR, color) {
-  if (!OBR.party?.getPlayers) {
-    return null;
-  }
-
-  const [currentPlayerId, players] = await Promise.all([
-    getCurrentPlayerId(OBR),
-    OBR.party.getPlayers(),
-  ]);
-
-  return (
-    players.find(
-      (player) =>
-        player.id !== currentPlayerId &&
-        normalizePlayerColor(player.metadata?.[ACTIVE_COLOR_KEY]?.color) === color,
-    ) || null
-  );
-}
-
-async function setActivePlayerColor(OBR, colorId) {
-  const color = normalizePlayerColor(colorId);
-
-  if (!color) {
-    throw new Error("Escolha uma cor valida.");
-  }
-
-  const claimedBy = await getPlayerUsingColor(OBR, color);
-
-  if (claimedBy) {
-    throw new Error(
-      `${getColorLabel(color)} ja esta em uso por ${claimedBy.name || "outro jogador"}.`,
-    );
-  }
-
-  await OBR.player.setMetadata({
-    [ACTIVE_COLOR_KEY]: {
-      version: 1,
-      color,
-    },
-  });
-
-  return color;
-}
-
-function clearAssignmentsForItem(state, itemId) {
-  for (const color of PLAYER_COLORS) {
-    for (const category of CARD_CATEGORIES) {
-      if (state.assigned[color.id][category.id] === itemId) {
-        state.assigned[color.id][category.id] = null;
-      }
-    }
-  }
-}
-
-function isAssignedItem(state, itemId) {
-  return PLAYER_COLORS.some((color) =>
-    CARD_CATEGORIES.some((category) => state.assigned[color.id][category.id] === itemId),
-  );
-}
-
-async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelection = []) {
-  const category = normalizeCategory(categoryId);
-
-  if (!category) {
-    throw new Error("Escolha uma categoria valida.");
-  }
-
-  const selectedItem = await getSelectedImage(OBR, fallbackSelection);
-  const state = await getSceneState(OBR);
-  const selectedWasAssigned = isAssignedItem(state, selectedItem.id);
-
-  if (selectedWasAssigned) {
-    return {
-      ignored: true,
-      category,
-    };
-  }
-
-  const color = await getActivePlayerColor(OBR);
-
-  if (!color) {
-    throw new Error("Escolha uma cor antes de posicionar a carta.");
-  }
-
-  const slot = state.slots[color]?.[category];
-
-  if (!slot) {
-    throw new Error(
-      `Salve primeiro o slot de ${getCategoryLabel(category)} para ${getColorLabel(color)}.`,
-    );
-  }
-
-  const previousItemId = state.assigned[color]?.[category];
-  const items = await safeGetItems(OBR, [selectedItem.id, previousItemId]);
-  const previousItem = previousItemId
-    ? items.find((item) => item.id === previousItemId)
-    : null;
-
-  if (!state.origins[selectedItem.id]) {
-    state.origins[selectedItem.id] = capturePlacement(selectedItem);
-  }
-
-  clearAssignmentsForItem(state, selectedItem.id);
-  state.assigned[color][category] = selectedItem.id;
-
-  if (previousItem && previousItem.id !== selectedItem.id) {
-    const origin = state.origins[previousItem.id];
-
-    if (origin) {
-      clearAssignmentsForItem(state, previousItem.id);
-    }
-  }
-
-  await OBR.scene.items.updateItems(items, (draftItems) => {
-    for (const item of draftItems) {
-      if (item.id === selectedItem.id) {
-        applyPlacement(item, slot, { zIndex: getTopZIndex(slot) });
-        item.locked = category !== "divinity";
-        continue;
-      }
-
-      if (previousItem && item.id === previousItem.id) {
-        const origin = state.origins[item.id];
-
-        if (origin) {
-          applyPlacement(item, origin);
-          item.locked = origin.locked;
-        } else {
-          item.locked = false;
-        }
-      }
-    }
-  });
-
-  await setSceneState(OBR, state);
-
-  return {
-    color,
-    category,
-    replaced: Boolean(previousItem && previousItem.id !== selectedItem.id),
-  };
-}
-
 function assetUrl(path) {
   return new URL(`../${path}`, import.meta.url).toString();
 }
@@ -4461,9 +4674,10 @@ async function setupContextMenu() {
       lock &&
         typeof lock === "object" &&
         typeof lock.expiresAt === "number" &&
-        lock.expiresAt > Date.now()
+        lock.expiresAt > Date.now(),
     );
   }
+
   function isActiveCardReturnLock(lock) {
     return isActiveDeckDragLock(lock);
   }
@@ -4515,6 +4729,7 @@ async function setupContextMenu() {
 
     return metadata?.dragDrawLock?.id === lock.id ? lockedDeck : null;
   }
+
   async function acquireCardReturnLock(card) {
     const [currentCard] = getCardItems(await OBR.scene.items.getItems([card.id]));
 

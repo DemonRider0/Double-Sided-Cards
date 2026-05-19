@@ -12,6 +12,9 @@ import {
   setDeckMetadata,
 } from "./card-data.js";
 
+const RETURN_LOCK_MS = 1800;
+const RETURN_LOCK_SETTLE_MS = 100;
+
 export function getDeckItems(items) {
   return items.filter((item) => isDeckMetadata(getDeckMetadata(item)));
 }
@@ -98,6 +101,105 @@ function shuffleCards(cards) {
   }
 
   return shuffled;
+}
+
+function wait(delayMs) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
+}
+
+function isActiveReturnLock(lock, now = Date.now()) {
+  return Boolean(
+    lock &&
+      typeof lock === "object" &&
+      typeof lock.expiresAt === "number" &&
+      lock.expiresAt > now,
+  );
+}
+
+function getActiveReturnLocks(metadata, now = Date.now()) {
+  const locks = metadata.returnLocks;
+
+  if (!locks || typeof locks !== "object") {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(locks).filter(([, lock]) => isActiveReturnLock(lock, now)),
+  );
+}
+
+async function acquireDeckReturnLocks(OBR, targetDeck, cards) {
+  const cardIds = [...new Set(cards.map((card) => card.id).filter(Boolean))];
+
+  if (!cardIds.length) {
+    return null;
+  }
+
+  const lockId = `return:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+  const expiresAt = Date.now() + RETURN_LOCK_MS;
+  let requestedCardIds = [];
+
+  await OBR.scene.items.updateItems([targetDeck], (items) => {
+    const item = items[0];
+    const metadata = item ? getDeckMetadata(item) : null;
+
+    if (!metadata) {
+      return;
+    }
+
+    const now = Date.now();
+    const activeLocks = getActiveReturnLocks(metadata, now);
+    const returnedCardIds =
+      metadata.returnedCardIds && typeof metadata.returnedCardIds === "object"
+        ? metadata.returnedCardIds
+        : {};
+    const availableCardIds = cardIds.filter(
+      (cardId) => !returnedCardIds[cardId] && !isActiveReturnLock(activeLocks[cardId], now),
+    );
+
+    if (!availableCardIds.length) {
+      return;
+    }
+
+    const returnLocks = { ...activeLocks };
+
+    for (const cardId of availableCardIds) {
+      returnLocks[cardId] = {
+        id: lockId,
+        expiresAt,
+      };
+    }
+
+    requestedCardIds = availableCardIds;
+    setDeckMetadata(item, {
+      ...metadata,
+      returnLocks,
+    });
+  });
+
+  if (!requestedCardIds.length) {
+    return null;
+  }
+
+  await wait(RETURN_LOCK_SETTLE_MS);
+
+  const [lockedDeck] = getDeckItems(await OBR.scene.items.getItems([targetDeck.id]));
+  const metadata = lockedDeck ? getDeckMetadata(lockedDeck) : null;
+  const lockedCardIds = requestedCardIds.filter(
+    (cardId) => metadata?.returnLocks?.[cardId]?.id === lockId,
+  );
+
+  if (!lockedCardIds.length) {
+    return null;
+  }
+
+  return {
+    deck: lockedDeck,
+    cardIds: lockedCardIds,
+    lockId,
+  };
 }
 
 async function getDrawOffset(OBR) {
@@ -270,7 +372,20 @@ export async function returnCardsToDeck(OBR, cards, fallbackDeckSelection = []) 
     return 0;
   }
 
-  const returnedCards = cardsToReturn.map((item) => {
+  const returnLock = await acquireDeckReturnLocks(OBR, targetDeck, cardsToReturn);
+
+  if (!returnLock) {
+    return 0;
+  }
+
+  const lockedCardIds = new Set(returnLock.cardIds);
+  const lockedCards = cardsToReturn.filter((card) => lockedCardIds.has(card.id));
+
+  if (!lockedCards.length) {
+    return 0;
+  }
+
+  let returnedCards = lockedCards.map((item) => {
     const metadata = getCardMetadata(item);
 
     return {
@@ -279,21 +394,56 @@ export async function returnCardsToDeck(OBR, cards, fallbackDeckSelection = []) 
     };
   });
 
-  await OBR.scene.items.updateItems([targetDeck], (items) => {
+  let returnedCardIds = [];
+
+  await OBR.scene.items.updateItems([returnLock.deck], (items) => {
     const item = items[0];
     const metadata = getDeckMetadata(item);
+    const activeLocks = getActiveReturnLocks(metadata);
+    const cardsStillLocked = lockedCards.filter(
+      (card) => activeLocks[card.id]?.id === returnLock.lockId,
+    );
+
+    if (!cardsStillLocked.length) {
+      returnedCards = [];
+      return;
+    }
+
+    returnedCardIds = cardsStillLocked.map((card) => card.id);
+    returnedCards = cardsStillLocked.map((card) => {
+      const cardMetadata = getCardMetadata(card);
+
+      return {
+        name: cardMetadata.name || card.name || "Carta",
+        front: cardMetadata.faces.front,
+      };
+    });
+
+    const returnedCardMap =
+      metadata.returnedCardIds && typeof metadata.returnedCardIds === "object"
+        ? metadata.returnedCardIds
+        : {};
     const nextMetadata = {
       ...metadata,
       cards: [...metadata.cards, ...returnedCards],
+      returnLocks: activeLocks,
+      returnedCardIds: {
+        ...returnedCardMap,
+        ...Object.fromEntries(returnedCardIds.map((cardId) => [cardId, true])),
+      },
     };
 
     applyDeckDisplay(item, nextMetadata);
     setDeckMetadata(item, nextMetadata);
   });
 
-  await OBR.scene.items.deleteItems(cardsToReturn.map((item) => item.id));
+  if (!returnedCardIds.length) {
+    return 0;
+  }
 
-  return cardsToReturn.length;
+  await OBR.scene.items.deleteItems(returnedCardIds);
+
+  return returnedCardIds.length;
 }
 
 export async function returnSelectedCardsToDeck(

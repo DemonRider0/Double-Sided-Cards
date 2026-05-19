@@ -159,6 +159,9 @@ function getMimeFromUrl(rawUrl) {
   return "image/png";
 }
 
+const RETURN_LOCK_MS = 1800;
+const RETURN_LOCK_SETTLE_MS = 100;
+
 function getDeckItems(items) {
   return items.filter((item) => isDeckMetadata(getDeckMetadata(item)));
 }
@@ -215,6 +218,105 @@ function shuffleCards(cards) {
   }
 
   return shuffled;
+}
+
+function wait(delayMs) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
+}
+
+function isActiveReturnLock(lock, now = Date.now()) {
+  return Boolean(
+    lock &&
+      typeof lock === "object" &&
+      typeof lock.expiresAt === "number" &&
+      lock.expiresAt > now,
+  );
+}
+
+function getActiveReturnLocks(metadata, now = Date.now()) {
+  const locks = metadata.returnLocks;
+
+  if (!locks || typeof locks !== "object") {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(locks).filter(([, lock]) => isActiveReturnLock(lock, now)),
+  );
+}
+
+async function acquireDeckReturnLocks(OBR, targetDeck, cards) {
+  const cardIds = [...new Set(cards.map((card) => card.id).filter(Boolean))];
+
+  if (!cardIds.length) {
+    return null;
+  }
+
+  const lockId = `return:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+  const expiresAt = Date.now() + RETURN_LOCK_MS;
+  let requestedCardIds = [];
+
+  await OBR.scene.items.updateItems([targetDeck], (items) => {
+    const item = items[0];
+    const metadata = item ? getDeckMetadata(item) : null;
+
+    if (!metadata) {
+      return;
+    }
+
+    const now = Date.now();
+    const activeLocks = getActiveReturnLocks(metadata, now);
+    const returnedCardIds =
+      metadata.returnedCardIds && typeof metadata.returnedCardIds === "object"
+        ? metadata.returnedCardIds
+        : {};
+    const availableCardIds = cardIds.filter(
+      (cardId) => !returnedCardIds[cardId] && !isActiveReturnLock(activeLocks[cardId], now),
+    );
+
+    if (!availableCardIds.length) {
+      return;
+    }
+
+    const returnLocks = { ...activeLocks };
+
+    for (const cardId of availableCardIds) {
+      returnLocks[cardId] = {
+        id: lockId,
+        expiresAt,
+      };
+    }
+
+    requestedCardIds = availableCardIds;
+    setDeckMetadata(item, {
+      ...metadata,
+      returnLocks,
+    });
+  });
+
+  if (!requestedCardIds.length) {
+    return null;
+  }
+
+  await wait(RETURN_LOCK_SETTLE_MS);
+
+  const [lockedDeck] = getDeckItems(await OBR.scene.items.getItems([targetDeck.id]));
+  const metadata = lockedDeck ? getDeckMetadata(lockedDeck) : null;
+  const lockedCardIds = requestedCardIds.filter(
+    (cardId) => metadata?.returnLocks?.[cardId]?.id === lockId,
+  );
+
+  if (!lockedCardIds.length) {
+    return null;
+  }
+
+  return {
+    deck: lockedDeck,
+    cardIds: lockedCardIds,
+    lockId,
+  };
 }
 
 async function getDrawOffset(OBR) {
@@ -387,7 +489,20 @@ async function returnCardsToDeck(OBR, cards, fallbackDeckSelection = []) {
     return 0;
   }
 
-  const returnedCards = cardsToReturn.map((item) => {
+  const returnLock = await acquireDeckReturnLocks(OBR, targetDeck, cardsToReturn);
+
+  if (!returnLock) {
+    return 0;
+  }
+
+  const lockedCardIds = new Set(returnLock.cardIds);
+  const lockedCards = cardsToReturn.filter((card) => lockedCardIds.has(card.id));
+
+  if (!lockedCards.length) {
+    return 0;
+  }
+
+  let returnedCards = lockedCards.map((item) => {
     const metadata = getCardMetadata(item);
 
     return {
@@ -396,21 +511,56 @@ async function returnCardsToDeck(OBR, cards, fallbackDeckSelection = []) {
     };
   });
 
-  await OBR.scene.items.updateItems([targetDeck], (items) => {
+  let returnedCardIds = [];
+
+  await OBR.scene.items.updateItems([returnLock.deck], (items) => {
     const item = items[0];
     const metadata = getDeckMetadata(item);
+    const activeLocks = getActiveReturnLocks(metadata);
+    const cardsStillLocked = lockedCards.filter(
+      (card) => activeLocks[card.id]?.id === returnLock.lockId,
+    );
+
+    if (!cardsStillLocked.length) {
+      returnedCards = [];
+      return;
+    }
+
+    returnedCardIds = cardsStillLocked.map((card) => card.id);
+    returnedCards = cardsStillLocked.map((card) => {
+      const cardMetadata = getCardMetadata(card);
+
+      return {
+        name: cardMetadata.name || card.name || "Carta",
+        front: cardMetadata.faces.front,
+      };
+    });
+
+    const returnedCardMap =
+      metadata.returnedCardIds && typeof metadata.returnedCardIds === "object"
+        ? metadata.returnedCardIds
+        : {};
     const nextMetadata = {
       ...metadata,
       cards: [...metadata.cards, ...returnedCards],
+      returnLocks: activeLocks,
+      returnedCardIds: {
+        ...returnedCardMap,
+        ...Object.fromEntries(returnedCardIds.map((cardId) => [cardId, true])),
+      },
     };
 
     applyDeckDisplay(item, nextMetadata);
     setDeckMetadata(item, nextMetadata);
   });
 
-  await OBR.scene.items.deleteItems(cardsToReturn.map((item) => item.id));
+  if (!returnedCardIds.length) {
+    return 0;
+  }
 
-  return cardsToReturn.length;
+  await OBR.scene.items.deleteItems(returnedCardIds);
+
+  return returnedCardIds.length;
 }
 
 async function returnSelectedCardsToDeck(
@@ -420,49 +570,6 @@ async function returnSelectedCardsToDeck(
 ) {
   const cards = await getSelectedCardItems(OBR, fallbackCardSelection);
   return returnCardsToDeck(OBR, cards, fallbackDeckSelection);
-}
-
-function getDoubleSidedCards(items) {
-  return items.filter((item) => isCardMetadata(getCardMetadata(item)));
-}
-
-async function flipItems(OBR, items) {
-  const itemsToFlip = getDoubleSidedCards(items);
-
-  if (!itemsToFlip.length) {
-    return 0;
-  }
-
-  await OBR.scene.items.updateItems(itemsToFlip, (draftItems) => {
-    for (const item of draftItems) {
-      const metadata = getCardMetadata(item);
-      const targetFace = nextFace(metadata.currentFace);
-      const face = metadata.faces[targetFace];
-
-      item.image = createImageData(face);
-      item.grid = createGridData(face, metadata.gridWidth);
-      item.description = `Carta dupla: ${faceLabel(targetFace)}`;
-      setCardMetadata(item, {
-        ...metadata,
-        currentFace: targetFace,
-      });
-    }
-  });
-
-  return itemsToFlip.length;
-}
-
-async function flipSelectedItems(OBR, fallbackSelection = []) {
-  const selection = await OBR.player.getSelection();
-
-  const itemIds = selection?.length ? selection : fallbackSelection;
-
-  if (!itemIds.length) {
-    return 0;
-  }
-
-  const selectedItems = await OBR.scene.items.getItems(itemIds);
-  return flipItems(OBR, selectedItems);
 }
 
 const COLOR_TOKEN_KEY = `${EXTENSION_ID}/color-token`;
@@ -780,6 +887,112 @@ async function returnSelectedCardToOrigin(OBR, fallbackSelection = []) {
   await setSceneState(OBR, state);
 
   return true;
+}
+
+const DIVINITY_GRID_WIDTH = 2;
+const DIVINITY_GRID_HEIGHT = 3;
+const DIVINITY_ORIGIN = {
+  x: 390,
+  y: 395,
+};
+const EPSILON = 0.0001;
+
+function isDivinityCategoryItem(item) {
+  return item?.metadata?.[CARD_CATEGORY_KEY]?.category === "divinity";
+}
+
+function getDivinityGridData(face) {
+  const dpi = Math.max(1, face.width / DIVINITY_GRID_WIDTH);
+
+  return {
+    dpi,
+    offset: { ...DIVINITY_ORIGIN },
+  };
+}
+
+function getDivinityScale(face) {
+  const dpi = Math.max(1, face.width / DIVINITY_GRID_WIDTH);
+
+  return {
+    x: 1,
+    y: (DIVINITY_GRID_HEIGHT * dpi) / Math.max(1, face.height),
+  };
+}
+
+function almostEqual(left, right) {
+  return Math.abs(Number(left || 0) - Number(right || 0)) <= EPSILON;
+}
+
+function needsDivinitySizing(item, face = item?.image) {
+  if (!isDivinityCategoryItem(item) || !face?.width || !face?.height) {
+    return false;
+  }
+
+  const grid = getDivinityGridData(face);
+  const scale = getDivinityScale(face);
+
+  return !(
+    almostEqual(item.grid?.dpi, grid.dpi) &&
+    almostEqual(item.grid?.offset?.x, grid.offset.x) &&
+    almostEqual(item.grid?.offset?.y, grid.offset.y) &&
+    almostEqual(item.scale?.x, scale.x) &&
+    almostEqual(item.scale?.y, scale.y)
+  );
+}
+
+function applyDivinitySizing(item, face = item?.image) {
+  if (!isDivinityCategoryItem(item) || !face?.width || !face?.height) {
+    return false;
+  }
+
+  const changed = needsDivinitySizing(item, face);
+  item.grid = getDivinityGridData(face);
+  item.scale = getDivinityScale(face);
+  return changed;
+}
+
+function getDoubleSidedCards(items) {
+  return items.filter((item) => isCardMetadata(getCardMetadata(item)));
+}
+
+async function flipItems(OBR, items) {
+  const itemsToFlip = getDoubleSidedCards(items);
+
+  if (!itemsToFlip.length) {
+    return 0;
+  }
+
+  await OBR.scene.items.updateItems(itemsToFlip, (draftItems) => {
+    for (const item of draftItems) {
+      const metadata = getCardMetadata(item);
+      const targetFace = nextFace(metadata.currentFace);
+      const face = metadata.faces[targetFace];
+
+      item.image = createImageData(face);
+      item.grid = createGridData(face, metadata.gridWidth);
+      applyDivinitySizing(item, face);
+      item.description = `Carta dupla: ${faceLabel(targetFace)}`;
+      setCardMetadata(item, {
+        ...metadata,
+        currentFace: targetFace,
+      });
+    }
+  });
+
+  return itemsToFlip.length;
+}
+
+async function flipSelectedItems(OBR, fallbackSelection = []) {
+  const selection = await OBR.player.getSelection();
+
+  const itemIds = selection?.length ? selection : fallbackSelection;
+
+  if (!itemIds.length) {
+    return 0;
+  }
+
+  const selectedItems = await OBR.scene.items.getItems(itemIds);
+  return flipItems(OBR, selectedItems);
 }
 
 const PRESET_DECKS_URL = new URL("../assets/preset-decks/decks.json", import.meta.url);
@@ -1186,12 +1399,24 @@ function setMessage(text, tone = "neutral") {
 function setConnectionStatus(text, isConnected) {
   elements.connectionStatus.textContent = text;
   elements.connectionStatus.dataset.connected = String(isConnected);
-  elements.importButton.disabled = !isConnected;
-  elements.importDeckButton.disabled = !isConnected;
-  elements.pickFrontAssetButton.disabled = !isConnected;
-  elements.pickBackAssetButton.disabled = !isConnected;
-  elements.pickDeckBackAssetButton.disabled = !isConnected;
-  elements.pickDeckFrontAssetsButton.disabled = !isConnected;
+  if (elements.importButton) {
+    elements.importButton.disabled = !isConnected;
+  }
+  if (elements.importDeckButton) {
+    elements.importDeckButton.disabled = !isConnected;
+  }
+  if (elements.pickFrontAssetButton) {
+    elements.pickFrontAssetButton.disabled = !isConnected;
+  }
+  if (elements.pickBackAssetButton) {
+    elements.pickBackAssetButton.disabled = !isConnected;
+  }
+  if (elements.pickDeckBackAssetButton) {
+    elements.pickDeckBackAssetButton.disabled = !isConnected;
+  }
+  if (elements.pickDeckFrontAssetsButton) {
+    elements.pickDeckFrontAssetsButton.disabled = !isConnected;
+  }
   elements.migratePublicButton.disabled = !isConnected;
   updateDefaultBoardControls(isConnected);
   elements.panelFlipButton.disabled = !isConnected;
@@ -1401,6 +1626,7 @@ async function repairSceneMetadata() {
 
         item.image = createImageData(face);
         item.grid = createGridData(face, cardMetadata.gridWidth);
+        applyDivinitySizing(item, face);
         item.description = currentFace === "back" ? "Carta dupla: verso" : "Carta dupla: frente";
         setCardMetadata(item, {
           ...cardMetadata,
@@ -1513,6 +1739,16 @@ function encodeAssetFilename(filename) {
     .join("/");
 }
 
+function normalizeComparableUrl(value) {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
 function getMigratableAssetFilename(rawUrl) {
   try {
     const url = new URL(rawUrl);
@@ -1538,10 +1774,16 @@ function migrateFaceUrl(face, publicBaseUrl, stats) {
     return face;
   }
 
+  const nextUrl = `${publicBaseUrl}/assets/local-assets/${encodeAssetFilename(filename)}`;
+
+  if (normalizeComparableUrl(face.url) === normalizeComparableUrl(nextUrl)) {
+    return face;
+  }
+
   stats.urls += 1;
   return {
     ...face,
-    url: `${publicBaseUrl}/assets/local-assets/${encodeAssetFilename(filename)}`,
+    url: nextUrl,
   };
 }
 
@@ -1560,14 +1802,20 @@ function migrateCardItem(item, publicBaseUrl, stats) {
       back: migrateFaceUrl(metadata.faces.back, publicBaseUrl, stats),
     },
   };
+  const currentFace = nextMetadata.faces[nextMetadata.currentFace] || nextMetadata.faces.front;
+  const urlsChanged = stats.urls !== urlCountBefore;
+  const divinitySizingChanged = needsDivinitySizing(item, currentFace);
 
-  if (stats.urls === urlCountBefore) {
+  if (!urlsChanged && !divinitySizingChanged) {
     return false;
   }
 
-  const currentFace = nextMetadata.faces[nextMetadata.currentFace] || nextMetadata.faces.front;
   item.image = createImageData(currentFace);
   item.grid = createGridData(currentFace, nextMetadata.gridWidth);
+  applyDivinitySizing(item, currentFace);
+  if (divinitySizingChanged) {
+    stats.sized += 1;
+  }
   setCardMetadata(item, nextMetadata);
   return true;
 }
@@ -1620,6 +1868,7 @@ async function migrateSceneLocalAssets() {
   const stats = {
     items: 0,
     urls: 0,
+    sized: 0,
   };
 
   await obr.scene.items.updateItems(items, (draftItems) => {
@@ -1635,14 +1884,25 @@ async function migrateSceneLocalAssets() {
   });
 
   if (!stats.items) {
-    setMessage("Nao encontrei cartas ou pilhas com links locais nesta cena.", "warning");
+    setMessage("Nao encontrei links locais ou divindades fora do padrao nesta cena.", "warning");
     return;
   }
 
   const itemLabel = stats.items === 1 ? "1 item" : `${stats.items} itens`;
   const urlLabel = stats.urls === 1 ? "1 imagem" : `${stats.urls} imagens`;
-  setMessage(`Migrei ${itemLabel} da cena para usar ${urlLabel} publicas.`, "success");
-  await obr.notification.show("Links locais migrados para o GitHub Pages.", "SUCCESS");
+  const divinityLabel =
+    stats.sized === 1 ? "1 divindade ajustada" : `${stats.sized} divindades ajustadas`;
+  const message = stats.urls
+    ? `Migrei ${itemLabel} da cena para usar ${urlLabel} publicas${
+        stats.sized ? `; ${divinityLabel}.` : "."
+      }`
+    : `${divinityLabel}.`;
+
+  setMessage(message, "success");
+  await obr.notification.show(
+    stats.urls ? "Links locais migrados para o GitHub Pages." : "Divindades ajustadas.",
+    "SUCCESS",
+  );
 }
 
 async function createDefaultBoardFromCurrentScene() {
@@ -2294,8 +2554,12 @@ async function createPresetDeck() {
 
 async function init() {
   populateSelectionBoardControls();
-  elements.form.addEventListener("submit", createCard);
-  elements.deckForm.addEventListener("submit", createDeck);
+  if (elements.form) {
+    elements.form.addEventListener("submit", createCard);
+  }
+  if (elements.deckForm) {
+    elements.deckForm.addEventListener("submit", createDeck);
+  }
   elements.presetDeckSelect.addEventListener("change", () =>
     updatePresetDeckControls(Boolean(obr), true),
   );
@@ -2442,56 +2706,58 @@ async function init() {
       await obr.notification.show(message, "SUCCESS");
     }),
   );
-  elements.frontUrl.addEventListener("input", () =>
-    clearAsset("front") ||
-    updatePreview(elements.frontUrl, elements.frontFile, elements.frontPreview),
-  );
-  elements.frontFile.addEventListener("change", () =>
-    clearAsset("front") ||
-    updatePreview(elements.frontUrl, elements.frontFile, elements.frontPreview),
-  );
-  elements.pickFrontAssetButton.addEventListener("click", () =>
-    pickSingleAsset("front", elements.frontPreview, elements.layer).catch((error) => {
-      console.error(error);
-      setMessage(error.message || "Nao consegui escolher a frente dos assets.", "error");
-    }),
-  );
-  elements.backUrl.addEventListener("input", () =>
-    clearAsset("back") ||
-    updatePreview(elements.backUrl, elements.backFile, elements.backPreview),
-  );
-  elements.backFile.addEventListener("change", () =>
-    clearAsset("back") ||
-    updatePreview(elements.backUrl, elements.backFile, elements.backPreview),
-  );
-  elements.pickBackAssetButton.addEventListener("click", () =>
-    pickSingleAsset("back", elements.backPreview, elements.layer).catch((error) => {
-      console.error(error);
-      setMessage(error.message || "Nao consegui escolher o verso dos assets.", "error");
-    }),
-  );
-  elements.deckBackUrl.addEventListener("input", () =>
-    clearAsset("deckBack") ||
-    updatePreview(elements.deckBackUrl, elements.deckBackFile, elements.deckBackPreview),
-  );
-  elements.deckBackFile.addEventListener("change", () =>
-    clearAsset("deckBack") ||
-    updatePreview(elements.deckBackUrl, elements.deckBackFile, elements.deckBackPreview),
-  );
-  elements.pickDeckBackAssetButton.addEventListener("click", () =>
-    pickSingleAsset("deckBack", elements.deckBackPreview, elements.deckLayer).catch((error) => {
-      console.error(error);
-      setMessage(error.message || "Nao consegui escolher o verso dos assets.", "error");
-    }),
-  );
-  elements.deckFrontUrls.addEventListener("input", () => clearAsset("deckFronts"));
-  elements.deckFrontFiles.addEventListener("change", () => clearAsset("deckFronts"));
-  elements.pickDeckFrontAssetsButton.addEventListener("click", () =>
-    pickDeckFrontAssets().catch((error) => {
-      console.error(error);
-      setMessage(error.message || "Nao consegui escolher as frentes dos assets.", "error");
-    }),
-  );
+  if (elements.form && elements.deckForm) {
+    elements.frontUrl.addEventListener("input", () =>
+      clearAsset("front") ||
+      updatePreview(elements.frontUrl, elements.frontFile, elements.frontPreview),
+    );
+    elements.frontFile.addEventListener("change", () =>
+      clearAsset("front") ||
+      updatePreview(elements.frontUrl, elements.frontFile, elements.frontPreview),
+    );
+    elements.pickFrontAssetButton.addEventListener("click", () =>
+      pickSingleAsset("front", elements.frontPreview, elements.layer).catch((error) => {
+        console.error(error);
+        setMessage(error.message || "Nao consegui escolher a frente dos assets.", "error");
+      }),
+    );
+    elements.backUrl.addEventListener("input", () =>
+      clearAsset("back") ||
+      updatePreview(elements.backUrl, elements.backFile, elements.backPreview),
+    );
+    elements.backFile.addEventListener("change", () =>
+      clearAsset("back") ||
+      updatePreview(elements.backUrl, elements.backFile, elements.backPreview),
+    );
+    elements.pickBackAssetButton.addEventListener("click", () =>
+      pickSingleAsset("back", elements.backPreview, elements.layer).catch((error) => {
+        console.error(error);
+        setMessage(error.message || "Nao consegui escolher o verso dos assets.", "error");
+      }),
+    );
+    elements.deckBackUrl.addEventListener("input", () =>
+      clearAsset("deckBack") ||
+      updatePreview(elements.deckBackUrl, elements.deckBackFile, elements.deckBackPreview),
+    );
+    elements.deckBackFile.addEventListener("change", () =>
+      clearAsset("deckBack") ||
+      updatePreview(elements.deckBackUrl, elements.deckBackFile, elements.deckBackPreview),
+    );
+    elements.pickDeckBackAssetButton.addEventListener("click", () =>
+      pickSingleAsset("deckBack", elements.deckBackPreview, elements.deckLayer).catch((error) => {
+        console.error(error);
+        setMessage(error.message || "Nao consegui escolher o verso dos assets.", "error");
+      }),
+    );
+    elements.deckFrontUrls.addEventListener("input", () => clearAsset("deckFronts"));
+    elements.deckFrontFiles.addEventListener("change", () => clearAsset("deckFronts"));
+    elements.pickDeckFrontAssetsButton.addEventListener("click", () =>
+      pickDeckFrontAssets().catch((error) => {
+        console.error(error);
+        setMessage(error.message || "Nao consegui escolher as frentes dos assets.", "error");
+      }),
+    );
+  }
   elements.migratePublicButton.addEventListener("click", () => {
     elements.migratePublicButton.disabled = true;
     setMessage("Migrando links locais da cena...", "neutral");
@@ -2511,21 +2777,23 @@ async function init() {
     runPanelAction(elements.restoreDefaultBoardButton, restoreDefaultBoard),
   );
 
-  updatePreview(elements.frontUrl, elements.frontFile, elements.frontPreview, selectedAssets.front);
-  updatePreview(elements.backUrl, elements.backFile, elements.backPreview, selectedAssets.back);
-  updatePreview(
-    elements.deckBackUrl,
-    elements.deckBackFile,
-    elements.deckBackPreview,
-    selectedAssets.deckBack,
-  );
+  if (elements.form && elements.deckForm) {
+    updatePreview(elements.frontUrl, elements.frontFile, elements.frontPreview, selectedAssets.front);
+    updatePreview(elements.backUrl, elements.backFile, elements.backPreview, selectedAssets.back);
+    updatePreview(
+      elements.deckBackUrl,
+      elements.deckBackFile,
+      elements.deckBackPreview,
+      selectedAssets.deckBack,
+    );
+  }
   setConnectionStatus("Painel carregado; conectando...", false);
   setMessage("Previa ativa. Conectando ao Owlbear...", "neutral");
 
   try {
     const loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=37").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=38").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
     obr = loaded.OBR;
