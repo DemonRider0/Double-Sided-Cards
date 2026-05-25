@@ -36,7 +36,11 @@ import {
   saveScenePreset,
   SCENE_PRESETS,
 } from "./scene-preset.js";
-import { ACTIVE_COLOR_KEY, PLAYER_COLORS } from "./selection-board.js";
+import {
+  ACTIVE_COLOR_KEY,
+  PLAYER_COLORS,
+  returnSelectedCardToOrigin,
+} from "./selection-board.js";
 
 const elements = {
   form: document.querySelector("#cardForm"),
@@ -70,6 +74,7 @@ const elements = {
   panelShuffleButton: document.querySelector("#panelShuffleButton"),
   panelReturnButton: document.querySelector("#panelReturnButton"),
   panelRepairButton: document.querySelector("#panelRepairButton"),
+  returnOriginButton: document.querySelector("#returnOriginButton"),
   colorAssignments: document.querySelector("#colorAssignments"),
   publicBaseUrl: document.querySelector("#publicBaseUrl"),
   migratePublicButton: document.querySelector("#migratePublicButton"),
@@ -92,6 +97,7 @@ let lastDeckSelection = [];
 let lastFlipSelection = [];
 let presetDecks = [];
 let scenePresetEntries = [];
+let colorAssignmentsRefreshTimer = null;
 const selectedAssets = {
   front: null,
   back: null,
@@ -145,12 +151,42 @@ function setConnectionStatus(text, isConnected) {
   elements.panelShuffleButton.disabled = !isConnected;
   elements.panelReturnButton.disabled = !isConnected;
   elements.panelRepairButton.disabled = !isConnected;
+  elements.returnOriginButton.disabled = !isConnected;
   updatePresetDeckControls(isConnected);
 }
 
+function normalizePointerColor(color) {
+  const value = String(color || "").trim().toLowerCase();
+
+  if (/^#[0-9a-f]{8}$/.test(value)) {
+    return value.slice(0, 7);
+  }
+
+  const rgb = value.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+
+  if (rgb) {
+    return `#${rgb
+      .slice(1, 4)
+      .map((part) => Number(part).toString(16).padStart(2, "0"))
+      .join("")}`;
+  }
+
+  return value;
+}
+
 function getPlayerColor(player) {
-  const color = player.metadata?.[ACTIVE_COLOR_KEY]?.color;
-  return PLAYER_COLORS.some((entry) => entry.id === color) ? color : null;
+  const metadataColor = player.metadata?.[ACTIVE_COLOR_KEY]?.color;
+
+  if (PLAYER_COLORS.some((entry) => entry.id === metadataColor)) {
+    return metadataColor;
+  }
+
+  const pointerColor = normalizePointerColor(player.color);
+  return (
+    PLAYER_COLORS.find(
+      (entry) => normalizePointerColor(entry.pointerColor) === pointerColor,
+    )?.id || null
+  );
 }
 
 function playerName(player) {
@@ -175,6 +211,54 @@ function renderPlayerColorAssignments(players) {
   }
 }
 
+async function getCurrentPlayerSnapshot() {
+  if (!obr) {
+    return null;
+  }
+
+  const [id, name, color, metadata] = await Promise.all([
+    obr.player.getId().catch(() => obr.player.id || ""),
+    obr.player.getName().catch(() => ""),
+    obr.player.getColor().catch(() => ""),
+    obr.player.getMetadata().catch(() => ({})),
+  ]);
+
+  if (!id) {
+    return null;
+  }
+
+  return {
+    id,
+    name,
+    color,
+    metadata,
+  };
+}
+
+function mergeCurrentPlayer(players, currentPlayer) {
+  if (!currentPlayer?.id) {
+    return players;
+  }
+
+  const nextPlayers = [...players];
+  const playerIndex = nextPlayers.findIndex((player) => player.id === currentPlayer.id);
+
+  if (playerIndex >= 0) {
+    nextPlayers[playerIndex] = {
+      ...nextPlayers[playerIndex],
+      ...currentPlayer,
+      metadata: {
+        ...(nextPlayers[playerIndex].metadata || {}),
+        ...(currentPlayer.metadata || {}),
+      },
+    };
+  } else {
+    nextPlayers.push(currentPlayer);
+  }
+
+  return nextPlayers;
+}
+
 async function refreshPlayerColorAssignments() {
   if (!obr?.party?.getPlayers) {
     renderPlayerColorAssignments([]);
@@ -182,7 +266,11 @@ async function refreshPlayerColorAssignments() {
   }
 
   try {
-    renderPlayerColorAssignments(await obr.party.getPlayers());
+    const [players, currentPlayer] = await Promise.all([
+      obr.party.getPlayers(),
+      getCurrentPlayerSnapshot(),
+    ]);
+    renderPlayerColorAssignments(mergeCurrentPlayer(players, currentPlayer));
   } catch (error) {
     console.warn("Nao consegui atualizar as cores dos jogadores", error);
     if (elements.colorAssignments) {
@@ -1389,6 +1477,14 @@ async function init() {
       setMessage("", "neutral");
     }),
   );
+  elements.returnOriginButton.addEventListener("click", () =>
+    runPanelAction(elements.returnOriginButton, async () => {
+      await returnSelectedCardToOrigin(obr, lastCardSelection);
+      const message = "Carta devolvida para a posicao original.";
+      setMessage(message, "success");
+      await obr.notification.show(message, "SUCCESS");
+    }),
+  );
   elements.panelRepairButton.addEventListener("click", () =>
     runPanelAction(elements.panelRepairButton, async () => {
       const stats = await repairSceneMetadata();
@@ -1497,7 +1593,7 @@ async function init() {
   try {
     const loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=46").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=47").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
     obr = loaded.OBR;
@@ -1524,9 +1620,20 @@ async function init() {
     });
     if (obr.party?.onChange) {
       obr.party.onChange((players) => {
-        renderPlayerColorAssignments(players);
+        refreshPlayerColorAssignments().catch((error) => {
+          console.warn("Nao consegui atualizar as cores do painel", error);
+          renderPlayerColorAssignments(players);
+        });
       });
     }
+    if (colorAssignmentsRefreshTimer) {
+      window.clearInterval(colorAssignmentsRefreshTimer);
+    }
+    colorAssignmentsRefreshTimer = window.setInterval(() => {
+      refreshPlayerColorAssignments().catch((error) => {
+        console.warn("Nao consegui atualizar as cores periodicamente", error);
+      });
+    }, 2500);
     setConnectionStatus("Conectado ao Owlbear", true);
     setMessage("", "neutral");
   } catch (error) {
