@@ -92,7 +92,7 @@ export async function showActionFeedback(OBR, buildLabel, message, anchorItems =
       .strokeWidth(2)
       .lineHeight(1.1)
       .padding(10)
-      .backgroundColor("#168478")
+      .backgroundColor("#8f1f1a")
       .backgroundOpacity(0.9)
       .cornerRadius(10)
       .pointerDirection("DOWN")

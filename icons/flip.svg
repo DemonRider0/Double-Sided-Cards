@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="Flip">
   <path d="M15 13h16c6 0 10 4 10 10s-4 10-10 10H17" fill="none" stroke="#1f1b16" stroke-width="4" stroke-linecap="round"/>
   <path d="M20 7 12 13l8 6" fill="none" stroke="#1f1b16" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-  <rect x="10" y="20" width="20" height="22" rx="3" fill="#0e7c86" stroke="#1f1b16" stroke-width="3"/>
+  <rect x="10" y="20" width="20" height="22" rx="3" fill="#8f1f1a" stroke="#1f1b16" stroke-width="3"/>
   <path d="M15 28h10M15 34h6" stroke="#fff7e8" stroke-width="3" stroke-linecap="round"/>
 </svg>

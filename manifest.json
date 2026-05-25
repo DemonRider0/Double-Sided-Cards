@@ -1,16 +1,16 @@
 {
   "name": "Cartas Duplas",
-  "version": "0.2.48",
+  "version": "0.2.49",
   "manifest_version": 1,
   "author": "DemonRider",
-  "icon": "/Double-Sided-Cards/icons/card.svg",
+  "icon": "/Double-Sided-Cards/icons/card.svg?v=49",
   "description": "Importa cartas com frente e verso e permite vira-las no Owlbear Rodeo.",
   "action": {
     "title": "Cartas",
-    "icon": "/Double-Sided-Cards/icons/card.svg",
-    "popover": "/Double-Sided-Cards/index.html?v=48",
+    "icon": "/Double-Sided-Cards/icons/card.svg?v=49",
+    "popover": "/Double-Sided-Cards/index.html?v=49",
     "height": 680,
     "width": 420
   },
-  "background_url": "/Double-Sided-Cards/background.html?v=48"
+  "background_url": "/Double-Sided-Cards/background.html?v=49"
 }
