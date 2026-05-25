@@ -565,6 +565,24 @@ function normalizeComparableUrl(value) {
   }
 }
 
+function repairNestedPublicUrl(rawUrl, stats) {
+  const value = String(rawUrl || "");
+  const matches = [...value.matchAll(/https?:\/\//g)];
+
+  if (matches.length < 2) {
+    return value;
+  }
+
+  const nextUrl = value.slice(matches[matches.length - 1].index);
+
+  if (normalizeComparableUrl(value) === normalizeComparableUrl(nextUrl)) {
+    return value;
+  }
+
+  stats.urls += 1;
+  return nextUrl;
+}
+
 function getMigratableAssetFilename(rawUrl) {
   try {
     const url = new URL(rawUrl);
@@ -583,24 +601,53 @@ function getMigratableAssetFilename(rawUrl) {
   }
 }
 
-function migrateFaceUrl(face, publicBaseUrl, stats) {
-  const filename = getMigratableAssetFilename(face.url);
+function migrateAssetUrl(rawUrl, publicBaseUrl, stats) {
+  const repairedUrl = repairNestedPublicUrl(rawUrl, stats);
+  const filename = getMigratableAssetFilename(repairedUrl);
 
   if (!filename) {
-    return face;
+    return repairedUrl;
   }
 
   const nextUrl = `${publicBaseUrl}/assets/local-assets/${encodeAssetFilename(filename)}`;
+
+  if (normalizeComparableUrl(repairedUrl) === normalizeComparableUrl(nextUrl)) {
+    return repairedUrl;
+  }
+
+  stats.urls += 1;
+  return nextUrl;
+}
+
+function migrateFaceUrl(face, publicBaseUrl, stats) {
+  const nextUrl = migrateAssetUrl(face.url, publicBaseUrl, stats);
 
   if (normalizeComparableUrl(face.url) === normalizeComparableUrl(nextUrl)) {
     return face;
   }
 
-  stats.urls += 1;
   return {
     ...face,
     url: nextUrl,
   };
+}
+
+function migrateImageItem(item, publicBaseUrl, stats) {
+  if (!item.image?.url) {
+    return false;
+  }
+
+  const nextUrl = migrateAssetUrl(item.image.url, publicBaseUrl, stats);
+
+  if (normalizeComparableUrl(item.image.url) === normalizeComparableUrl(nextUrl)) {
+    return false;
+  }
+
+  item.image = {
+    ...item.image,
+    url: nextUrl,
+  };
+  return true;
 }
 
 function migrateCardItem(item, publicBaseUrl, stats) {
@@ -697,7 +744,8 @@ async function migrateSceneLocalAssets() {
     for (const item of draftItems) {
       const changed =
         migrateCardItem(item, publicBaseUrl, stats) ||
-        migrateDeckItem(item, publicBaseUrl, stats);
+        migrateDeckItem(item, publicBaseUrl, stats) ||
+        migrateImageItem(item, publicBaseUrl, stats);
 
       if (changed) {
         stats.items += 1;
@@ -1593,7 +1641,7 @@ async function init() {
   try {
     const loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=47").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=48").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
     obr = loaded.OBR;
