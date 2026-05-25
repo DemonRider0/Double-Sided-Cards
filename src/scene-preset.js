@@ -1,6 +1,19 @@
 const PRESET_VERSION = 1;
 const ITEM_CHUNK_SIZE = 80;
-const DEFAULT_BOARD_PRESET_URL = "./assets/scene-preset.json";
+export const SCENE_PRESETS = [
+  {
+    id: "tutorial",
+    name: "Tutorial",
+    restoreLabel: "Restaurar o Tutorial",
+    url: "./assets/scene-presets/tutorial.json",
+  },
+  {
+    id: "missao-0-5",
+    name: "Missao 0.5 (nao oficial)",
+    restoreLabel: "Restaurar a Missao 0.5 (nao oficial)",
+    url: "./assets/scene-presets/missao-0-5.json",
+  },
+];
 const READONLY_UPDATE_KEYS = new Set([
   "id",
   "type",
@@ -34,9 +47,21 @@ function isDefaultBoardPreset(value) {
   );
 }
 
-function createDefaultBoardPreset(items, metadata) {
+function getScenePresetDefinition(presetId) {
+  const definition = SCENE_PRESETS.find((preset) => preset.id === presetId);
+
+  if (!definition) {
+    throw new Error("Mapa salvo desconhecido.");
+  }
+
+  return definition;
+}
+
+function createDefaultBoardPreset(items, metadata, definition = SCENE_PRESETS[0]) {
   return {
     version: PRESET_VERSION,
+    id: definition.id,
+    name: definition.name,
     savedAt: new Date().toISOString(),
     itemCount: items.length,
     items: clone(items),
@@ -58,8 +83,8 @@ function restoreItemState(item, presetItem) {
   }
 }
 
-export async function loadDefaultBoardPreset() {
-  const response = await fetch(`${DEFAULT_BOARD_PRESET_URL}?v=${Date.now()}`, {
+export async function loadScenePreset(definition) {
+  const response = await fetch(`${definition.url}?v=${Date.now()}`, {
     cache: "no-store",
   });
 
@@ -68,16 +93,36 @@ export async function loadDefaultBoardPreset() {
   }
 
   const preset = await response.json();
-  return isDefaultBoardPreset(preset) ? preset : null;
+  return isDefaultBoardPreset(preset)
+    ? {
+        ...preset,
+        id: preset.id || definition.id,
+        name: preset.name || definition.name,
+      }
+    : null;
 }
 
-export async function saveDefaultBoardPreset(OBR) {
+export async function loadScenePresetEntries() {
+  return Promise.all(
+    SCENE_PRESETS.map(async (definition) => ({
+      definition,
+      preset: await loadScenePreset(definition),
+    })),
+  );
+}
+
+export async function loadDefaultBoardPreset() {
+  return loadScenePreset(SCENE_PRESETS[0]);
+}
+
+export async function saveScenePreset(OBR, presetId) {
+  const definition = getScenePresetDefinition(presetId);
   const [items, metadata] = await Promise.all([
     OBR.scene.items.getItems(),
     OBR.scene.getMetadata(),
   ]);
-  const preset = createDefaultBoardPreset(items, metadata);
-  const response = await fetch("./__scene_preset", {
+  const preset = createDefaultBoardPreset(items, metadata, definition);
+  const response = await fetch(`./__scene_preset?id=${encodeURIComponent(definition.id)}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -87,16 +132,20 @@ export async function saveDefaultBoardPreset(OBR) {
 
   if (!response.ok) {
     throw new Error(
-      "Nao consegui criar o tabuleiro padrao. Essa acao precisa do servidor localhost.",
+      "Nao consegui criar o mapa salvo. Essa acao precisa do servidor localhost.",
     );
   }
 
   return response.json();
 }
 
+export async function saveDefaultBoardPreset(OBR) {
+  return saveScenePreset(OBR, SCENE_PRESETS[0].id);
+}
+
 export async function restoreDefaultBoardPreset(OBR, preset) {
   if (!isDefaultBoardPreset(preset)) {
-    throw new Error("Nenhum tabuleiro padrao foi cadastrado na extensao.");
+    throw new Error("Nenhum mapa salvo foi cadastrado na extensao.");
   }
 
   const presetItems = clone(preset.items);

@@ -7,7 +7,11 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 const port = Number.parseInt(process.argv[2] ?? "5173", 10);
 const localAssetsDir = path.join(root, ".local-assets");
-const scenePresetPath = path.join(root, "assets", "scene-preset.json");
+const scenePresetDir = path.join(root, "assets", "scene-presets");
+const scenePresetFiles = new Map([
+  ["tutorial", "tutorial.json"],
+  ["missao-0-5", "missao-0-5.json"],
+]);
 
 const contentTypes = new Map([
   [".css", "text/css; charset=utf-8"],
@@ -176,10 +180,19 @@ function isScenePreset(value) {
   );
 }
 
-async function handleScenePresetSave(request, response) {
+async function handleScenePresetSave(request, requestUrl, response) {
   if (request.method !== "POST") {
     response.writeHead(405, getCorsHeaders(request));
     response.end("Metodo nao permitido");
+    return;
+  }
+
+  const presetId = requestUrl.searchParams.get("id") || "tutorial";
+  const filename = scenePresetFiles.get(presetId);
+
+  if (!filename) {
+    response.writeHead(400, getCorsHeaders(request));
+    response.end("Mapa salvo desconhecido");
     return;
   }
 
@@ -192,7 +205,8 @@ async function handleScenePresetSave(request, response) {
     return;
   }
 
-  await mkdir(path.dirname(scenePresetPath), { recursive: true });
+  const scenePresetPath = path.join(scenePresetDir, filename);
+  await mkdir(scenePresetDir, { recursive: true });
   await writeFile(scenePresetPath, `${JSON.stringify(preset, null, 2)}\n`, "utf8");
 
   response.writeHead(200, {
@@ -204,7 +218,7 @@ async function handleScenePresetSave(request, response) {
     JSON.stringify({
       itemCount: preset.items.length,
       savedAt: preset.savedAt,
-      url: "/assets/scene-preset.json",
+      url: `/assets/scene-presets/${filename}`,
     }),
   );
 }
@@ -230,7 +244,7 @@ const server = createServer(async (request, response) => {
     }
 
     if (requestUrl.pathname === "/__scene_preset") {
-      await handleScenePresetSave(request, response);
+      await handleScenePresetSave(request, requestUrl, response);
       return;
     }
 

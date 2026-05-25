@@ -64,6 +64,114 @@ function faceLabel(face) {
   return face === "front" ? "frente" : "verso";
 }
 
+function normalizeComparableText(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\.[^.]+$/, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeComparableUrl(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    url.hash = "";
+    return url.toString().toLowerCase();
+  } catch {
+    return String(value || "").trim().toLowerCase();
+  }
+}
+
+function getGoogleDriveId(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    const pathMatch = url.pathname.match(/\/file\/d\/([^/]+)/);
+    return pathMatch?.[1] || url.searchParams.get("id") || "";
+  } catch {
+    return "";
+  }
+}
+
+function getUrlFilenameKey(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    const filename = decodeURIComponent(url.pathname.split("/").filter(Boolean).pop() || "");
+    return normalizeComparableText(filename);
+  } catch {
+    const filename = String(value || "").split(/[\\/]/).filter(Boolean).pop() || "";
+    return normalizeComparableText(filename);
+  }
+}
+
+function isUsefulFaceKey(value) {
+  return Boolean(
+    value &&
+      !new Set([
+        "back",
+        "carta",
+        "download",
+        "frente",
+        "front",
+        "image",
+        "imagem",
+        "open",
+        "preview",
+        "uc",
+        "verso",
+        "view",
+      ]).has(value),
+  );
+}
+
+function getFaceKeys(face) {
+  return [normalizeComparableText(face?.name), getUrlFilenameKey(face?.url)].filter(isUsefulFaceKey);
+}
+
+function shouldMirrorBackFace(front, back) {
+  if (!front?.url || !back?.url) {
+    return false;
+  }
+
+  if (normalizeComparableUrl(front.url) === normalizeComparableUrl(back.url)) {
+    return true;
+  }
+
+  const frontDriveId = getGoogleDriveId(front.url);
+  const backDriveId = getGoogleDriveId(back.url);
+  if (frontDriveId && frontDriveId === backDriveId) {
+    return true;
+  }
+
+  const backKeys = new Set(getFaceKeys(back));
+  return getFaceKeys(front).some((key) => backKeys.has(key));
+}
+
+function shouldMirrorCardBack(metadata) {
+  if (!metadata?.faces) {
+    return false;
+  }
+
+  return typeof metadata.mirrorBack === "boolean"
+    ? metadata.mirrorBack
+    : shouldMirrorBackFace(metadata.faces.front, metadata.faces.back);
+}
+
+function applyCardFaceTransform(item, metadata, faceId = metadata?.currentFace) {
+  const scale = item.scale && typeof item.scale === "object" ? item.scale : {};
+  const x = Number.isFinite(scale.x) && scale.x !== 0 ? Math.abs(scale.x) : 1;
+  const y = Number.isFinite(scale.y) && scale.y !== 0 ? scale.y : 1;
+  const mirrorBack = faceId === "back" && shouldMirrorCardBack(metadata);
+
+  item.scale = {
+    ...scale,
+    x: mirrorBack ? -x : x,
+    y,
+  };
+}
+
 function createCardMetadata({
   name,
   front,
@@ -78,6 +186,7 @@ function createCardMetadata({
     name,
     currentFace,
     gridWidth,
+    mirrorBack: shouldMirrorBackFace(front, back),
     faces: {
       front,
       back,
@@ -159,21 +268,34 @@ function createDeckText(count) {
   };
 }
 
+function getDeckFace(metadata) {
+  if (metadata.currentFace === "front" && metadata.cards[0]?.front) {
+    return metadata.cards[0].front;
+  }
+
+  return metadata.back;
+}
+
 function applyDeckDisplay(item, metadata) {
   const count = metadata.cards.length;
+  const face = getDeckFace(metadata);
 
   item.name = `${metadata.name} (${count})`;
   item.description = deckDescription(count);
   item.text = createDeckText(count);
+  item.image = createImageData(face);
+  item.grid = createGridData(face, metadata.gridWidth);
 }
 
 function isDeckDisplayCurrent(item, metadata) {
   const count = metadata.cards.length;
+  const face = getDeckFace(metadata);
 
   return (
     item.name === `${metadata.name} (${count})` &&
     item.description === deckDescription(count) &&
-    item.text?.plainText === String(count)
+    item.text?.plainText === String(count) &&
+    item.image?.url === face.url
   );
 }
 
@@ -216,6 +338,14 @@ async function getDrawOffset(OBR) {
   }
 }
 
+async function selectDecks(OBR, deckIds) {
+  if (!deckIds.length) {
+    return;
+  }
+
+  await OBR.player.select(deckIds, true).catch(() => {});
+}
+
 async function drawFromDecks(OBR, buildImage, items, options = {}) {
   const decks = getDeckItems(items).filter(
     (item) => getDeckMetadata(item).cards.length > 0,
@@ -232,12 +362,14 @@ async function drawFromDecks(OBR, buildImage, items, options = {}) {
   for (const [index, deck] of decks.entries()) {
     const metadata = getDeckMetadata(deck);
     const [card, ...remainingCards] = metadata.cards;
+    const drawnFace = metadata.currentFace === "front" ? "front" : "back";
+    const face = drawnFace === "front" ? card.front : metadata.back;
     const cardMetadata = createCardMetadata({
       name: card.name,
       front: card.front,
       back: metadata.back,
       gridWidth: metadata.gridWidth,
-      currentFace: "back",
+      currentFace: drawnFace,
       sourceDeckId: deck.id,
       sourceDeckName: metadata.name,
     });
@@ -247,20 +379,22 @@ async function drawFromDecks(OBR, buildImage, items, options = {}) {
       y: deck.position.y + drawOffset,
     };
     const item = buildImage(
-      createImageData(metadata.back),
-      createGridData(metadata.back, metadata.gridWidth),
+      createImageData(face),
+      createGridData(face, metadata.gridWidth),
     )
       .name(card.name)
-      .description("Carta dupla: verso")
+      .description(`Carta dupla: ${faceLabel(drawnFace)}`)
       .layer(deck.layer)
       .position(position)
       .metadata(createCardMetadataMap(cardMetadata))
       .build();
+    applyCardFaceTransform(item, cardMetadata, drawnFace);
 
     drawnItems.push(item);
     nextMetadataById.set(deck.id, {
       ...metadata,
       cards: remainingCards,
+      currentFace: metadata.currentFace === "front" ? "front" : "back",
     });
   }
 
@@ -282,6 +416,7 @@ async function drawFromDecks(OBR, buildImage, items, options = {}) {
   });
 
   await OBR.scene.items.addItems(drawnItems);
+  await selectDecks(OBR, decks.map((deck) => deck.id));
   return drawnItems.length;
 }
 
@@ -313,10 +448,38 @@ async function shuffleDecks(OBR, items) {
   await OBR.scene.items.updateItems(decks, (draftItems) => {
     for (const item of draftItems) {
       const metadata = getDeckMetadata(item);
-      setDeckMetadata(item, {
+      const nextMetadata = {
         ...metadata,
         cards: shuffleCards(metadata.cards),
-      });
+      };
+
+      applyDeckDisplay(item, nextMetadata);
+      setDeckMetadata(item, nextMetadata);
+    }
+  });
+
+  return decks.length;
+}
+
+async function flipDeckItems(OBR, items) {
+  const decks = getDeckItems(items).filter(
+    (item) => getDeckMetadata(item).cards.length > 0,
+  );
+
+  if (!decks.length) {
+    return 0;
+  }
+
+  await OBR.scene.items.updateItems(decks, (draftItems) => {
+    for (const item of draftItems) {
+      const metadata = getDeckMetadata(item);
+      const nextMetadata = {
+        ...metadata,
+        currentFace: metadata.currentFace === "front" ? "back" : "front",
+      };
+
+      applyDeckDisplay(item, nextMetadata);
+      setDeckMetadata(item, nextMetadata);
     }
   });
 
@@ -394,6 +557,7 @@ async function returnCardsToDeck(OBR, cards, fallbackDeckSelection = []) {
     const nextMetadata = {
       ...metadata,
       cards: [...metadata.cards, ...returnedCards],
+      currentFace: metadata.currentFace === "front" ? "front" : "back",
     };
 
     applyDeckDisplay(item, nextMetadata);
@@ -401,6 +565,7 @@ async function returnCardsToDeck(OBR, cards, fallbackDeckSelection = []) {
   });
 
   await OBR.scene.items.deleteItems(returnedCardIds);
+  await selectDecks(OBR, [targetDeck.id]);
 
   return returnedCardIds.length;
 }
@@ -532,10 +697,10 @@ const ACTIVE_COLOR_KEY = `${EXTENSION_ID}/active-color`;
 const SELECTION_BOARD_KEY = `${EXTENSION_ID}/selection-board`;
 
 const PLAYER_COLORS = [
-  { id: "red", label: "Vermelho", aliases: ["vermelho", "red"] },
-  { id: "white", label: "Branco", aliases: ["branco", "white"] },
-  { id: "green", label: "Verde", aliases: ["verde", "green"] },
-  { id: "blue", label: "Azul", aliases: ["azul", "blue"] },
+  { id: "red", label: "Vermelho", aliases: ["vermelho", "red"], pointerColor: "#ef4444" },
+  { id: "white", label: "Branco", aliases: ["branco", "white"], pointerColor: "#f8fafc" },
+  { id: "green", label: "Verde", aliases: ["verde", "green"], pointerColor: "#22c55e" },
+  { id: "blue", label: "Azul", aliases: ["azul", "blue"], pointerColor: "#3b82f6" },
 ];
 
 const CARD_CATEGORIES = [
@@ -549,6 +714,10 @@ const CATEGORY_IDS = new Set(CARD_CATEGORIES.map((category) => category.id));
 
 function getColorLabel(colorId) {
   return PLAYER_COLORS.find((color) => color.id === colorId)?.label || "cor";
+}
+
+function getPointerColor(colorId) {
+  return PLAYER_COLORS.find((color) => color.id === colorId)?.pointerColor || null;
 }
 
 function getCategoryLabel(categoryId) {
@@ -781,6 +950,12 @@ async function setActivePlayerColor(OBR, colorId) {
     },
   });
 
+  const pointerColor = getPointerColor(color);
+
+  if (pointerColor && typeof OBR.player.setColor === "function") {
+    await OBR.player.setColor(pointerColor).catch(() => {});
+  }
+
   return color;
 }
 
@@ -949,44 +1124,77 @@ function getDoubleSidedCards(items) {
   return items.filter((item) => isCardMetadata(getCardMetadata(item)));
 }
 
+function getPreferredFlipItems(items) {
+  const decks = getDeckItems(items).filter((item) => getDeckMetadata(item).cards.length > 0);
+
+  if (decks.length) {
+    return decks;
+  }
+
+  return getDoubleSidedCards(items);
+}
+
+async function getItemsSafely(OBR, itemIds = []) {
+  if (!itemIds.length) {
+    return [];
+  }
+
+  try {
+    return await OBR.scene.items.getItems(itemIds);
+  } catch {
+    return [];
+  }
+}
+
 async function flipItems(OBR, items) {
   const itemsToFlip = getDoubleSidedCards(items);
+  const deckItemsToFlip = getDeckItems(items);
 
-  if (!itemsToFlip.length) {
+  if (!itemsToFlip.length && !deckItemsToFlip.length) {
     return 0;
   }
 
-  await OBR.scene.items.updateItems(itemsToFlip, (draftItems) => {
-    for (const item of draftItems) {
-      const metadata = getCardMetadata(item);
-      const targetFace = nextFace(metadata.currentFace);
-      const face = metadata.faces[targetFace];
+  if (itemsToFlip.length) {
+    await OBR.scene.items.updateItems(itemsToFlip, (draftItems) => {
+      for (const item of draftItems) {
+        const metadata = getCardMetadata(item);
+        const targetFace = nextFace(metadata.currentFace);
+        const nextMetadata = {
+          ...metadata,
+          currentFace: targetFace,
+          mirrorBack: shouldMirrorBackFace(metadata.faces.front, metadata.faces.back),
+        };
+        const face = nextMetadata.faces[targetFace];
 
-      item.image = createImageData(face);
-      item.grid = createGridData(face, metadata.gridWidth);
-      applyDivinitySizing(item, face);
-      item.description = `Carta dupla: ${faceLabel(targetFace)}`;
-      setCardMetadata(item, {
-        ...metadata,
-        currentFace: targetFace,
-      });
-    }
-  });
+        item.image = createImageData(face);
+        item.grid = createGridData(face, nextMetadata.gridWidth);
+        applyDivinitySizing(item, face);
+        applyCardFaceTransform(item, nextMetadata, targetFace);
+        item.description = `Carta dupla: ${faceLabel(targetFace)}`;
+        setCardMetadata(item, nextMetadata);
+      }
+    });
+  }
 
-  return itemsToFlip.length;
+  return itemsToFlip.length + (await flipDeckItems(OBR, deckItemsToFlip));
 }
 
 async function flipSelectedItems(OBR, fallbackSelection = []) {
-  const selection = await OBR.player.getSelection();
+  const fallbackItems = getPreferredFlipItems(await getItemsSafely(OBR, fallbackSelection));
 
-  const itemIds = selection?.length ? selection : fallbackSelection;
-
-  if (!itemIds.length) {
-    return 0;
+  if (fallbackItems.length) {
+    return flipItems(OBR, fallbackItems);
   }
 
-  const selectedItems = await OBR.scene.items.getItems(itemIds);
-  return flipItems(OBR, selectedItems);
+  const selection = await OBR.player.getSelection();
+  const selectedItems = await getItemsSafely(OBR, selection || []);
+  const selectedFlipItems = getPreferredFlipItems(selectedItems);
+
+  if (selectedFlipItems.length) {
+    return flipItems(OBR, selectedFlipItems);
+  }
+
+  return flipItems(OBR, getPreferredFlipItems(await getItemsSafely(OBR, fallbackSelection)));
 }
 
 var __awaiter$j = (undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
@@ -2912,20 +3120,20 @@ class SceneApi {
     }
 }
 
-function normalizeUrl(url) {
+function normalizeUrl$1(url) {
     return url.startsWith("http") ? url : `${window.location.origin}${url}`;
 }
 /**
  * Normalize icon paths so that relative paths are transformed into absolute paths
  */
 function normalizeIconPaths(icons) {
-    return icons.map((base) => (Object.assign(Object.assign({}, base), { icon: normalizeUrl(base.icon) })));
+    return icons.map((base) => (Object.assign(Object.assign({}, base), { icon: normalizeUrl$1(base.icon) })));
 }
 /**
  * Normalize an object with a url property so that relative paths are transformed into absolute paths
  */
 function normalizeUrlObject(urlObject) {
-    return Object.assign(Object.assign({}, urlObject), { url: normalizeUrl(urlObject.url) });
+    return Object.assign(Object.assign({}, urlObject), { url: normalizeUrl$1(urlObject.url) });
 }
 
 var __awaiter$a = (undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
@@ -4290,10 +4498,159 @@ function assetUrl(path) {
   return new URL(`../${path}`, import.meta.url).toString();
 }
 
+function isLocalhost() {
+  return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+}
+
+function toLocalAssetUrl(value) {
+  if (!isLocalhost() || typeof value !== "string") {
+    return value;
+  }
+
+  try {
+    const url = new URL(value, window.location.origin);
+    const markers = ["/.local-assets/", "/assets/local-assets/"];
+    let filename = "";
+
+    for (const marker of markers) {
+      const markerIndex = url.pathname.indexOf(marker);
+
+      if (markerIndex >= 0) {
+        filename = url.pathname.slice(markerIndex + marker.length);
+        break;
+      }
+    }
+
+    if (!filename) {
+      return value;
+    }
+
+    const nextUrl = `${window.location.origin}/assets/local-assets/${filename}`;
+
+    return normalizeUrl(value) === normalizeUrl(nextUrl) ? value : nextUrl;
+  } catch {
+    return value;
+  }
+}
+
+function normalizeUrl(value) {
+  try {
+    const url = new URL(value, window.location.origin);
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
+function repairFaceUrl(face) {
+  if (!face?.url) {
+    return { face, changed: false };
+  }
+
+  const nextUrl = toLocalAssetUrl(face.url);
+
+  if (nextUrl === face.url) {
+    return { face, changed: false };
+  }
+
+  return {
+    face: {
+      ...face,
+      url: nextUrl,
+    },
+    changed: true,
+  };
+}
+
+function repairSceneAssetUrlsForItem(item) {
+  let changed = false;
+
+  if (item.image?.url) {
+    const nextUrl = toLocalAssetUrl(item.image.url);
+
+    if (nextUrl !== item.image.url) {
+      item.image = {
+        ...item.image,
+        url: nextUrl,
+      };
+      changed = true;
+    }
+  }
+
+  const cardMetadata = getCardMetadata(item);
+
+  if (cardMetadata) {
+    const front = repairFaceUrl(cardMetadata.faces.front);
+    const back = repairFaceUrl(cardMetadata.faces.back);
+
+    if (front.changed || back.changed) {
+      setCardMetadata(item, {
+        ...cardMetadata,
+        faces: {
+          front: front.face,
+          back: back.face,
+        },
+      });
+      changed = true;
+    }
+  }
+
+  const deckMetadata = getDeckMetadata(item);
+
+  if (deckMetadata) {
+    const back = repairFaceUrl(deckMetadata.back);
+    let deckChanged = back.changed;
+    const cards = deckMetadata.cards.map((card) => {
+      const front = repairFaceUrl(card.front);
+      deckChanged ||= front.changed;
+
+      return front.changed
+        ? {
+            ...card,
+            front: front.face,
+          }
+        : card;
+    });
+
+    if (deckChanged) {
+      setDeckMetadata(item, {
+        ...deckMetadata,
+        back: back.face,
+        cards,
+      });
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
+async function repairSceneAssetUrls(OBR, items) {
+  if (!isLocalhost()) {
+    return 0;
+  }
+
+  const repairableItems = items.filter((item) => repairSceneAssetUrlsForItem({ ...item }));
+
+  if (!repairableItems.length) {
+    return 0;
+  }
+
+  await OBR.scene.items.updateItems(repairableItems, (draftItems) => {
+    for (const item of draftItems) {
+      repairSceneAssetUrlsForItem(item);
+    }
+  });
+
+  return repairableItems.length;
+}
+
 async function removePreviousRegistrations(OBR) {
   const extensionIds = [EXTENSION_ID];
   const contextMenuIds = [
     "flip",
+    "flip-deck-top",
     "draw-from-deck",
     "shuffle-deck",
     "return-to-deck",
@@ -4339,6 +4696,7 @@ async function setupContextMenu() {
   const { OBR, sdk } = await loadOwlbearSdk(20000);
   let lastCardSelection = [];
   let lastDeckSelection = [];
+  let lastFlipSelection = [];
   let activePlayerColor = null;
 
   async function rememberCardSelection(selection) {
@@ -4351,6 +4709,7 @@ async function setupContextMenu() {
 
     if (cardIds.length) {
       lastCardSelection = cardIds;
+      lastFlipSelection = cardIds;
     }
   }
 
@@ -4364,6 +4723,7 @@ async function setupContextMenu() {
 
     if (deckIds.length) {
       lastDeckSelection = deckIds;
+      lastFlipSelection = deckIds;
     }
   }
 
@@ -4473,15 +4833,19 @@ async function setupContextMenu() {
   });
   OBR.scene.items
     .getItems()
-    .then((items) => {
-      return syncDeckDisplays(OBR, items);
+    .then(async (items) => {
+      const repairedCount = await repairSceneAssetUrls(OBR, items);
+      return syncDeckDisplays(OBR, repairedCount ? await OBR.scene.items.getItems() : items);
     })
     .catch((error) => {
       console.warn("Nao consegui sincronizar os contadores das pilhas", error);
     });
   OBR.scene.items.onChange((items) => {
-    syncDeckDisplays(OBR, items).catch((error) => {
-      console.warn("Nao consegui sincronizar os contadores alterados das pilhas", error);
+    repairSceneAssetUrls(OBR, items).then(async (repairedCount) => {
+      const nextItems = repairedCount ? await OBR.scene.items.getItems() : items;
+      await syncDeckDisplays(OBR, nextItems);
+    }).catch((error) => {
+      console.warn("Nao consegui sincronizar os itens alterados da cena", error);
     });
   });
 
@@ -4528,11 +4892,41 @@ async function setupContextMenu() {
       ],
       async onClick(context) {
         const count = await drawFromDecks(OBR, sdk.buildImage, context.items);
+        if (count) {
+          lastDeckSelection = getDeckItems(context.items).map((item) => item.id);
+          lastFlipSelection = lastDeckSelection;
+          lastCardSelection = [];
+        }
         await showActionResult(
           count,
           "Carta comprada.",
           (total) => `${total} cartas compradas.`,
           "A pilha esta vazia.",
+          context.items,
+        );
+      },
+    });
+
+    await createContextMenu(OBR, {
+      id: `${EXTENSION_ID}/flip-deck-top`,
+      icons: [
+        {
+          icon: assetUrl("icons/flip.svg"),
+          label: "Virar carta do topo",
+          filter: {
+            permissions: ["UPDATE"],
+            every: [{ key: "type", value: "IMAGE" }],
+            some: deckMetadataFilter(),
+          },
+        },
+      ],
+      async onClick(context) {
+        const count = await flipItems(OBR, context.items);
+        await showActionResult(
+          count,
+          "Topo da pilha virado.",
+          (total) => `${total} pilhas viradas.`,
+          "Selecione uma pilha com cartas.",
           context.items,
         );
       },
@@ -4578,6 +4972,10 @@ async function setupContextMenu() {
       ],
       async onClick(context) {
         const count = await returnCardsToDeck(OBR, context.items, lastDeckSelection);
+        if (count) {
+          lastCardSelection = [];
+          lastFlipSelection = lastDeckSelection;
+        }
         if (!count) {
           await OBR.notification.show(
             "Selecione uma carta e tenha uma pilha alvo selecionada recentemente.",
@@ -4597,13 +4995,23 @@ async function setupContextMenu() {
       ],
       shortcut: "V",
       async onClick() {
-        const anchors = await getAnchorItems(lastCardSelection);
-        const count = await flipSelectedItems(OBR, lastCardSelection);
+        const selection = await OBR.player.getSelection();
+        await Promise.all([
+          rememberCardSelection(selection),
+          rememberDeckSelection(selection),
+        ]);
+        const fallbackSelection = lastFlipSelection.length
+          ? lastFlipSelection
+          : lastDeckSelection.length
+            ? lastDeckSelection
+            : lastCardSelection;
+        const anchors = await getAnchorItems(fallbackSelection);
+        const count = await flipSelectedItems(OBR, fallbackSelection);
         await showActionResult(
           count,
           "Carta virada.",
-          (total) => `${total} cartas viradas.`,
-          "Selecione uma carta dupla para virar.",
+          (total) => `${total} itens virados.`,
+          "Selecione uma carta dupla ou uma pilha com cartas para virar.",
           anchors,
         );
       },
@@ -4621,6 +5029,10 @@ async function setupContextMenu() {
       async onClick() {
         const anchors = await getAnchorItems(lastDeckSelection);
         const count = await drawSelectedDecks(OBR, sdk.buildImage, lastDeckSelection);
+        if (count) {
+          lastFlipSelection = lastDeckSelection;
+          lastCardSelection = [];
+        }
         await showActionResult(
           count,
           "Carta comprada.",
@@ -4669,6 +5081,10 @@ async function setupContextMenu() {
           lastCardSelection,
           lastDeckSelection,
         );
+        if (count) {
+          lastCardSelection = [];
+          lastFlipSelection = lastDeckSelection;
+        }
         if (!count) {
           await OBR.notification.show(
             "Selecione uma carta comprada e uma pilha alvo.",

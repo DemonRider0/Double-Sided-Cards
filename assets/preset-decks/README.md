@@ -32,6 +32,9 @@ Tamanhos padrao atuais:
 Ameacas Elite: 4.5
 Armas: 2.25
 Salas: 1.5
+Salas-Refugiados: 1.5
+Salas-Objetivos: 1.5
+Salas-Normais: 1.5
 Poderes da Tormenta Nivel 1: 2
 Poderes da Tormenta Nivel 2: 2
 Poderes da Tormenta Nivel 3: 2
@@ -46,3 +49,11 @@ Atalho por pasta:
 4. Rode `npm run build:preset-decks`.
 
 O script atualiza `decks.json`.
+
+Pastas cadastradas para salas:
+
+```text
+assets/preset-decks/salas-refugiados
+assets/preset-decks/salas-objetivos
+assets/preset-decks/salas-normais
+```

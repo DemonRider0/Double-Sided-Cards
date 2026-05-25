@@ -6,10 +6,10 @@ export const ACTIVE_COLOR_KEY = `${EXTENSION_ID}/active-color`;
 export const SELECTION_BOARD_KEY = `${EXTENSION_ID}/selection-board`;
 
 export const PLAYER_COLORS = [
-  { id: "red", label: "Vermelho", aliases: ["vermelho", "red"] },
-  { id: "white", label: "Branco", aliases: ["branco", "white"] },
-  { id: "green", label: "Verde", aliases: ["verde", "green"] },
-  { id: "blue", label: "Azul", aliases: ["azul", "blue"] },
+  { id: "red", label: "Vermelho", aliases: ["vermelho", "red"], pointerColor: "#ef4444" },
+  { id: "white", label: "Branco", aliases: ["branco", "white"], pointerColor: "#f8fafc" },
+  { id: "green", label: "Verde", aliases: ["verde", "green"], pointerColor: "#22c55e" },
+  { id: "blue", label: "Azul", aliases: ["azul", "blue"], pointerColor: "#3b82f6" },
 ];
 
 export const CARD_CATEGORIES = [
@@ -23,6 +23,10 @@ const CATEGORY_IDS = new Set(CARD_CATEGORIES.map((category) => category.id));
 
 export function getColorLabel(colorId) {
   return PLAYER_COLORS.find((color) => color.id === colorId)?.label || "cor";
+}
+
+function getPointerColor(colorId) {
+  return PLAYER_COLORS.find((color) => color.id === colorId)?.pointerColor || null;
 }
 
 export function getCategoryLabel(categoryId) {
@@ -254,6 +258,12 @@ export async function setActivePlayerColor(OBR, colorId) {
       color,
     },
   });
+
+  const pointerColor = getPointerColor(color);
+
+  if (pointerColor && typeof OBR.player.setColor === "function") {
+    await OBR.player.setColor(pointerColor).catch(() => {});
+  }
 
   return color;
 }

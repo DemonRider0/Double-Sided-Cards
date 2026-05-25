@@ -7,10 +7,10 @@ Extensao para Owlbear Rodeo criada por DemonRider. Ela adiciona cartas 2D com fr
 Depois que o GitHub Pages publicar este repositorio, use este link no Owlbear:
 
 ```text
-https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=42
+https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=46
 ```
 
-Se o usuario ou o nome do repositorio mudar, tambem sera necessario trocar os caminhos de `manifest.json` e as URLs dentro de `assets/scene-preset.json`.
+Se o usuario ou o nome do repositorio mudar, tambem sera necessario trocar os caminhos de `manifest.json` e as URLs dentro dos arquivos em `assets/scene-presets/`.
 
 ## Publicar no GitHub Pages
 
@@ -30,7 +30,7 @@ Se o usuario ou o nome do repositorio mudar, tambem sera necessario trocar os ca
    - `vendor/`
    - `assets/preset-decks/`
    - `assets/local-assets/`
-   - `assets/scene-preset.json`
+   - `assets/scene-presets/`
    - `.nojekyll`
    - `package.json`
    - `package-lock.json`
@@ -42,9 +42,14 @@ Se o usuario ou o nome do repositorio mudar, tambem sera necessario trocar os ca
 
 ## Tabuleiro padrao
 
-O arquivo `assets/scene-preset.json` guarda o tabuleiro padrao que sera recriado pelo botao `Restaurar tabuleiro padrao`.
+Os arquivos em `assets/scene-presets/` guardam os mapas salvos que podem ser recriados pelos botoes de restauracao.
 
-Na versao publica, o botao `Criar tabuleiro padrao` fica oculto. Isso e intencional: GitHub Pages nao salva arquivos novos. O fluxo publico e commitar o `assets/scene-preset.json` pronto e usar apenas `Restaurar tabuleiro padrao` dentro do Owlbear.
+Na versao publica, os botoes de salvar mapas ficam ocultos. Isso e intencional: GitHub Pages nao salva arquivos novos. O fluxo publico e commitar os arquivos JSON prontos em `assets/scene-presets/` e usar apenas os botoes de restauracao dentro do Owlbear.
+
+Mapas salvos atuais:
+
+- Tutorial: `assets/scene-presets/tutorial.json`
+- Missao 0.5 (nao oficial): `assets/scene-presets/missao-0-5.json` depois de salvar pelo localhost
 
 ## Biblioteca de pilhas
 
@@ -66,6 +71,7 @@ Os tamanhos padrao atuais sao:
 - Ameacas Elite: `4.5`
 - Armas: `2.25`
 - Salas: `1.5`
+- Salas-Refugiados, Salas-Objetivos e Salas-Normais: `1.5`
 - Poderes da Tormenta Nivel 1, 2 e 3: `2`
 - Eventos: `2.25`
 
@@ -99,7 +105,7 @@ node dev-server.mjs 5180
 Abra no Owlbear:
 
 ```text
-http://localhost:5180/manifest.json?v=42
+http://localhost:5180/manifest.json?v=46
 ```
 
 Para testar a versao local separada sem mexer na pasta do Git, use a pasta local de testes.

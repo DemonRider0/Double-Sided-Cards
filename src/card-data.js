@@ -68,6 +68,114 @@ export function faceLabel(face) {
   return face === "front" ? "frente" : "verso";
 }
 
+function normalizeComparableText(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\.[^.]+$/, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeComparableUrl(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    url.hash = "";
+    return url.toString().toLowerCase();
+  } catch {
+    return String(value || "").trim().toLowerCase();
+  }
+}
+
+function getGoogleDriveId(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    const pathMatch = url.pathname.match(/\/file\/d\/([^/]+)/);
+    return pathMatch?.[1] || url.searchParams.get("id") || "";
+  } catch {
+    return "";
+  }
+}
+
+function getUrlFilenameKey(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    const filename = decodeURIComponent(url.pathname.split("/").filter(Boolean).pop() || "");
+    return normalizeComparableText(filename);
+  } catch {
+    const filename = String(value || "").split(/[\\/]/).filter(Boolean).pop() || "";
+    return normalizeComparableText(filename);
+  }
+}
+
+function isUsefulFaceKey(value) {
+  return Boolean(
+    value &&
+      !new Set([
+        "back",
+        "carta",
+        "download",
+        "frente",
+        "front",
+        "image",
+        "imagem",
+        "open",
+        "preview",
+        "uc",
+        "verso",
+        "view",
+      ]).has(value),
+  );
+}
+
+function getFaceKeys(face) {
+  return [normalizeComparableText(face?.name), getUrlFilenameKey(face?.url)].filter(isUsefulFaceKey);
+}
+
+export function shouldMirrorBackFace(front, back) {
+  if (!front?.url || !back?.url) {
+    return false;
+  }
+
+  if (normalizeComparableUrl(front.url) === normalizeComparableUrl(back.url)) {
+    return true;
+  }
+
+  const frontDriveId = getGoogleDriveId(front.url);
+  const backDriveId = getGoogleDriveId(back.url);
+  if (frontDriveId && frontDriveId === backDriveId) {
+    return true;
+  }
+
+  const backKeys = new Set(getFaceKeys(back));
+  return getFaceKeys(front).some((key) => backKeys.has(key));
+}
+
+export function shouldMirrorCardBack(metadata) {
+  if (!metadata?.faces) {
+    return false;
+  }
+
+  return typeof metadata.mirrorBack === "boolean"
+    ? metadata.mirrorBack
+    : shouldMirrorBackFace(metadata.faces.front, metadata.faces.back);
+}
+
+export function applyCardFaceTransform(item, metadata, faceId = metadata?.currentFace) {
+  const scale = item.scale && typeof item.scale === "object" ? item.scale : {};
+  const x = Number.isFinite(scale.x) && scale.x !== 0 ? Math.abs(scale.x) : 1;
+  const y = Number.isFinite(scale.y) && scale.y !== 0 ? scale.y : 1;
+  const mirrorBack = faceId === "back" && shouldMirrorCardBack(metadata);
+
+  item.scale = {
+    ...scale,
+    x: mirrorBack ? -x : x,
+    y,
+  };
+}
+
 export function createCardMetadata({
   name,
   front,
@@ -82,6 +190,7 @@ export function createCardMetadata({
     name,
     currentFace,
     gridWidth,
+    mirrorBack: shouldMirrorBackFace(front, back),
     faces: {
       front,
       back,
@@ -103,6 +212,7 @@ export function createDeckMetadata({ name, back, cards, gridWidth }) {
   return {
     version: 1,
     name,
+    currentFace: "back",
     back,
     cards,
     gridWidth,

@@ -1,9 +1,11 @@
 import {
+  applyCardFaceTransform,
   createCardMetadata,
   createCardMetadataMap,
   createGridData,
   createImageData,
   deckDescription,
+  faceLabel,
   getCardMetadata,
   getDeckMetadata,
   isCardMetadata,
@@ -51,21 +53,34 @@ export function createDeckText(count) {
   };
 }
 
-function applyDeckDisplay(item, metadata) {
+function getDeckFace(metadata) {
+  if (metadata.currentFace === "front" && metadata.cards[0]?.front) {
+    return metadata.cards[0].front;
+  }
+
+  return metadata.back;
+}
+
+export function applyDeckDisplay(item, metadata) {
   const count = metadata.cards.length;
+  const face = getDeckFace(metadata);
 
   item.name = `${metadata.name} (${count})`;
   item.description = deckDescription(count);
   item.text = createDeckText(count);
+  item.image = createImageData(face);
+  item.grid = createGridData(face, metadata.gridWidth);
 }
 
 function isDeckDisplayCurrent(item, metadata) {
   const count = metadata.cards.length;
+  const face = getDeckFace(metadata);
 
   return (
     item.name === `${metadata.name} (${count})` &&
     item.description === deckDescription(count) &&
-    item.text?.plainText === String(count)
+    item.text?.plainText === String(count) &&
+    item.image?.url === face.url
   );
 }
 
@@ -108,6 +123,14 @@ async function getDrawOffset(OBR) {
   }
 }
 
+async function selectDecks(OBR, deckIds) {
+  if (!deckIds.length) {
+    return;
+  }
+
+  await OBR.player.select(deckIds, true).catch(() => {});
+}
+
 export async function drawFromDecks(OBR, buildImage, items, options = {}) {
   const decks = getDeckItems(items).filter(
     (item) => getDeckMetadata(item).cards.length > 0,
@@ -124,12 +147,14 @@ export async function drawFromDecks(OBR, buildImage, items, options = {}) {
   for (const [index, deck] of decks.entries()) {
     const metadata = getDeckMetadata(deck);
     const [card, ...remainingCards] = metadata.cards;
+    const drawnFace = metadata.currentFace === "front" ? "front" : "back";
+    const face = drawnFace === "front" ? card.front : metadata.back;
     const cardMetadata = createCardMetadata({
       name: card.name,
       front: card.front,
       back: metadata.back,
       gridWidth: metadata.gridWidth,
-      currentFace: "back",
+      currentFace: drawnFace,
       sourceDeckId: deck.id,
       sourceDeckName: metadata.name,
     });
@@ -139,20 +164,22 @@ export async function drawFromDecks(OBR, buildImage, items, options = {}) {
       y: deck.position.y + drawOffset,
     };
     const item = buildImage(
-      createImageData(metadata.back),
-      createGridData(metadata.back, metadata.gridWidth),
+      createImageData(face),
+      createGridData(face, metadata.gridWidth),
     )
       .name(card.name)
-      .description("Carta dupla: verso")
+      .description(`Carta dupla: ${faceLabel(drawnFace)}`)
       .layer(deck.layer)
       .position(position)
       .metadata(createCardMetadataMap(cardMetadata))
       .build();
+    applyCardFaceTransform(item, cardMetadata, drawnFace);
 
     drawnItems.push(item);
     nextMetadataById.set(deck.id, {
       ...metadata,
       cards: remainingCards,
+      currentFace: metadata.currentFace === "front" ? "front" : "back",
     });
   }
 
@@ -174,6 +201,7 @@ export async function drawFromDecks(OBR, buildImage, items, options = {}) {
   });
 
   await OBR.scene.items.addItems(drawnItems);
+  await selectDecks(OBR, decks.map((deck) => deck.id));
   return drawnItems.length;
 }
 
@@ -205,10 +233,38 @@ export async function shuffleDecks(OBR, items) {
   await OBR.scene.items.updateItems(decks, (draftItems) => {
     for (const item of draftItems) {
       const metadata = getDeckMetadata(item);
-      setDeckMetadata(item, {
+      const nextMetadata = {
         ...metadata,
         cards: shuffleCards(metadata.cards),
-      });
+      };
+
+      applyDeckDisplay(item, nextMetadata);
+      setDeckMetadata(item, nextMetadata);
+    }
+  });
+
+  return decks.length;
+}
+
+export async function flipDeckItems(OBR, items) {
+  const decks = getDeckItems(items).filter(
+    (item) => getDeckMetadata(item).cards.length > 0,
+  );
+
+  if (!decks.length) {
+    return 0;
+  }
+
+  await OBR.scene.items.updateItems(decks, (draftItems) => {
+    for (const item of draftItems) {
+      const metadata = getDeckMetadata(item);
+      const nextMetadata = {
+        ...metadata,
+        currentFace: metadata.currentFace === "front" ? "back" : "front",
+      };
+
+      applyDeckDisplay(item, nextMetadata);
+      setDeckMetadata(item, nextMetadata);
     }
   });
 
@@ -286,6 +342,7 @@ export async function returnCardsToDeck(OBR, cards, fallbackDeckSelection = []) 
     const nextMetadata = {
       ...metadata,
       cards: [...metadata.cards, ...returnedCards],
+      currentFace: metadata.currentFace === "front" ? "front" : "back",
     };
 
     applyDeckDisplay(item, nextMetadata);
@@ -293,6 +350,7 @@ export async function returnCardsToDeck(OBR, cards, fallbackDeckSelection = []) 
   });
 
   await OBR.scene.items.deleteItems(returnedCardIds);
+  await selectDecks(OBR, [targetDeck.id]);
 
   return returnedCardIds.length;
 }

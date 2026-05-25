@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Cartas Duplas</title>
-    <script type="module" src="./dist/sdk-boot.js?v=42"></script>
+    <script type="module" src="./dist/sdk-boot.js?v=46"></script>
     <link rel="stylesheet" href="./src/styles.css" />
   </head>
   <body>
@@ -39,6 +39,13 @@
       </section>
 
       <section class="form">
+        <h2>Jogadores e cores</h2>
+        <ul id="colorAssignments" class="color-list" aria-live="polite">
+          <li>Aguardando conexao...</li>
+        </ul>
+      </section>
+
+      <section class="form">
         <h2>Biblioteca</h2>
         <label class="field">
           <span>Pilha padrao</span>
@@ -70,63 +77,6 @@
       </section>
 
       <section class="form">
-        <h2>Selecao de personagem</h2>
-        <label class="field">
-          <span>Cor ativa</span>
-          <select id="activeColorSelect" disabled>
-            <option value="">Escolha uma cor</option>
-          </select>
-        </label>
-        <div class="action-grid">
-          <button class="button button--secondary swatch-button swatch-button--red" type="button" data-token-color="red" disabled>
-            Marcar vermelho
-          </button>
-          <button class="button button--secondary swatch-button swatch-button--white" type="button" data-token-color="white" disabled>
-            Marcar branco
-          </button>
-          <button class="button button--secondary swatch-button swatch-button--green" type="button" data-token-color="green" disabled>
-            Marcar verde
-          </button>
-          <button class="button button--secondary swatch-button swatch-button--blue" type="button" data-token-color="blue" disabled>
-            Marcar azul
-          </button>
-        </div>
-
-        <div class="row">
-          <label class="field">
-            <span>Cor do slot</span>
-            <select id="slotColorSelect" disabled></select>
-          </label>
-
-          <label class="field">
-            <span>Categoria do slot</span>
-            <select id="slotCategorySelect" disabled></select>
-          </label>
-        </div>
-        <button id="saveSlotButton" class="button button--secondary" type="button" disabled>
-          Salvar slot pela carta selecionada
-        </button>
-
-        <div class="action-grid">
-          <button class="button button--secondary" type="button" data-card-category="race" disabled>
-            Marcar como raca
-          </button>
-          <button class="button button--secondary" type="button" data-card-category="class" disabled>
-            Marcar como classe
-          </button>
-          <button class="button button--secondary" type="button" data-card-category="divinity" disabled>
-            Marcar como divindade
-          </button>
-        </div>
-
-        <div class="action-grid">
-          <button id="returnOriginButton" class="button button--secondary" type="button" disabled>
-            Devolver origem
-          </button>
-        </div>
-      </section>
-
-      <section class="form">
         <h2>Publicar</h2>
         <label class="field">
           <span>URL pública</span>
@@ -141,14 +91,20 @@
       </section>
 
       <section class="form">
-        <h2>Tabuleiro padrão</h2>
-        <p id="defaultBoardInfo" class="field-note">Nenhum tabuleiro padrao criado no localhost.</p>
+        <h2>Mapas salvos</h2>
+        <p id="defaultBoardInfo" class="field-note">Carregando mapas salvos...</p>
         <div class="action-grid">
-          <button id="createDefaultBoardButton" class="button button--secondary" type="button" disabled hidden>
-            Criar tabuleiro padrão
+          <button class="button button--secondary" type="button" data-create-scene-preset="tutorial" disabled hidden>
+            Salvar Tutorial
           </button>
-          <button id="restoreDefaultBoardButton" class="button button--secondary" type="button" disabled>
-            Restaurar tabuleiro padrão
+          <button class="button button--secondary" type="button" data-create-scene-preset="missao-0-5" disabled hidden>
+            Salvar Miss&atilde;o 0.5
+          </button>
+          <button class="button button--secondary" type="button" data-restore-scene-preset="tutorial" disabled>
+            Restaurar o Tutorial
+          </button>
+          <button class="button button--secondary" type="button" data-restore-scene-preset="missao-0-5" disabled>
+            Restaurar a Miss&atilde;o 0.5 (n&atilde;o oficial)
           </button>
         </div>
       </section>
@@ -156,6 +112,6 @@
       <p id="message" class="message" role="status" aria-live="polite"></p>
     </main>
 
-    <script type="module" src="./dist/app.js?v=42"></script>
+    <script type="module" src="./dist/app.js?v=46"></script>
   </body>
 </html>

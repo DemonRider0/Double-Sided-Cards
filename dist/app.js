@@ -70,6 +70,114 @@ function faceLabel(face) {
   return face === "front" ? "frente" : "verso";
 }
 
+function normalizeComparableText(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\.[^.]+$/, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeComparableUrl$1(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    url.hash = "";
+    return url.toString().toLowerCase();
+  } catch {
+    return String(value || "").trim().toLowerCase();
+  }
+}
+
+function getGoogleDriveId(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    const pathMatch = url.pathname.match(/\/file\/d\/([^/]+)/);
+    return pathMatch?.[1] || url.searchParams.get("id") || "";
+  } catch {
+    return "";
+  }
+}
+
+function getUrlFilenameKey(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    const filename = decodeURIComponent(url.pathname.split("/").filter(Boolean).pop() || "");
+    return normalizeComparableText(filename);
+  } catch {
+    const filename = String(value || "").split(/[\\/]/).filter(Boolean).pop() || "";
+    return normalizeComparableText(filename);
+  }
+}
+
+function isUsefulFaceKey(value) {
+  return Boolean(
+    value &&
+      !new Set([
+        "back",
+        "carta",
+        "download",
+        "frente",
+        "front",
+        "image",
+        "imagem",
+        "open",
+        "preview",
+        "uc",
+        "verso",
+        "view",
+      ]).has(value),
+  );
+}
+
+function getFaceKeys(face) {
+  return [normalizeComparableText(face?.name), getUrlFilenameKey(face?.url)].filter(isUsefulFaceKey);
+}
+
+function shouldMirrorBackFace(front, back) {
+  if (!front?.url || !back?.url) {
+    return false;
+  }
+
+  if (normalizeComparableUrl$1(front.url) === normalizeComparableUrl$1(back.url)) {
+    return true;
+  }
+
+  const frontDriveId = getGoogleDriveId(front.url);
+  const backDriveId = getGoogleDriveId(back.url);
+  if (frontDriveId && frontDriveId === backDriveId) {
+    return true;
+  }
+
+  const backKeys = new Set(getFaceKeys(back));
+  return getFaceKeys(front).some((key) => backKeys.has(key));
+}
+
+function shouldMirrorCardBack(metadata) {
+  if (!metadata?.faces) {
+    return false;
+  }
+
+  return typeof metadata.mirrorBack === "boolean"
+    ? metadata.mirrorBack
+    : shouldMirrorBackFace(metadata.faces.front, metadata.faces.back);
+}
+
+function applyCardFaceTransform(item, metadata, faceId = metadata?.currentFace) {
+  const scale = item.scale && typeof item.scale === "object" ? item.scale : {};
+  const x = Number.isFinite(scale.x) && scale.x !== 0 ? Math.abs(scale.x) : 1;
+  const y = Number.isFinite(scale.y) && scale.y !== 0 ? scale.y : 1;
+  const mirrorBack = faceId === "back" && shouldMirrorCardBack(metadata);
+
+  item.scale = {
+    ...scale,
+    x: mirrorBack ? -x : x,
+    y,
+  };
+}
+
 function createCardMetadata({
   name,
   front,
@@ -84,6 +192,7 @@ function createCardMetadata({
     name,
     currentFace,
     gridWidth,
+    mirrorBack: shouldMirrorBackFace(front, back),
     faces: {
       front,
       back,
@@ -105,6 +214,7 @@ function createDeckMetadata({ name, back, cards, gridWidth }) {
   return {
     version: 1,
     name,
+    currentFace: "back",
     back,
     cards,
     gridWidth,
@@ -198,12 +308,23 @@ function createDeckText(count) {
   };
 }
 
+function getDeckFace(metadata) {
+  if (metadata.currentFace === "front" && metadata.cards[0]?.front) {
+    return metadata.cards[0].front;
+  }
+
+  return metadata.back;
+}
+
 function applyDeckDisplay(item, metadata) {
   const count = metadata.cards.length;
+  const face = getDeckFace(metadata);
 
   item.name = `${metadata.name} (${count})`;
   item.description = deckDescription(count);
   item.text = createDeckText(count);
+  item.image = createImageData(face);
+  item.grid = createGridData(face, metadata.gridWidth);
 }
 
 function shuffleCards(cards) {
@@ -225,6 +346,14 @@ async function getDrawOffset(OBR) {
   }
 }
 
+async function selectDecks(OBR, deckIds) {
+  if (!deckIds.length) {
+    return;
+  }
+
+  await OBR.player.select(deckIds, true).catch(() => {});
+}
+
 async function drawFromDecks(OBR, buildImage, items, options = {}) {
   const decks = getDeckItems(items).filter(
     (item) => getDeckMetadata(item).cards.length > 0,
@@ -241,12 +370,14 @@ async function drawFromDecks(OBR, buildImage, items, options = {}) {
   for (const [index, deck] of decks.entries()) {
     const metadata = getDeckMetadata(deck);
     const [card, ...remainingCards] = metadata.cards;
+    const drawnFace = metadata.currentFace === "front" ? "front" : "back";
+    const face = drawnFace === "front" ? card.front : metadata.back;
     const cardMetadata = createCardMetadata({
       name: card.name,
       front: card.front,
       back: metadata.back,
       gridWidth: metadata.gridWidth,
-      currentFace: "back",
+      currentFace: drawnFace,
       sourceDeckId: deck.id,
       sourceDeckName: metadata.name,
     });
@@ -256,20 +387,22 @@ async function drawFromDecks(OBR, buildImage, items, options = {}) {
       y: deck.position.y + drawOffset,
     };
     const item = buildImage(
-      createImageData(metadata.back),
-      createGridData(metadata.back, metadata.gridWidth),
+      createImageData(face),
+      createGridData(face, metadata.gridWidth),
     )
       .name(card.name)
-      .description("Carta dupla: verso")
+      .description(`Carta dupla: ${faceLabel(drawnFace)}`)
       .layer(deck.layer)
       .position(position)
       .metadata(createCardMetadataMap(cardMetadata))
       .build();
+    applyCardFaceTransform(item, cardMetadata, drawnFace);
 
     drawnItems.push(item);
     nextMetadataById.set(deck.id, {
       ...metadata,
       cards: remainingCards,
+      currentFace: metadata.currentFace === "front" ? "front" : "back",
     });
   }
 
@@ -291,6 +424,7 @@ async function drawFromDecks(OBR, buildImage, items, options = {}) {
   });
 
   await OBR.scene.items.addItems(drawnItems);
+  await selectDecks(OBR, decks.map((deck) => deck.id));
   return drawnItems.length;
 }
 
@@ -322,10 +456,38 @@ async function shuffleDecks(OBR, items) {
   await OBR.scene.items.updateItems(decks, (draftItems) => {
     for (const item of draftItems) {
       const metadata = getDeckMetadata(item);
-      setDeckMetadata(item, {
+      const nextMetadata = {
         ...metadata,
         cards: shuffleCards(metadata.cards),
-      });
+      };
+
+      applyDeckDisplay(item, nextMetadata);
+      setDeckMetadata(item, nextMetadata);
+    }
+  });
+
+  return decks.length;
+}
+
+async function flipDeckItems(OBR, items) {
+  const decks = getDeckItems(items).filter(
+    (item) => getDeckMetadata(item).cards.length > 0,
+  );
+
+  if (!decks.length) {
+    return 0;
+  }
+
+  await OBR.scene.items.updateItems(decks, (draftItems) => {
+    for (const item of draftItems) {
+      const metadata = getDeckMetadata(item);
+      const nextMetadata = {
+        ...metadata,
+        currentFace: metadata.currentFace === "front" ? "back" : "front",
+      };
+
+      applyDeckDisplay(item, nextMetadata);
+      setDeckMetadata(item, nextMetadata);
     }
   });
 
@@ -403,6 +565,7 @@ async function returnCardsToDeck(OBR, cards, fallbackDeckSelection = []) {
     const nextMetadata = {
       ...metadata,
       cards: [...metadata.cards, ...returnedCards],
+      currentFace: metadata.currentFace === "front" ? "front" : "back",
     };
 
     applyDeckDisplay(item, nextMetadata);
@@ -410,6 +573,7 @@ async function returnCardsToDeck(OBR, cards, fallbackDeckSelection = []) {
   });
 
   await OBR.scene.items.deleteItems(returnedCardIds);
+  await selectDecks(OBR, [targetDeck.id]);
 
   return returnedCardIds.length;
 }
@@ -423,16 +587,14 @@ async function returnSelectedCardsToDeck(
   return returnCardsToDeck(OBR, cards, fallbackDeckSelection);
 }
 
-const COLOR_TOKEN_KEY = `${EXTENSION_ID}/color-token`;
 const CARD_CATEGORY_KEY = `${EXTENSION_ID}/card-category`;
 const ACTIVE_COLOR_KEY = `${EXTENSION_ID}/active-color`;
-const SELECTION_BOARD_KEY = `${EXTENSION_ID}/selection-board`;
 
 const PLAYER_COLORS = [
-  { id: "red", label: "Vermelho", aliases: ["vermelho", "red"] },
-  { id: "white", label: "Branco", aliases: ["branco", "white"] },
-  { id: "green", label: "Verde", aliases: ["verde", "green"] },
-  { id: "blue", label: "Azul", aliases: ["azul", "blue"] },
+  { id: "red", label: "Vermelho", aliases: ["vermelho", "red"], pointerColor: "#ef4444" },
+  { id: "white", label: "Branco", aliases: ["branco", "white"], pointerColor: "#f8fafc" },
+  { id: "green", label: "Verde", aliases: ["verde", "green"], pointerColor: "#22c55e" },
+  { id: "blue", label: "Azul", aliases: ["azul", "blue"], pointerColor: "#3b82f6" },
 ];
 
 const CARD_CATEGORIES = [
@@ -441,304 +603,8 @@ const CARD_CATEGORIES = [
   { id: "divinity", label: "Divindade" },
 ];
 
-const PLAYER_COLOR_IDS = new Set(PLAYER_COLORS.map((color) => color.id));
-const CATEGORY_IDS = new Set(CARD_CATEGORIES.map((category) => category.id));
-
-function getColorLabel(colorId) {
-  return PLAYER_COLORS.find((color) => color.id === colorId)?.label || "cor";
-}
-
-function getCategoryLabel(categoryId) {
-  return CARD_CATEGORIES.find((category) => category.id === categoryId)?.label || "categoria";
-}
-
-function normalizePlayerColor(colorId) {
-  return PLAYER_COLOR_IDS.has(colorId) ? colorId : null;
-}
-
-function normalizeCategory(categoryId) {
-  return CATEGORY_IDS.has(categoryId) ? categoryId : null;
-}
-
-function createEmptyState() {
-  const slots = {};
-  const assigned = {};
-  const tokens = {};
-
-  for (const color of PLAYER_COLORS) {
-    slots[color.id] = {};
-    assigned[color.id] = {};
-    tokens[color.id] = null;
-  }
-
-  return {
-    version: 1,
-    slots,
-    assigned,
-    origins: {},
-    tokens,
-  };
-}
-
-function normalizeState(value) {
-  const state = createEmptyState();
-
-  if (!value || typeof value !== "object") {
-    return state;
-  }
-
-  for (const color of PLAYER_COLORS) {
-    state.slots[color.id] = {
-      ...state.slots[color.id],
-      ...(value.slots?.[color.id] || {}),
-    };
-    state.assigned[color.id] = {
-      ...state.assigned[color.id],
-      ...(value.assigned?.[color.id] || {}),
-    };
-    state.tokens[color.id] = value.tokens?.[color.id] || null;
-  }
-
-  state.origins = value.origins && typeof value.origins === "object" ? value.origins : {};
-  return state;
-}
-
-async function getSceneState(OBR) {
-  const metadata = await OBR.scene.getMetadata();
-  return normalizeState(metadata[SELECTION_BOARD_KEY]);
-}
-
-async function setSceneState(OBR, state) {
-  await OBR.scene.setMetadata({
-    [SELECTION_BOARD_KEY]: state,
-  });
-}
-
-function capturePlacement(item) {
-  return {
-    position: { ...item.position },
-    rotation: item.rotation,
-    scale: { ...item.scale },
-    layer: item.layer,
-    zIndex: item.zIndex,
-    locked: item.locked,
-  };
-}
-
-function applyPlacement(item, placement, options = {}) {
-  item.position = { ...placement.position };
-  item.rotation = placement.rotation;
-  item.scale = { ...placement.scale };
-  item.layer = placement.layer;
-
-  if (Number.isFinite(options.zIndex)) {
-    item.zIndex = options.zIndex;
-  } else if (Number.isFinite(placement.zIndex)) {
-    item.zIndex = placement.zIndex;
-  }
-}
-
-async function getSelectedItems(OBR, fallbackSelection = []) {
-  const selection = await OBR.player.getSelection();
-  const itemIds = selection?.length ? selection : fallbackSelection;
-
-  if (!itemIds.length) {
-    return [];
-  }
-
-  return OBR.scene.items.getItems(itemIds);
-}
-
-function getPrimaryImage(items) {
-  return items.find((item) => item.type === "IMAGE") || null;
-}
-
-async function getSelectedImage(OBR, fallbackSelection = []) {
-  const item = getPrimaryImage(await getSelectedItems(OBR, fallbackSelection));
-
-  if (!item) {
-    throw new Error("Selecione uma imagem na cena.");
-  }
-
-  return item;
-}
-
-async function getActivePlayerColor(OBR) {
-  const metadata = await OBR.player.getMetadata();
-  return normalizePlayerColor(metadata[ACTIVE_COLOR_KEY]?.color);
-}
-
-async function getCurrentPlayerId(OBR) {
-  try {
-    return await OBR.player.getId();
-  } catch {
-    return OBR.player.id;
-  }
-}
-
-async function getPlayerUsingColor(OBR, color) {
-  if (!OBR.party?.getPlayers) {
-    return null;
-  }
-
-  const [currentPlayerId, players] = await Promise.all([
-    getCurrentPlayerId(OBR),
-    OBR.party.getPlayers(),
-  ]);
-
-  return (
-    players.find(
-      (player) =>
-        player.id !== currentPlayerId &&
-        normalizePlayerColor(player.metadata?.[ACTIVE_COLOR_KEY]?.color) === color,
-    ) || null
-  );
-}
-
-async function setActivePlayerColor(OBR, colorId) {
-  const color = normalizePlayerColor(colorId);
-
-  if (!color) {
-    throw new Error("Escolha uma cor valida.");
-  }
-
-  const claimedBy = await getPlayerUsingColor(OBR, color);
-
-  if (claimedBy) {
-    throw new Error(
-      `${getColorLabel(color)} ja esta em uso por ${claimedBy.name || "outro jogador"}.`,
-    );
-  }
-
-  await OBR.player.setMetadata({
-    [ACTIVE_COLOR_KEY]: {
-      version: 1,
-      color,
-    },
-  });
-
-  return color;
-}
-
-async function markSelectedTokenColor(OBR, colorId, fallbackSelection = []) {
-  const color = normalizePlayerColor(colorId);
-
-  if (!color) {
-    throw new Error("Escolha uma cor valida.");
-  }
-
-  const item = await getSelectedImage(OBR, fallbackSelection);
-  const state = await getSceneState(OBR);
-
-  await OBR.scene.items.updateItems([item], (items) => {
-    items[0].metadata ||= {};
-    items[0].metadata[COLOR_TOKEN_KEY] = {
-      version: 1,
-      color,
-    };
-  });
-
-  state.tokens[color] = item.id;
-  await setSceneState(OBR, state);
-  await setActivePlayerColor(OBR, color);
-
-  return color;
-}
-
-async function markSelectedCardsCategory(OBR, categoryId, fallbackSelection = []) {
-  const category = normalizeCategory(categoryId);
-
-  if (!category) {
-    throw new Error("Escolha uma categoria valida.");
-  }
-
-  const items = (await getSelectedItems(OBR, fallbackSelection)).filter(
-    (item) => item.type === "IMAGE",
-  );
-
-  if (!items.length) {
-    throw new Error("Selecione uma ou mais cartas na cena.");
-  }
-
-  const state = await getSceneState(OBR);
-
-  for (const item of items) {
-    if (!isAssignedItem(state, item.id)) {
-      state.origins[item.id] = capturePlacement(item);
-    }
-  }
-
-  await OBR.scene.items.updateItems(items, (draftItems) => {
-    for (const item of draftItems) {
-      item.metadata ||= {};
-      item.metadata[CARD_CATEGORY_KEY] = {
-        version: 1,
-        category,
-      };
-    }
-  });
-  await setSceneState(OBR, state);
-
-  return { category, count: items.length };
-}
-
-async function saveSlotFromSelectedItem(
-  OBR,
-  colorId,
-  categoryId,
-  fallbackSelection = [],
-) {
-  const color = normalizePlayerColor(colorId);
-  const category = normalizeCategory(categoryId);
-
-  if (!color || !category) {
-    throw new Error("Escolha uma cor e uma categoria para salvar o slot.");
-  }
-
-  const item = await getSelectedImage(OBR, fallbackSelection);
-  const state = await getSceneState(OBR);
-
-  state.slots[color][category] = capturePlacement(item);
-  await setSceneState(OBR, state);
-
-  return { color, category };
-}
-
-function clearAssignmentsForItem(state, itemId) {
-  for (const color of PLAYER_COLORS) {
-    for (const category of CARD_CATEGORIES) {
-      if (state.assigned[color.id][category.id] === itemId) {
-        state.assigned[color.id][category.id] = null;
-      }
-    }
-  }
-}
-
-function isAssignedItem(state, itemId) {
-  return PLAYER_COLORS.some((color) =>
-    CARD_CATEGORIES.some((category) => state.assigned[color.id][category.id] === itemId),
-  );
-}
-
-async function returnSelectedCardToOrigin(OBR, fallbackSelection = []) {
-  const selectedItem = await getSelectedImage(OBR, fallbackSelection);
-  const state = await getSceneState(OBR);
-  const origin = state.origins[selectedItem.id];
-
-  if (!origin) {
-    throw new Error("Nao encontrei a posicao original dessa carta.");
-  }
-
-  clearAssignmentsForItem(state, selectedItem.id);
-
-  await OBR.scene.items.updateItems([selectedItem], (items) => {
-    applyPlacement(items[0], origin);
-    items[0].locked = origin.locked;
-  });
-  await setSceneState(OBR, state);
-
-  return true;
-}
+new Set(PLAYER_COLORS.map((color) => color.id));
+new Set(CARD_CATEGORIES.map((category) => category.id));
 
 const DIVINITY_GRID_WIDTH = 2;
 const DIVINITY_GRID_HEIGHT = 3;
@@ -806,44 +672,77 @@ function getDoubleSidedCards(items) {
   return items.filter((item) => isCardMetadata(getCardMetadata(item)));
 }
 
+function getPreferredFlipItems(items) {
+  const decks = getDeckItems(items).filter((item) => getDeckMetadata(item).cards.length > 0);
+
+  if (decks.length) {
+    return decks;
+  }
+
+  return getDoubleSidedCards(items);
+}
+
+async function getItemsSafely(OBR, itemIds = []) {
+  if (!itemIds.length) {
+    return [];
+  }
+
+  try {
+    return await OBR.scene.items.getItems(itemIds);
+  } catch {
+    return [];
+  }
+}
+
 async function flipItems(OBR, items) {
   const itemsToFlip = getDoubleSidedCards(items);
+  const deckItemsToFlip = getDeckItems(items);
 
-  if (!itemsToFlip.length) {
+  if (!itemsToFlip.length && !deckItemsToFlip.length) {
     return 0;
   }
 
-  await OBR.scene.items.updateItems(itemsToFlip, (draftItems) => {
-    for (const item of draftItems) {
-      const metadata = getCardMetadata(item);
-      const targetFace = nextFace(metadata.currentFace);
-      const face = metadata.faces[targetFace];
+  if (itemsToFlip.length) {
+    await OBR.scene.items.updateItems(itemsToFlip, (draftItems) => {
+      for (const item of draftItems) {
+        const metadata = getCardMetadata(item);
+        const targetFace = nextFace(metadata.currentFace);
+        const nextMetadata = {
+          ...metadata,
+          currentFace: targetFace,
+          mirrorBack: shouldMirrorBackFace(metadata.faces.front, metadata.faces.back),
+        };
+        const face = nextMetadata.faces[targetFace];
 
-      item.image = createImageData(face);
-      item.grid = createGridData(face, metadata.gridWidth);
-      applyDivinitySizing(item, face);
-      item.description = `Carta dupla: ${faceLabel(targetFace)}`;
-      setCardMetadata(item, {
-        ...metadata,
-        currentFace: targetFace,
-      });
-    }
-  });
+        item.image = createImageData(face);
+        item.grid = createGridData(face, nextMetadata.gridWidth);
+        applyDivinitySizing(item, face);
+        applyCardFaceTransform(item, nextMetadata, targetFace);
+        item.description = `Carta dupla: ${faceLabel(targetFace)}`;
+        setCardMetadata(item, nextMetadata);
+      }
+    });
+  }
 
-  return itemsToFlip.length;
+  return itemsToFlip.length + (await flipDeckItems(OBR, deckItemsToFlip));
 }
 
 async function flipSelectedItems(OBR, fallbackSelection = []) {
-  const selection = await OBR.player.getSelection();
+  const fallbackItems = getPreferredFlipItems(await getItemsSafely(OBR, fallbackSelection));
 
-  const itemIds = selection?.length ? selection : fallbackSelection;
-
-  if (!itemIds.length) {
-    return 0;
+  if (fallbackItems.length) {
+    return flipItems(OBR, fallbackItems);
   }
 
-  const selectedItems = await OBR.scene.items.getItems(itemIds);
-  return flipItems(OBR, selectedItems);
+  const selection = await OBR.player.getSelection();
+  const selectedItems = await getItemsSafely(OBR, selection || []);
+  const selectedFlipItems = getPreferredFlipItems(selectedItems);
+
+  if (selectedFlipItems.length) {
+    return flipItems(OBR, selectedFlipItems);
+  }
+
+  return flipItems(OBR, getPreferredFlipItems(await getItemsSafely(OBR, fallbackSelection)));
 }
 
 const PRESET_DECKS_URL = new URL("../assets/preset-decks/decks.json", import.meta.url);
@@ -1028,7 +927,20 @@ async function buildPresetDeckData(deck) {
 
 const PRESET_VERSION = 1;
 const ITEM_CHUNK_SIZE = 80;
-const DEFAULT_BOARD_PRESET_URL = "./assets/scene-preset.json";
+const SCENE_PRESETS = [
+  {
+    id: "tutorial",
+    name: "Tutorial",
+    restoreLabel: "Restaurar o Tutorial",
+    url: "./assets/scene-presets/tutorial.json",
+  },
+  {
+    id: "missao-0-5",
+    name: "Missao 0.5 (nao oficial)",
+    restoreLabel: "Restaurar a Missao 0.5 (nao oficial)",
+    url: "./assets/scene-presets/missao-0-5.json",
+  },
+];
 const READONLY_UPDATE_KEYS = new Set([
   "id",
   "type",
@@ -1062,9 +974,21 @@ function isDefaultBoardPreset(value) {
   );
 }
 
-function createDefaultBoardPreset(items, metadata) {
+function getScenePresetDefinition(presetId) {
+  const definition = SCENE_PRESETS.find((preset) => preset.id === presetId);
+
+  if (!definition) {
+    throw new Error("Mapa salvo desconhecido.");
+  }
+
+  return definition;
+}
+
+function createDefaultBoardPreset(items, metadata, definition = SCENE_PRESETS[0]) {
   return {
     version: PRESET_VERSION,
+    id: definition.id,
+    name: definition.name,
     savedAt: new Date().toISOString(),
     itemCount: items.length,
     items: clone(items),
@@ -1086,8 +1010,8 @@ function restoreItemState(item, presetItem) {
   }
 }
 
-async function loadDefaultBoardPreset() {
-  const response = await fetch(`${DEFAULT_BOARD_PRESET_URL}?v=${Date.now()}`, {
+async function loadScenePreset(definition) {
+  const response = await fetch(`${definition.url}?v=${Date.now()}`, {
     cache: "no-store",
   });
 
@@ -1096,16 +1020,32 @@ async function loadDefaultBoardPreset() {
   }
 
   const preset = await response.json();
-  return isDefaultBoardPreset(preset) ? preset : null;
+  return isDefaultBoardPreset(preset)
+    ? {
+        ...preset,
+        id: preset.id || definition.id,
+        name: preset.name || definition.name,
+      }
+    : null;
 }
 
-async function saveDefaultBoardPreset(OBR) {
+async function loadScenePresetEntries() {
+  return Promise.all(
+    SCENE_PRESETS.map(async (definition) => ({
+      definition,
+      preset: await loadScenePreset(definition),
+    })),
+  );
+}
+
+async function saveScenePreset(OBR, presetId) {
+  const definition = getScenePresetDefinition(presetId);
   const [items, metadata] = await Promise.all([
     OBR.scene.items.getItems(),
     OBR.scene.getMetadata(),
   ]);
-  const preset = createDefaultBoardPreset(items, metadata);
-  const response = await fetch("./__scene_preset", {
+  const preset = createDefaultBoardPreset(items, metadata, definition);
+  const response = await fetch(`./__scene_preset?id=${encodeURIComponent(definition.id)}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1115,7 +1055,7 @@ async function saveDefaultBoardPreset(OBR) {
 
   if (!response.ok) {
     throw new Error(
-      "Nao consegui criar o tabuleiro padrao. Essa acao precisa do servidor localhost.",
+      "Nao consegui criar o mapa salvo. Essa acao precisa do servidor localhost.",
     );
   }
 
@@ -1124,7 +1064,7 @@ async function saveDefaultBoardPreset(OBR) {
 
 async function restoreDefaultBoardPreset(OBR, preset) {
   if (!isDefaultBoardPreset(preset)) {
-    throw new Error("Nenhum tabuleiro padrao foi cadastrado na extensao.");
+    throw new Error("Nenhum mapa salvo foi cadastrado na extensao.");
   }
 
   const presetItems = clone(preset.items);
@@ -1198,17 +1138,11 @@ const elements = {
   panelShuffleButton: document.querySelector("#panelShuffleButton"),
   panelReturnButton: document.querySelector("#panelReturnButton"),
   panelRepairButton: document.querySelector("#panelRepairButton"),
-  activeColorSelect: document.querySelector("#activeColorSelect"),
-  colorTokenButtons: [...document.querySelectorAll("[data-token-color]")],
-  slotColorSelect: document.querySelector("#slotColorSelect"),
-  slotCategorySelect: document.querySelector("#slotCategorySelect"),
-  saveSlotButton: document.querySelector("#saveSlotButton"),
-  categoryCardButtons: [...document.querySelectorAll("[data-card-category]")],
-  returnOriginButton: document.querySelector("#returnOriginButton"),
+  colorAssignments: document.querySelector("#colorAssignments"),
   publicBaseUrl: document.querySelector("#publicBaseUrl"),
   migratePublicButton: document.querySelector("#migratePublicButton"),
-  createDefaultBoardButton: document.querySelector("#createDefaultBoardButton"),
-  restoreDefaultBoardButton: document.querySelector("#restoreDefaultBoardButton"),
+  createScenePresetButtons: [...document.querySelectorAll("[data-create-scene-preset]")],
+  restoreScenePresetButtons: [...document.querySelectorAll("[data-restore-scene-preset]")],
   defaultBoardInfo: document.querySelector("#defaultBoardInfo"),
   importButton: document.querySelector("#importButton"),
   importDeckButton: document.querySelector("#importDeckButton"),
@@ -1223,8 +1157,9 @@ let obr = null;
 let buildImage = null;
 let lastCardSelection = [];
 let lastDeckSelection = [];
+let lastFlipSelection = [];
 let presetDecks = [];
-let defaultBoardPreset = null;
+let scenePresetEntries = [];
 const selectedAssets = {
   front: null,
   back: null,
@@ -1250,6 +1185,9 @@ function setMessage(text, tone = "neutral") {
 function setConnectionStatus(text, isConnected) {
   elements.connectionStatus.textContent = text;
   elements.connectionStatus.dataset.connected = String(isConnected);
+  if (!isConnected) {
+    renderPlayerColorAssignments([]);
+  }
   if (elements.importButton) {
     elements.importButton.disabled = !isConnected;
   }
@@ -1275,17 +1213,52 @@ function setConnectionStatus(text, isConnected) {
   elements.panelShuffleButton.disabled = !isConnected;
   elements.panelReturnButton.disabled = !isConnected;
   elements.panelRepairButton.disabled = !isConnected;
-  elements.activeColorSelect.disabled = !isConnected;
-  elements.slotColorSelect.disabled = !isConnected;
-  elements.slotCategorySelect.disabled = !isConnected;
-  elements.saveSlotButton.disabled = !isConnected;
-  elements.returnOriginButton.disabled = !isConnected;
   updatePresetDeckControls(isConnected);
-  for (const button of elements.colorTokenButtons) {
-    button.disabled = !isConnected;
+}
+
+function getPlayerColor(player) {
+  const color = player.metadata?.[ACTIVE_COLOR_KEY]?.color;
+  return PLAYER_COLORS.some((entry) => entry.id === color) ? color : null;
+}
+
+function playerName(player) {
+  return player.name || player.username || "Jogador sem nome";
+}
+
+function renderPlayerColorAssignments(players) {
+  if (!elements.colorAssignments) {
+    return;
   }
-  for (const button of elements.categoryCardButtons) {
-    button.disabled = !isConnected;
+
+  elements.colorAssignments.replaceChildren();
+
+  for (const color of PLAYER_COLORS) {
+    const playersUsingColor = players.filter((player) => getPlayerColor(player) === color.id);
+    const names = playersUsingColor.length
+      ? playersUsingColor.map(playerName).join(", ")
+      : "Sem jogador";
+    const item = document.createElement("li");
+    item.textContent = `${names} - ${color.label.toLowerCase()}`;
+    elements.colorAssignments.append(item);
+  }
+}
+
+async function refreshPlayerColorAssignments() {
+  if (!obr?.party?.getPlayers) {
+    renderPlayerColorAssignments([]);
+    return;
+  }
+
+  try {
+    renderPlayerColorAssignments(await obr.party.getPlayers());
+  } catch (error) {
+    console.warn("Nao consegui atualizar as cores dos jogadores", error);
+    if (elements.colorAssignments) {
+      elements.colorAssignments.replaceChildren();
+      const item = document.createElement("li");
+      item.textContent = "Nao consegui ler os jogadores.";
+      elements.colorAssignments.append(item);
+    }
   }
 }
 
@@ -1305,27 +1278,37 @@ function formatPresetDate(value) {
 }
 
 function updateDefaultBoardControls(isConnected = Boolean(obr)) {
-  elements.createDefaultBoardButton.disabled = !isConnected || !isLocalhost();
-  elements.restoreDefaultBoardButton.disabled = !isConnected || !defaultBoardPreset;
+  const entriesById = new Map(scenePresetEntries.map((entry) => [entry.definition.id, entry]));
 
-  if (!defaultBoardPreset) {
-    elements.defaultBoardInfo.textContent = isLocalhost()
-      ? "Nenhum tabuleiro padrao criado no localhost."
-      : "Nenhum tabuleiro padrao cadastrado na extensao.";
+  for (const button of elements.createScenePresetButtons) {
+    button.hidden = !isLocalhost();
+    button.disabled = !isConnected || !isLocalhost();
+  }
+
+  for (const button of elements.restoreScenePresetButtons) {
+    const entry = entriesById.get(button.dataset.restoreScenePreset);
+    button.disabled = !isConnected || !entry?.preset;
+  }
+
+  if (!scenePresetEntries.length) {
+    elements.defaultBoardInfo.textContent = "Carregando mapas salvos...";
     return;
   }
 
-  const itemLabel =
-    defaultBoardPreset.itemCount === 1
-      ? "1 item no tabuleiro padrao"
-      : `${defaultBoardPreset.itemCount} itens no tabuleiro padrao`;
-  elements.defaultBoardInfo.textContent = `${itemLabel} criado em ${formatPresetDate(
-    defaultBoardPreset.savedAt,
-  )}.`;
+  const parts = scenePresetEntries.map(({ definition, preset }) => {
+    if (!preset) {
+      return `${definition.name}: nao cadastrado`;
+    }
+
+    const itemLabel = preset.itemCount === 1 ? "1 item" : `${preset.itemCount} itens`;
+    return `${definition.name}: ${itemLabel}, salvo em ${formatPresetDate(preset.savedAt)}`;
+  });
+
+  elements.defaultBoardInfo.textContent = parts.join(" | ");
 }
 
 async function refreshDefaultBoardInfo() {
-  defaultBoardPreset = await loadDefaultBoardPreset();
+  scenePresetEntries = await loadScenePresetEntries();
   updateDefaultBoardControls(Boolean(obr));
 }
 
@@ -1339,6 +1322,7 @@ async function rememberCardSelection(selection) {
 
   if (cardIds.length) {
     lastCardSelection = cardIds;
+    lastFlipSelection = cardIds;
   }
 }
 
@@ -1352,6 +1336,7 @@ async function rememberDeckSelection(selection) {
 
   if (deckIds.length) {
     lastDeckSelection = deckIds;
+    lastFlipSelection = deckIds;
   }
 }
 
@@ -1391,45 +1376,6 @@ async function runPanelAction(button, action) {
     setMessage(error.message || "Nao consegui executar a acao.", "error");
   } finally {
     button.disabled = false;
-  }
-}
-
-function syncColorControls(color) {
-  const activeColor = color || "";
-  elements.activeColorSelect.value = activeColor;
-
-  if (color) {
-    elements.slotColorSelect.value = color;
-  }
-}
-
-async function refreshActiveColorControls() {
-  if (!obr) {
-    syncColorControls(null);
-    return;
-  }
-
-  syncColorControls(await getActivePlayerColor(obr));
-}
-
-function populateSelectionBoardControls() {
-  for (const color of PLAYER_COLORS) {
-    const activeOption = document.createElement("option");
-    activeOption.value = color.id;
-    activeOption.textContent = color.label;
-    elements.activeColorSelect.append(activeOption);
-
-    const slotOption = document.createElement("option");
-    slotOption.value = color.id;
-    slotOption.textContent = color.label;
-    elements.slotColorSelect.append(slotOption);
-  }
-
-  for (const category of CARD_CATEGORIES) {
-    const option = document.createElement("option");
-    option.value = category.id;
-    option.textContent = category.label;
-    elements.slotCategorySelect.append(option);
   }
 }
 
@@ -1473,27 +1419,26 @@ async function repairSceneMetadata() {
 
       if (cardMetadata) {
         const currentFace = cardMetadata.currentFace === "back" ? "back" : "front";
-        const face = cardMetadata.faces[currentFace];
-
-        item.image = createImageData(face);
-        item.grid = createGridData(face, cardMetadata.gridWidth);
-        applyDivinitySizing(item, face);
-        item.description = currentFace === "back" ? "Carta dupla: verso" : "Carta dupla: frente";
-        setCardMetadata(item, {
+        const nextCardMetadata = {
           ...cardMetadata,
           currentFace,
-        });
+          mirrorBack: shouldMirrorBackFace(cardMetadata.faces.front, cardMetadata.faces.back),
+        };
+        const face = nextCardMetadata.faces[currentFace];
+
+        item.image = createImageData(face);
+        item.grid = createGridData(face, nextCardMetadata.gridWidth);
+        applyDivinitySizing(item, face);
+        applyCardFaceTransform(item, nextCardMetadata, currentFace);
+        item.description = currentFace === "back" ? "Carta dupla: verso" : "Carta dupla: frente";
+        setCardMetadata(item, nextCardMetadata);
         continue;
       }
 
       const deckMetadata = getDeckMetadata(item);
 
       if (deckMetadata) {
-        item.image = createImageData(deckMetadata.back);
-        item.grid = createGridData(deckMetadata.back, deckMetadata.gridWidth);
-        item.name = `${deckMetadata.name} (${deckMetadata.cards.length})`;
-        item.description = deckDescription(deckMetadata.cards.length);
-        item.text = createDeckText(deckMetadata.cards.length);
+        applyDeckDisplay(item, deckMetadata);
         setDeckMetadata(item, deckMetadata);
       }
     }
@@ -1653,17 +1598,27 @@ function migrateCardItem(item, publicBaseUrl, stats) {
       back: migrateFaceUrl(metadata.faces.back, publicBaseUrl, stats),
     },
   };
+  nextMetadata.mirrorBack = shouldMirrorBackFace(
+    nextMetadata.faces.front,
+    nextMetadata.faces.back,
+  );
   const currentFace = nextMetadata.faces[nextMetadata.currentFace] || nextMetadata.faces.front;
   const urlsChanged = stats.urls !== urlCountBefore;
   const divinitySizingChanged = needsDivinitySizing(item, currentFace);
+  const mirrorChanged = metadata.mirrorBack !== nextMetadata.mirrorBack;
 
-  if (!urlsChanged && !divinitySizingChanged) {
+  if (!urlsChanged && !divinitySizingChanged && !mirrorChanged) {
     return false;
   }
 
   item.image = createImageData(currentFace);
   item.grid = createGridData(currentFace, nextMetadata.gridWidth);
   applyDivinitySizing(item, currentFace);
+  applyCardFaceTransform(
+    item,
+    nextMetadata,
+    nextMetadata.currentFace === "back" ? "back" : "front",
+  );
   if (divinitySizingChanged) {
     stats.sized += 1;
   }
@@ -1693,12 +1648,8 @@ function migrateDeckItem(item, publicBaseUrl, stats) {
     return false;
   }
 
-  const count = nextMetadata.cards.length;
-  item.image = createImageData(nextMetadata.back);
-  item.grid = createGridData(nextMetadata.back, nextMetadata.gridWidth);
-  item.name = `${nextMetadata.name} (${count})`;
-  item.description = deckDescription(count);
-  item.text = createDeckText(count);
+  nextMetadata.cards.length;
+  applyDeckDisplay(item, nextMetadata);
   setDeckMetadata(item, nextMetadata);
   return true;
 }
@@ -1756,47 +1707,62 @@ async function migrateSceneLocalAssets() {
   );
 }
 
-async function createDefaultBoardFromCurrentScene() {
-  if (!obr) {
-    setMessage("Abra esta extensao dentro do Owlbear para criar o tabuleiro padrao.", "warning");
-    return;
-  }
-
-  const result = await saveDefaultBoardPreset(obr);
-  await refreshDefaultBoardInfo();
-
-  const itemLabel = result.itemCount === 1 ? "1 item" : `${result.itemCount} itens`;
-  const message = `Tabuleiro padrao criado com ${itemLabel}.`;
-  setMessage(message, "success");
-  await obr.notification.show("Tabuleiro padrao criado.", "SUCCESS");
+function getScenePresetEntry(presetId) {
+  return scenePresetEntries.find((entry) => entry.definition.id === presetId) || null;
 }
 
-async function restoreDefaultBoard() {
+async function createDefaultBoardFromCurrentScene(presetId) {
   if (!obr) {
-    setMessage("Abra esta extensao dentro do Owlbear para restaurar o tabuleiro.", "warning");
+    setMessage("Abra esta extensao dentro do Owlbear para criar o mapa salvo.", "warning");
     return;
   }
 
-  if (!defaultBoardPreset) {
-    setMessage("Nenhum tabuleiro padrao cadastrado na extensao.", "warning");
-    await obr.notification.show("Nenhum tabuleiro padrao cadastrado.", "WARNING");
-    return;
-  }
-
+  const definition = SCENE_PRESETS.find((preset) => preset.id === presetId);
   const confirmed = window.confirm(
-    "Restaurar o tabuleiro padrao vai substituir a cena atual. Continuar?",
+    `Salvar "${definition?.name || "mapa salvo"}" vai substituir esse backup pelo estado atual da cena. Continuar?`,
   );
 
   if (!confirmed) {
     return;
   }
 
-  const result = await restoreDefaultBoardPreset(obr, defaultBoardPreset);
+  const result = await saveScenePreset(obr, presetId);
+  await refreshDefaultBoardInfo();
+
+  const itemLabel = result.itemCount === 1 ? "1 item" : `${result.itemCount} itens`;
+  const message = `${definition?.name || "Mapa salvo"} criado com ${itemLabel}.`;
+  setMessage(message, "success");
+  await obr.notification.show("Mapa salvo criado.", "SUCCESS");
+}
+
+async function restoreDefaultBoard(presetId) {
+  if (!obr) {
+    setMessage("Abra esta extensao dentro do Owlbear para restaurar o tabuleiro.", "warning");
+    return;
+  }
+
+  const entry = getScenePresetEntry(presetId);
+
+  if (!entry?.preset) {
+    setMessage("Esse mapa salvo ainda nao foi cadastrado na extensao.", "warning");
+    await obr.notification.show("Mapa salvo nao cadastrado.", "WARNING");
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `${entry.definition.restoreLabel} vai substituir a cena atual. Continuar?`,
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  const result = await restoreDefaultBoardPreset(obr, entry.preset);
   updateDefaultBoardControls(true);
 
   const message = `Cena restaurada: ${result.updated} atualizados, ${result.added} recriados, ${result.deleted} removidos.`;
   setMessage(message, "success");
-  await obr.notification.show("Tabuleiro padrao restaurado.", "SUCCESS");
+  await obr.notification.show(`${entry.definition.name} restaurado.`, "SUCCESS");
 }
 
 async function loadImageInfo(rawUrl) {
@@ -2404,7 +2370,6 @@ async function createPresetDeck() {
 }
 
 async function init() {
-  populateSelectionBoardControls();
   if (elements.form) {
     elements.form.addEventListener("submit", createCard);
   }
@@ -2430,18 +2395,27 @@ async function init() {
   elements.publicBaseUrl.value = getDefaultPublicBaseUrl();
   elements.panelFlipButton.addEventListener("click", () =>
     runPanelAction(elements.panelFlipButton, async () => {
-      const count = await flipSelectedItems(obr, lastCardSelection);
+      const fallbackSelection = lastFlipSelection.length
+        ? lastFlipSelection
+        : lastDeckSelection.length
+          ? lastDeckSelection
+          : lastCardSelection;
+      const count = await flipSelectedItems(obr, fallbackSelection);
       await showPanelActionResult(
         count,
         "Carta virada.",
-        (total) => `${total} cartas viradas.`,
-        "Selecione uma carta dupla para virar.",
+        (total) => `${total} itens virados.`,
+        "Selecione uma carta dupla ou uma pilha com cartas para virar.",
       );
     }),
   );
   elements.panelDrawButton.addEventListener("click", () =>
     runPanelAction(elements.panelDrawButton, async () => {
       const count = await drawSelectedDecks(obr, buildImage, lastDeckSelection);
+      if (count) {
+        lastFlipSelection = lastDeckSelection;
+        lastCardSelection = [];
+      }
       await showPanelActionResult(
         count,
         "Carta comprada.",
@@ -2478,6 +2452,8 @@ async function init() {
         return;
       }
 
+      lastCardSelection = [];
+      lastFlipSelection = lastDeckSelection;
       setMessage("", "neutral");
     }),
   );
@@ -2494,65 +2470,6 @@ async function init() {
       }
 
       const message = getRepairMessage(stats);
-      setMessage(message, "success");
-      await obr.notification.show(message, "SUCCESS");
-    }),
-  );
-  elements.activeColorSelect.addEventListener("change", () => {
-    const color = elements.activeColorSelect.value;
-
-    if (!color || !obr) {
-      return;
-    }
-
-    setActivePlayerColor(obr, color)
-      .then(() => {
-        syncColorControls(color);
-        setMessage(`Cor ativa: ${getColorLabel(color)}.`, "success");
-      })
-      .catch((error) => {
-        console.error(error);
-        setMessage(error.message || "Nao consegui definir a cor.", "error");
-      });
-  });
-  for (const button of elements.colorTokenButtons) {
-    button.addEventListener("click", () =>
-      runPanelAction(button, async () => {
-        const color = await markSelectedTokenColor(obr, button.dataset.tokenColor);
-        syncColorControls(color);
-        const message = `Token marcado como ${getColorLabel(color)}.`;
-        setMessage(message, "success");
-        await obr.notification.show(message, "SUCCESS");
-      }),
-    );
-  }
-  elements.saveSlotButton.addEventListener("click", () =>
-    runPanelAction(elements.saveSlotButton, async () => {
-      const result = await saveSlotFromSelectedItem(
-        obr,
-        elements.slotColorSelect.value,
-        elements.slotCategorySelect.value,
-      );
-      const message = `Slot salvo: ${getCategoryLabel(result.category)} de ${getColorLabel(result.color)}.`;
-      setMessage(message, "success");
-      await obr.notification.show(message, "SUCCESS");
-    }),
-  );
-  for (const button of elements.categoryCardButtons) {
-    button.addEventListener("click", () =>
-      runPanelAction(button, async () => {
-        const result = await markSelectedCardsCategory(obr, button.dataset.cardCategory);
-        const cardLabel = result.count === 1 ? "1 carta" : `${result.count} cartas`;
-        const message = `${cardLabel} marcadas como ${getCategoryLabel(result.category)}.`;
-        setMessage(message, "success");
-        await obr.notification.show(message, "SUCCESS");
-      }),
-    );
-  }
-  elements.returnOriginButton.addEventListener("click", () =>
-    runPanelAction(elements.returnOriginButton, async () => {
-      await returnSelectedCardToOrigin(obr);
-      const message = "Carta devolvida para a posicao original.";
       setMessage(message, "success");
       await obr.notification.show(message, "SUCCESS");
     }),
@@ -2621,12 +2538,16 @@ async function init() {
         elements.migratePublicButton.disabled = !obr;
       });
   });
-  elements.createDefaultBoardButton.addEventListener("click", () =>
-    runPanelAction(elements.createDefaultBoardButton, createDefaultBoardFromCurrentScene),
-  );
-  elements.restoreDefaultBoardButton.addEventListener("click", () =>
-    runPanelAction(elements.restoreDefaultBoardButton, restoreDefaultBoard),
-  );
+  for (const button of elements.createScenePresetButtons) {
+    button.addEventListener("click", () =>
+      runPanelAction(button, () => createDefaultBoardFromCurrentScene(button.dataset.createScenePreset)),
+    );
+  }
+  for (const button of elements.restoreScenePresetButtons) {
+    button.addEventListener("click", () =>
+      runPanelAction(button, () => restoreDefaultBoard(button.dataset.restoreScenePreset)),
+    );
+  }
 
   if (elements.form && elements.deckForm) {
     updatePreview(elements.frontUrl, elements.frontFile, elements.frontPreview, selectedAssets.front);
@@ -2644,7 +2565,7 @@ async function init() {
   try {
     const loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=42").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=46").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
     obr = loaded.OBR;
@@ -2657,6 +2578,7 @@ async function init() {
     const selection = await obr.player.getSelection();
     await Promise.all([rememberCardSelection(selection), rememberDeckSelection(selection)]);
     await refreshDefaultBoardInfo();
+    await refreshPlayerColorAssignments();
     obr.player.onChange((player) => {
       rememberCardSelection(player.selection).catch((error) => {
         console.warn("Nao consegui atualizar a selecao de cartas", error);
@@ -2664,9 +2586,15 @@ async function init() {
       rememberDeckSelection(player.selection).catch((error) => {
         console.warn("Nao consegui atualizar a selecao de pilhas", error);
       });
-      syncColorControls(player.metadata?.[ACTIVE_COLOR_KEY]?.color);
+      refreshPlayerColorAssignments().catch((error) => {
+        console.warn("Nao consegui atualizar as cores do painel", error);
+      });
     });
-    await refreshActiveColorControls();
+    if (obr.party?.onChange) {
+      obr.party.onChange((players) => {
+        renderPlayerColorAssignments(players);
+      });
+    }
     setConnectionStatus("Conectado ao Owlbear", true);
     setMessage("", "neutral");
   } catch (error) {

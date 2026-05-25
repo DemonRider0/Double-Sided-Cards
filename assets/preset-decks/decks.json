@@ -217,6 +217,105 @@
       ]
     },
     {
+      "id": "salas-refugiados",
+      "name": "Salas-Refugiados",
+      "gridWidth": 1.5,
+      "layer": "PROP",
+      "back": "assets/preset-decks/salas-refugiados/Verso.png",
+      "cards": [
+        {
+          "name": "Carta 8",
+          "front": "assets/preset-decks/salas-refugiados/Carta 8.png"
+        },
+        {
+          "name": "Carta 9",
+          "front": "assets/preset-decks/salas-refugiados/Carta 9.png"
+        }
+      ]
+    },
+    {
+      "id": "salas-objetivos",
+      "name": "Salas-Objetivos",
+      "gridWidth": 1.5,
+      "layer": "PROP",
+      "back": "assets/preset-decks/salas-objetivos/Verso.png",
+      "cards": [
+        {
+          "name": "Carta 15",
+          "front": "assets/preset-decks/salas-objetivos/Carta 15.png"
+        },
+        {
+          "name": "Carta 16",
+          "front": "assets/preset-decks/salas-objetivos/Carta 16.png"
+        },
+        {
+          "name": "Carta 17",
+          "front": "assets/preset-decks/salas-objetivos/Carta 17.png"
+        },
+        {
+          "name": "Carta 18",
+          "front": "assets/preset-decks/salas-objetivos/Carta 18.png"
+        }
+      ]
+    },
+    {
+      "id": "salas-normais",
+      "name": "Salas-Normais",
+      "gridWidth": 1.5,
+      "layer": "PROP",
+      "back": "assets/preset-decks/salas-normais/Verso.png",
+      "cards": [
+        {
+          "name": "Carta 1",
+          "front": "assets/preset-decks/salas-normais/Carta 1.png"
+        },
+        {
+          "name": "Carta 2",
+          "front": "assets/preset-decks/salas-normais/Carta 2.png"
+        },
+        {
+          "name": "Carta 3",
+          "front": "assets/preset-decks/salas-normais/Carta 3.png"
+        },
+        {
+          "name": "Carta 4",
+          "front": "assets/preset-decks/salas-normais/Carta 4.png"
+        },
+        {
+          "name": "Carta 5",
+          "front": "assets/preset-decks/salas-normais/Carta 5.png"
+        },
+        {
+          "name": "Carta 6",
+          "front": "assets/preset-decks/salas-normais/Carta 6.png"
+        },
+        {
+          "name": "Carta 7",
+          "front": "assets/preset-decks/salas-normais/Carta 7.png"
+        },
+        {
+          "name": "Carta 10",
+          "front": "assets/preset-decks/salas-normais/Carta 10.png"
+        },
+        {
+          "name": "Carta 11",
+          "front": "assets/preset-decks/salas-normais/Carta 11.png"
+        },
+        {
+          "name": "Carta 12",
+          "front": "assets/preset-decks/salas-normais/Carta 12.png"
+        },
+        {
+          "name": "Carta 13",
+          "front": "assets/preset-decks/salas-normais/Carta 13.png"
+        },
+        {
+          "name": "Carta 14",
+          "front": "assets/preset-decks/salas-normais/Carta 14.png"
+        }
+      ]
+    },
+    {
       "id": "tormenta-nivel-1",
       "name": "Poderes da Tormenta Nivel 1",
       "gridWidth": 2,

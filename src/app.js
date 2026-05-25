@@ -1,5 +1,6 @@
 import {
   COMMANDS_CHANNEL,
+  applyCardFaceTransform,
   createCardMetadata,
   createCardMetadataMap,
   createDeckMetadata,
@@ -12,8 +13,10 @@ import {
   getMimeFromUrl,
   setCardMetadata,
   setDeckMetadata,
+  shouldMirrorBackFace,
 } from "./card-data.js";
 import {
+  applyDeckDisplay,
   createDeckText,
   drawSelectedDecks,
   getDeckItems,
@@ -23,28 +26,17 @@ import {
 import { applyDivinitySizing, needsDivinitySizing } from "./divinity-sizing.js";
 import { flipSelectedItems, getDoubleSidedCards } from "./flip.js";
 import {
-  ACTIVE_COLOR_KEY,
-  CARD_CATEGORIES,
-  getActivePlayerColor,
-  getCategoryLabel,
-  getColorLabel,
-  markSelectedCardsCategory,
-  markSelectedTokenColor,
-  PLAYER_COLORS,
-  returnSelectedCardToOrigin,
-  saveSlotFromSelectedItem,
-  setActivePlayerColor,
-} from "./selection-board.js";
-import {
   buildPresetDeckData,
   isPresetDeckReady,
   loadPresetDecks,
 } from "./preset-decks.js";
 import {
-  loadDefaultBoardPreset,
+  loadScenePresetEntries,
   restoreDefaultBoardPreset,
-  saveDefaultBoardPreset,
+  saveScenePreset,
+  SCENE_PRESETS,
 } from "./scene-preset.js";
+import { ACTIVE_COLOR_KEY, PLAYER_COLORS } from "./selection-board.js";
 
 const elements = {
   form: document.querySelector("#cardForm"),
@@ -78,17 +70,11 @@ const elements = {
   panelShuffleButton: document.querySelector("#panelShuffleButton"),
   panelReturnButton: document.querySelector("#panelReturnButton"),
   panelRepairButton: document.querySelector("#panelRepairButton"),
-  activeColorSelect: document.querySelector("#activeColorSelect"),
-  colorTokenButtons: [...document.querySelectorAll("[data-token-color]")],
-  slotColorSelect: document.querySelector("#slotColorSelect"),
-  slotCategorySelect: document.querySelector("#slotCategorySelect"),
-  saveSlotButton: document.querySelector("#saveSlotButton"),
-  categoryCardButtons: [...document.querySelectorAll("[data-card-category]")],
-  returnOriginButton: document.querySelector("#returnOriginButton"),
+  colorAssignments: document.querySelector("#colorAssignments"),
   publicBaseUrl: document.querySelector("#publicBaseUrl"),
   migratePublicButton: document.querySelector("#migratePublicButton"),
-  createDefaultBoardButton: document.querySelector("#createDefaultBoardButton"),
-  restoreDefaultBoardButton: document.querySelector("#restoreDefaultBoardButton"),
+  createScenePresetButtons: [...document.querySelectorAll("[data-create-scene-preset]")],
+  restoreScenePresetButtons: [...document.querySelectorAll("[data-restore-scene-preset]")],
   defaultBoardInfo: document.querySelector("#defaultBoardInfo"),
   importButton: document.querySelector("#importButton"),
   importDeckButton: document.querySelector("#importDeckButton"),
@@ -103,8 +89,9 @@ let obr = null;
 let buildImage = null;
 let lastCardSelection = [];
 let lastDeckSelection = [];
+let lastFlipSelection = [];
 let presetDecks = [];
-let defaultBoardPreset = null;
+let scenePresetEntries = [];
 const selectedAssets = {
   front: null,
   back: null,
@@ -130,6 +117,9 @@ function setMessage(text, tone = "neutral") {
 function setConnectionStatus(text, isConnected) {
   elements.connectionStatus.textContent = text;
   elements.connectionStatus.dataset.connected = String(isConnected);
+  if (!isConnected) {
+    renderPlayerColorAssignments([]);
+  }
   if (elements.importButton) {
     elements.importButton.disabled = !isConnected;
   }
@@ -155,17 +145,52 @@ function setConnectionStatus(text, isConnected) {
   elements.panelShuffleButton.disabled = !isConnected;
   elements.panelReturnButton.disabled = !isConnected;
   elements.panelRepairButton.disabled = !isConnected;
-  elements.activeColorSelect.disabled = !isConnected;
-  elements.slotColorSelect.disabled = !isConnected;
-  elements.slotCategorySelect.disabled = !isConnected;
-  elements.saveSlotButton.disabled = !isConnected;
-  elements.returnOriginButton.disabled = !isConnected;
   updatePresetDeckControls(isConnected);
-  for (const button of elements.colorTokenButtons) {
-    button.disabled = !isConnected;
+}
+
+function getPlayerColor(player) {
+  const color = player.metadata?.[ACTIVE_COLOR_KEY]?.color;
+  return PLAYER_COLORS.some((entry) => entry.id === color) ? color : null;
+}
+
+function playerName(player) {
+  return player.name || player.username || "Jogador sem nome";
+}
+
+function renderPlayerColorAssignments(players) {
+  if (!elements.colorAssignments) {
+    return;
   }
-  for (const button of elements.categoryCardButtons) {
-    button.disabled = !isConnected;
+
+  elements.colorAssignments.replaceChildren();
+
+  for (const color of PLAYER_COLORS) {
+    const playersUsingColor = players.filter((player) => getPlayerColor(player) === color.id);
+    const names = playersUsingColor.length
+      ? playersUsingColor.map(playerName).join(", ")
+      : "Sem jogador";
+    const item = document.createElement("li");
+    item.textContent = `${names} - ${color.label.toLowerCase()}`;
+    elements.colorAssignments.append(item);
+  }
+}
+
+async function refreshPlayerColorAssignments() {
+  if (!obr?.party?.getPlayers) {
+    renderPlayerColorAssignments([]);
+    return;
+  }
+
+  try {
+    renderPlayerColorAssignments(await obr.party.getPlayers());
+  } catch (error) {
+    console.warn("Nao consegui atualizar as cores dos jogadores", error);
+    if (elements.colorAssignments) {
+      elements.colorAssignments.replaceChildren();
+      const item = document.createElement("li");
+      item.textContent = "Nao consegui ler os jogadores.";
+      elements.colorAssignments.append(item);
+    }
   }
 }
 
@@ -185,27 +210,37 @@ function formatPresetDate(value) {
 }
 
 function updateDefaultBoardControls(isConnected = Boolean(obr)) {
-  elements.createDefaultBoardButton.disabled = !isConnected || !isLocalhost();
-  elements.restoreDefaultBoardButton.disabled = !isConnected || !defaultBoardPreset;
+  const entriesById = new Map(scenePresetEntries.map((entry) => [entry.definition.id, entry]));
 
-  if (!defaultBoardPreset) {
-    elements.defaultBoardInfo.textContent = isLocalhost()
-      ? "Nenhum tabuleiro padrao criado no localhost."
-      : "Nenhum tabuleiro padrao cadastrado na extensao.";
+  for (const button of elements.createScenePresetButtons) {
+    button.hidden = !isLocalhost();
+    button.disabled = !isConnected || !isLocalhost();
+  }
+
+  for (const button of elements.restoreScenePresetButtons) {
+    const entry = entriesById.get(button.dataset.restoreScenePreset);
+    button.disabled = !isConnected || !entry?.preset;
+  }
+
+  if (!scenePresetEntries.length) {
+    elements.defaultBoardInfo.textContent = "Carregando mapas salvos...";
     return;
   }
 
-  const itemLabel =
-    defaultBoardPreset.itemCount === 1
-      ? "1 item no tabuleiro padrao"
-      : `${defaultBoardPreset.itemCount} itens no tabuleiro padrao`;
-  elements.defaultBoardInfo.textContent = `${itemLabel} criado em ${formatPresetDate(
-    defaultBoardPreset.savedAt,
-  )}.`;
+  const parts = scenePresetEntries.map(({ definition, preset }) => {
+    if (!preset) {
+      return `${definition.name}: nao cadastrado`;
+    }
+
+    const itemLabel = preset.itemCount === 1 ? "1 item" : `${preset.itemCount} itens`;
+    return `${definition.name}: ${itemLabel}, salvo em ${formatPresetDate(preset.savedAt)}`;
+  });
+
+  elements.defaultBoardInfo.textContent = parts.join(" | ");
 }
 
 async function refreshDefaultBoardInfo() {
-  defaultBoardPreset = await loadDefaultBoardPreset();
+  scenePresetEntries = await loadScenePresetEntries();
   updateDefaultBoardControls(Boolean(obr));
 }
 
@@ -219,6 +254,7 @@ async function rememberCardSelection(selection) {
 
   if (cardIds.length) {
     lastCardSelection = cardIds;
+    lastFlipSelection = cardIds;
   }
 }
 
@@ -232,6 +268,7 @@ async function rememberDeckSelection(selection) {
 
   if (deckIds.length) {
     lastDeckSelection = deckIds;
+    lastFlipSelection = deckIds;
   }
 }
 
@@ -271,45 +308,6 @@ async function runPanelAction(button, action) {
     setMessage(error.message || "Nao consegui executar a acao.", "error");
   } finally {
     button.disabled = false;
-  }
-}
-
-function syncColorControls(color) {
-  const activeColor = color || "";
-  elements.activeColorSelect.value = activeColor;
-
-  if (color) {
-    elements.slotColorSelect.value = color;
-  }
-}
-
-async function refreshActiveColorControls() {
-  if (!obr) {
-    syncColorControls(null);
-    return;
-  }
-
-  syncColorControls(await getActivePlayerColor(obr));
-}
-
-function populateSelectionBoardControls() {
-  for (const color of PLAYER_COLORS) {
-    const activeOption = document.createElement("option");
-    activeOption.value = color.id;
-    activeOption.textContent = color.label;
-    elements.activeColorSelect.append(activeOption);
-
-    const slotOption = document.createElement("option");
-    slotOption.value = color.id;
-    slotOption.textContent = color.label;
-    elements.slotColorSelect.append(slotOption);
-  }
-
-  for (const category of CARD_CATEGORIES) {
-    const option = document.createElement("option");
-    option.value = category.id;
-    option.textContent = category.label;
-    elements.slotCategorySelect.append(option);
   }
 }
 
@@ -353,27 +351,26 @@ async function repairSceneMetadata() {
 
       if (cardMetadata) {
         const currentFace = cardMetadata.currentFace === "back" ? "back" : "front";
-        const face = cardMetadata.faces[currentFace];
-
-        item.image = createImageData(face);
-        item.grid = createGridData(face, cardMetadata.gridWidth);
-        applyDivinitySizing(item, face);
-        item.description = currentFace === "back" ? "Carta dupla: verso" : "Carta dupla: frente";
-        setCardMetadata(item, {
+        const nextCardMetadata = {
           ...cardMetadata,
           currentFace,
-        });
+          mirrorBack: shouldMirrorBackFace(cardMetadata.faces.front, cardMetadata.faces.back),
+        };
+        const face = nextCardMetadata.faces[currentFace];
+
+        item.image = createImageData(face);
+        item.grid = createGridData(face, nextCardMetadata.gridWidth);
+        applyDivinitySizing(item, face);
+        applyCardFaceTransform(item, nextCardMetadata, currentFace);
+        item.description = currentFace === "back" ? "Carta dupla: verso" : "Carta dupla: frente";
+        setCardMetadata(item, nextCardMetadata);
         continue;
       }
 
       const deckMetadata = getDeckMetadata(item);
 
       if (deckMetadata) {
-        item.image = createImageData(deckMetadata.back);
-        item.grid = createGridData(deckMetadata.back, deckMetadata.gridWidth);
-        item.name = `${deckMetadata.name} (${deckMetadata.cards.length})`;
-        item.description = deckDescription(deckMetadata.cards.length);
-        item.text = createDeckText(deckMetadata.cards.length);
+        applyDeckDisplay(item, deckMetadata);
         setDeckMetadata(item, deckMetadata);
       }
     }
@@ -533,17 +530,27 @@ function migrateCardItem(item, publicBaseUrl, stats) {
       back: migrateFaceUrl(metadata.faces.back, publicBaseUrl, stats),
     },
   };
+  nextMetadata.mirrorBack = shouldMirrorBackFace(
+    nextMetadata.faces.front,
+    nextMetadata.faces.back,
+  );
   const currentFace = nextMetadata.faces[nextMetadata.currentFace] || nextMetadata.faces.front;
   const urlsChanged = stats.urls !== urlCountBefore;
   const divinitySizingChanged = needsDivinitySizing(item, currentFace);
+  const mirrorChanged = metadata.mirrorBack !== nextMetadata.mirrorBack;
 
-  if (!urlsChanged && !divinitySizingChanged) {
+  if (!urlsChanged && !divinitySizingChanged && !mirrorChanged) {
     return false;
   }
 
   item.image = createImageData(currentFace);
   item.grid = createGridData(currentFace, nextMetadata.gridWidth);
   applyDivinitySizing(item, currentFace);
+  applyCardFaceTransform(
+    item,
+    nextMetadata,
+    nextMetadata.currentFace === "back" ? "back" : "front",
+  );
   if (divinitySizingChanged) {
     stats.sized += 1;
   }
@@ -574,11 +581,7 @@ function migrateDeckItem(item, publicBaseUrl, stats) {
   }
 
   const count = nextMetadata.cards.length;
-  item.image = createImageData(nextMetadata.back);
-  item.grid = createGridData(nextMetadata.back, nextMetadata.gridWidth);
-  item.name = `${nextMetadata.name} (${count})`;
-  item.description = deckDescription(count);
-  item.text = createDeckText(count);
+  applyDeckDisplay(item, nextMetadata);
   setDeckMetadata(item, nextMetadata);
   return true;
 }
@@ -636,47 +639,62 @@ async function migrateSceneLocalAssets() {
   );
 }
 
-async function createDefaultBoardFromCurrentScene() {
-  if (!obr) {
-    setMessage("Abra esta extensao dentro do Owlbear para criar o tabuleiro padrao.", "warning");
-    return;
-  }
-
-  const result = await saveDefaultBoardPreset(obr);
-  await refreshDefaultBoardInfo();
-
-  const itemLabel = result.itemCount === 1 ? "1 item" : `${result.itemCount} itens`;
-  const message = `Tabuleiro padrao criado com ${itemLabel}.`;
-  setMessage(message, "success");
-  await obr.notification.show("Tabuleiro padrao criado.", "SUCCESS");
+function getScenePresetEntry(presetId) {
+  return scenePresetEntries.find((entry) => entry.definition.id === presetId) || null;
 }
 
-async function restoreDefaultBoard() {
+async function createDefaultBoardFromCurrentScene(presetId) {
   if (!obr) {
-    setMessage("Abra esta extensao dentro do Owlbear para restaurar o tabuleiro.", "warning");
+    setMessage("Abra esta extensao dentro do Owlbear para criar o mapa salvo.", "warning");
     return;
   }
 
-  if (!defaultBoardPreset) {
-    setMessage("Nenhum tabuleiro padrao cadastrado na extensao.", "warning");
-    await obr.notification.show("Nenhum tabuleiro padrao cadastrado.", "WARNING");
-    return;
-  }
-
+  const definition = SCENE_PRESETS.find((preset) => preset.id === presetId);
   const confirmed = window.confirm(
-    "Restaurar o tabuleiro padrao vai substituir a cena atual. Continuar?",
+    `Salvar "${definition?.name || "mapa salvo"}" vai substituir esse backup pelo estado atual da cena. Continuar?`,
   );
 
   if (!confirmed) {
     return;
   }
 
-  const result = await restoreDefaultBoardPreset(obr, defaultBoardPreset);
+  const result = await saveScenePreset(obr, presetId);
+  await refreshDefaultBoardInfo();
+
+  const itemLabel = result.itemCount === 1 ? "1 item" : `${result.itemCount} itens`;
+  const message = `${definition?.name || "Mapa salvo"} criado com ${itemLabel}.`;
+  setMessage(message, "success");
+  await obr.notification.show("Mapa salvo criado.", "SUCCESS");
+}
+
+async function restoreDefaultBoard(presetId) {
+  if (!obr) {
+    setMessage("Abra esta extensao dentro do Owlbear para restaurar o tabuleiro.", "warning");
+    return;
+  }
+
+  const entry = getScenePresetEntry(presetId);
+
+  if (!entry?.preset) {
+    setMessage("Esse mapa salvo ainda nao foi cadastrado na extensao.", "warning");
+    await obr.notification.show("Mapa salvo nao cadastrado.", "WARNING");
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `${entry.definition.restoreLabel} vai substituir a cena atual. Continuar?`,
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  const result = await restoreDefaultBoardPreset(obr, entry.preset);
   updateDefaultBoardControls(true);
 
   const message = `Cena restaurada: ${result.updated} atualizados, ${result.added} recriados, ${result.deleted} removidos.`;
   setMessage(message, "success");
-  await obr.notification.show("Tabuleiro padrao restaurado.", "SUCCESS");
+  await obr.notification.show(`${entry.definition.name} restaurado.`, "SUCCESS");
 }
 
 async function loadImageInfo(rawUrl) {
@@ -1284,7 +1302,6 @@ async function createPresetDeck() {
 }
 
 async function init() {
-  populateSelectionBoardControls();
   if (elements.form) {
     elements.form.addEventListener("submit", createCard);
   }
@@ -1310,18 +1327,27 @@ async function init() {
   elements.publicBaseUrl.value = getDefaultPublicBaseUrl();
   elements.panelFlipButton.addEventListener("click", () =>
     runPanelAction(elements.panelFlipButton, async () => {
-      const count = await flipSelectedItems(obr, lastCardSelection);
+      const fallbackSelection = lastFlipSelection.length
+        ? lastFlipSelection
+        : lastDeckSelection.length
+          ? lastDeckSelection
+          : lastCardSelection;
+      const count = await flipSelectedItems(obr, fallbackSelection);
       await showPanelActionResult(
         count,
         "Carta virada.",
-        (total) => `${total} cartas viradas.`,
-        "Selecione uma carta dupla para virar.",
+        (total) => `${total} itens virados.`,
+        "Selecione uma carta dupla ou uma pilha com cartas para virar.",
       );
     }),
   );
   elements.panelDrawButton.addEventListener("click", () =>
     runPanelAction(elements.panelDrawButton, async () => {
       const count = await drawSelectedDecks(obr, buildImage, lastDeckSelection);
+      if (count) {
+        lastFlipSelection = lastDeckSelection;
+        lastCardSelection = [];
+      }
       await showPanelActionResult(
         count,
         "Carta comprada.",
@@ -1358,6 +1384,8 @@ async function init() {
         return;
       }
 
+      lastCardSelection = [];
+      lastFlipSelection = lastDeckSelection;
       setMessage("", "neutral");
     }),
   );
@@ -1374,65 +1402,6 @@ async function init() {
       }
 
       const message = getRepairMessage(stats);
-      setMessage(message, "success");
-      await obr.notification.show(message, "SUCCESS");
-    }),
-  );
-  elements.activeColorSelect.addEventListener("change", () => {
-    const color = elements.activeColorSelect.value;
-
-    if (!color || !obr) {
-      return;
-    }
-
-    setActivePlayerColor(obr, color)
-      .then(() => {
-        syncColorControls(color);
-        setMessage(`Cor ativa: ${getColorLabel(color)}.`, "success");
-      })
-      .catch((error) => {
-        console.error(error);
-        setMessage(error.message || "Nao consegui definir a cor.", "error");
-      });
-  });
-  for (const button of elements.colorTokenButtons) {
-    button.addEventListener("click", () =>
-      runPanelAction(button, async () => {
-        const color = await markSelectedTokenColor(obr, button.dataset.tokenColor);
-        syncColorControls(color);
-        const message = `Token marcado como ${getColorLabel(color)}.`;
-        setMessage(message, "success");
-        await obr.notification.show(message, "SUCCESS");
-      }),
-    );
-  }
-  elements.saveSlotButton.addEventListener("click", () =>
-    runPanelAction(elements.saveSlotButton, async () => {
-      const result = await saveSlotFromSelectedItem(
-        obr,
-        elements.slotColorSelect.value,
-        elements.slotCategorySelect.value,
-      );
-      const message = `Slot salvo: ${getCategoryLabel(result.category)} de ${getColorLabel(result.color)}.`;
-      setMessage(message, "success");
-      await obr.notification.show(message, "SUCCESS");
-    }),
-  );
-  for (const button of elements.categoryCardButtons) {
-    button.addEventListener("click", () =>
-      runPanelAction(button, async () => {
-        const result = await markSelectedCardsCategory(obr, button.dataset.cardCategory);
-        const cardLabel = result.count === 1 ? "1 carta" : `${result.count} cartas`;
-        const message = `${cardLabel} marcadas como ${getCategoryLabel(result.category)}.`;
-        setMessage(message, "success");
-        await obr.notification.show(message, "SUCCESS");
-      }),
-    );
-  }
-  elements.returnOriginButton.addEventListener("click", () =>
-    runPanelAction(elements.returnOriginButton, async () => {
-      await returnSelectedCardToOrigin(obr);
-      const message = "Carta devolvida para a posicao original.";
       setMessage(message, "success");
       await obr.notification.show(message, "SUCCESS");
     }),
@@ -1501,12 +1470,16 @@ async function init() {
         elements.migratePublicButton.disabled = !obr;
       });
   });
-  elements.createDefaultBoardButton.addEventListener("click", () =>
-    runPanelAction(elements.createDefaultBoardButton, createDefaultBoardFromCurrentScene),
-  );
-  elements.restoreDefaultBoardButton.addEventListener("click", () =>
-    runPanelAction(elements.restoreDefaultBoardButton, restoreDefaultBoard),
-  );
+  for (const button of elements.createScenePresetButtons) {
+    button.addEventListener("click", () =>
+      runPanelAction(button, () => createDefaultBoardFromCurrentScene(button.dataset.createScenePreset)),
+    );
+  }
+  for (const button of elements.restoreScenePresetButtons) {
+    button.addEventListener("click", () =>
+      runPanelAction(button, () => restoreDefaultBoard(button.dataset.restoreScenePreset)),
+    );
+  }
 
   if (elements.form && elements.deckForm) {
     updatePreview(elements.frontUrl, elements.frontFile, elements.frontPreview, selectedAssets.front);
@@ -1524,7 +1497,7 @@ async function init() {
   try {
     const loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=42").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=46").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
     obr = loaded.OBR;
@@ -1537,6 +1510,7 @@ async function init() {
     const selection = await obr.player.getSelection();
     await Promise.all([rememberCardSelection(selection), rememberDeckSelection(selection)]);
     await refreshDefaultBoardInfo();
+    await refreshPlayerColorAssignments();
     obr.player.onChange((player) => {
       rememberCardSelection(player.selection).catch((error) => {
         console.warn("Nao consegui atualizar a selecao de cartas", error);
@@ -1544,9 +1518,15 @@ async function init() {
       rememberDeckSelection(player.selection).catch((error) => {
         console.warn("Nao consegui atualizar a selecao de pilhas", error);
       });
-      syncColorControls(player.metadata?.[ACTIVE_COLOR_KEY]?.color);
+      refreshPlayerColorAssignments().catch((error) => {
+        console.warn("Nao consegui atualizar as cores do painel", error);
+      });
     });
-    await refreshActiveColorControls();
+    if (obr.party?.onChange) {
+      obr.party.onChange((players) => {
+        renderPlayerColorAssignments(players);
+      });
+    }
     setConnectionStatus("Conectado ao Owlbear", true);
     setMessage("", "neutral");
   } catch (error) {
