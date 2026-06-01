@@ -31,7 +31,7 @@ import {
 } from "./selection-board.js";
 
 function assetUrl(path) {
-  return `${new URL(`../${path}`, import.meta.url).toString()}?v=49`;
+  return `${new URL(`../${path}`, import.meta.url).toString()}?v=50`;
 }
 
 function isLocalhost() {

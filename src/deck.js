@@ -85,8 +85,22 @@ function isDeckDisplayCurrent(item, metadata) {
 }
 
 export async function syncDeckDisplays(OBR, items) {
-  const decks = getDeckItems(items).filter(
-    (item) => !isDeckDisplayCurrent(item, getDeckMetadata(item)),
+  const deckItems = getDeckItems(items);
+  const emptyTransientDeckIds = new Set(
+    deckItems
+      .filter((item) => {
+        const metadata = getDeckMetadata(item);
+        return Boolean(metadata?.deleteWhenEmpty && metadata.cards.length === 0);
+      })
+      .map((item) => item.id),
+  );
+
+  if (emptyTransientDeckIds.size) {
+    await OBR.scene.items.deleteItems([...emptyTransientDeckIds]).catch(() => {});
+  }
+
+  const decks = deckItems.filter(
+    (item) => !emptyTransientDeckIds.has(item.id) && !isDeckDisplayCurrent(item, getDeckMetadata(item)),
   );
 
   if (!decks.length) {
@@ -142,6 +156,7 @@ export async function drawFromDecks(OBR, buildImage, items, options = {}) {
 
   const offset = await getDrawOffset(OBR);
   const nextMetadataById = new Map();
+  const deckIdsToDelete = new Set();
   const drawnItems = [];
 
   for (const [index, deck] of decks.entries()) {
@@ -176,32 +191,48 @@ export async function drawFromDecks(OBR, buildImage, items, options = {}) {
     applyCardFaceTransform(item, cardMetadata, drawnFace);
 
     drawnItems.push(item);
-    nextMetadataById.set(deck.id, {
+    const nextMetadata = {
       ...metadata,
       cards: remainingCards,
       currentFace: metadata.currentFace === "front" ? "front" : "back",
+    };
+
+    if (metadata.deleteWhenEmpty && remainingCards.length === 0) {
+      deckIdsToDelete.add(deck.id);
+    } else {
+      nextMetadataById.set(deck.id, nextMetadata);
+    }
+  }
+
+  const decksToUpdate = decks.filter((deck) => !deckIdsToDelete.has(deck.id));
+
+  if (decksToUpdate.length) {
+    await OBR.scene.items.updateItems(decksToUpdate, (draftItems) => {
+      for (const item of draftItems) {
+        const metadata = nextMetadataById.get(item.id);
+        if (!metadata) {
+          continue;
+        }
+
+        applyDeckDisplay(item, metadata);
+        setDeckMetadata(item, metadata);
+
+        const restoredPosition = options.deckPositionsById?.get(item.id);
+        if (restoredPosition) {
+          item.position = restoredPosition;
+        }
+      }
     });
   }
 
-  await OBR.scene.items.updateItems(decks, (draftItems) => {
-    for (const item of draftItems) {
-      const metadata = nextMetadataById.get(item.id);
-      if (!metadata) {
-        continue;
-      }
-
-      applyDeckDisplay(item, metadata);
-      setDeckMetadata(item, metadata);
-
-      const restoredPosition = options.deckPositionsById?.get(item.id);
-      if (restoredPosition) {
-        item.position = restoredPosition;
-      }
-    }
-  });
-
   await OBR.scene.items.addItems(drawnItems);
-  await selectDecks(OBR, decks.map((deck) => deck.id));
+  if (deckIdsToDelete.size) {
+    await OBR.scene.items.deleteItems([...deckIdsToDelete]).catch(() => {});
+  }
+  await selectDecks(
+    OBR,
+    decks.filter((deck) => !deckIdsToDelete.has(deck.id)).map((deck) => deck.id),
+  );
   return drawnItems.length;
 }
 
@@ -213,7 +244,11 @@ async function getSelectedDeckItems(OBR, fallbackSelection = []) {
     return [];
   }
 
-  return getDeckItems(await OBR.scene.items.getItems(itemIds));
+  try {
+    return getDeckItems(await OBR.scene.items.getItems(itemIds));
+  } catch {
+    return [];
+  }
 }
 
 export async function drawSelectedDecks(OBR, buildImage, fallbackSelection = []) {
@@ -284,7 +319,11 @@ async function getSelectedCardItems(OBR, fallbackSelection = []) {
     return [];
   }
 
-  return getCardItems(await OBR.scene.items.getItems(itemIds));
+  try {
+    return getCardItems(await OBR.scene.items.getItems(itemIds));
+  } catch {
+    return [];
+  }
 }
 
 async function getTargetDeck(OBR, cards, fallbackDeckSelection = []) {
@@ -297,14 +336,20 @@ async function getTargetDeck(OBR, cards, fallbackDeckSelection = []) {
   ];
 
   if (sourceDeckIds.length) {
-    const sourceDecks = getDeckItems(await OBR.scene.items.getItems(sourceDeckIds));
+    const sourceDecks = await OBR.scene.items
+      .getItems(sourceDeckIds)
+      .then(getDeckItems)
+      .catch(() => []);
     if (sourceDecks.length) {
       return sourceDecks[0];
     }
   }
 
   if (fallbackDeckSelection.length) {
-    const fallbackDecks = getDeckItems(await OBR.scene.items.getItems(fallbackDeckSelection));
+    const fallbackDecks = await OBR.scene.items
+      .getItems(fallbackDeckSelection)
+      .then(getDeckItems)
+      .catch(() => []);
     if (fallbackDecks.length) {
       return fallbackDecks[0];
     }

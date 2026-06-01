@@ -50,6 +50,10 @@ const elements = {
   presetDeckLayer: document.querySelector("#presetDeckLayer"),
   presetDeckInfo: document.querySelector("#presetDeckInfo"),
   importPresetDeckButton: document.querySelector("#importPresetDeckButton"),
+  missionObjectiveOneSelect: document.querySelector("#missionObjectiveOneSelect"),
+  missionObjectiveTwoSelect: document.querySelector("#missionObjectiveTwoSelect"),
+  missionDeckInfo: document.querySelector("#missionDeckInfo"),
+  createMissionDeckButton: document.querySelector("#createMissionDeckButton"),
   name: document.querySelector("#cardName"),
   frontUrl: document.querySelector("#frontUrl"),
   frontFile: document.querySelector("#frontFile"),
@@ -104,6 +108,9 @@ const selectedAssets = {
   deckBack: null,
   deckFronts: [],
 };
+const MISSION_OBJECTIVE_DECK_ID = "salas-objetivos";
+const MISSION_NORMAL_DECK_ID = "salas-normais";
+const MISSION_NORMAL_COUNT = 3;
 
 window.addEventListener("error", (event) => {
   setConnectionStatus("Erro no painel", false);
@@ -153,6 +160,7 @@ function setConnectionStatus(text, isConnected) {
   elements.panelRepairButton.disabled = !isConnected;
   elements.returnOriginButton.disabled = !isConnected;
   updatePresetDeckControls(isConnected);
+  updateMissionDeckControls(isConnected);
 }
 
 function normalizePointerColor(color) {
@@ -1150,6 +1158,17 @@ function getSelectedPresetDeck() {
   return presetDecks.find((deck) => deck.id === selectedId) || null;
 }
 
+function getPresetDeckById(deckId) {
+  return presetDecks.find((deck) => deck.id === deckId) || null;
+}
+
+function getMissionDeckSources() {
+  return {
+    objectives: getPresetDeckById(MISSION_OBJECTIVE_DECK_ID),
+    normals: getPresetDeckById(MISSION_NORMAL_DECK_ID),
+  };
+}
+
 function setPresetDeckDefaultControls(deck) {
   if (!deck) {
     elements.presetDeckGridWidth.value = "2";
@@ -1165,6 +1184,81 @@ function setPresetDeckDefaultControls(deck) {
   } else {
     elements.presetDeckLayer.value = "PROP";
   }
+}
+
+function shuffleCardsForMission(cards) {
+  const shuffled = [...cards];
+
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+
+  return shuffled;
+}
+
+function fillMissionObjectiveSelect(select, objectivesDeck, fallbackIndex) {
+  const previousValue = select.value;
+  select.replaceChildren();
+
+  if (!objectivesDeck?.cards?.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "Sem objetivos";
+    select.append(option);
+    return;
+  }
+
+  for (const [index, card] of objectivesDeck.cards.entries()) {
+    const option = document.createElement("option");
+    option.value = String(index);
+    option.textContent = card.name || `Objetivo ${index + 1}`;
+    select.append(option);
+  }
+
+  if ([...select.options].some((option) => option.value === previousValue)) {
+    select.value = previousValue;
+  } else {
+    select.value = String(Math.min(fallbackIndex, objectivesDeck.cards.length - 1));
+  }
+}
+
+function populateMissionObjectiveSelects() {
+  const { objectives } = getMissionDeckSources();
+  fillMissionObjectiveSelect(elements.missionObjectiveOneSelect, objectives, 0);
+  fillMissionObjectiveSelect(elements.missionObjectiveTwoSelect, objectives, 1);
+}
+
+function updateMissionDeckControls(isConnected = Boolean(obr)) {
+  const { objectives, normals } = getMissionDeckSources();
+  const hasSources =
+    isPresetDeckReady(objectives) &&
+    isPresetDeckReady(normals) &&
+    objectives.cards.length >= 2 &&
+    normals.cards.length >= MISSION_NORMAL_COUNT;
+  const selectedIndexes = [
+    elements.missionObjectiveOneSelect.value,
+    elements.missionObjectiveTwoSelect.value,
+  ];
+  const hasDifferentObjectives = selectedIndexes[0] !== selectedIndexes[1];
+
+  elements.missionObjectiveOneSelect.disabled = !hasSources;
+  elements.missionObjectiveTwoSelect.disabled = !hasSources;
+  elements.createMissionDeckButton.disabled = !isConnected || !hasSources || !hasDifferentObjectives;
+
+  if (!hasSources) {
+    elements.missionDeckInfo.textContent =
+      "A biblioteca precisa de Salas-Objetivos com 2 cartas e Salas-Normais com 3 cartas.";
+    return;
+  }
+
+  if (!hasDifferentObjectives) {
+    elements.missionDeckInfo.textContent = "Escolha dois objetivos diferentes.";
+    return;
+  }
+
+  elements.missionDeckInfo.textContent =
+    "Sera criada uma pilha com 2 objetivos escolhidos e 3 salas normais aleatorias.";
 }
 
 function updatePresetDeckControls(isConnected = Boolean(obr), syncDefaults = false) {
@@ -1213,6 +1307,8 @@ function populatePresetDeckSelect() {
     option.textContent = "Nenhuma pilha cadastrada";
     elements.presetDeckSelect.append(option);
     updatePresetDeckControls(Boolean(obr), true);
+    populateMissionObjectiveSelects();
+    updateMissionDeckControls(Boolean(obr));
     return;
   }
 
@@ -1226,6 +1322,8 @@ function populatePresetDeckSelect() {
   }
 
   updatePresetDeckControls(Boolean(obr), true);
+  populateMissionObjectiveSelects();
+  updateMissionDeckControls(Boolean(obr));
 }
 
 async function loadPresetLibrary() {
@@ -1292,9 +1390,9 @@ async function loadDeckFronts() {
   }));
 }
 
-async function addDeckToScene({ name, back, cards, gridWidth, layer }) {
+async function addDeckToScene({ name, back, cards, gridWidth, layer, deleteWhenEmpty = false }) {
   const position = await getViewportCenter();
-  const metadata = createDeckMetadata({ name, back, cards, gridWidth });
+  const metadata = createDeckMetadata({ name, back, cards, gridWidth, deleteWhenEmpty });
   const item = buildImage(createImageData(back), createGridData(back, gridWidth))
     .name(`${name} (${cards.length})`)
     .description(deckDescription(cards.length))
@@ -1306,6 +1404,75 @@ async function addDeckToScene({ name, back, cards, gridWidth, layer }) {
 
   await obr.scene.items.addItems([item]);
   return item;
+}
+
+function getSelectedMissionObjectiveCards(objectivesDeck) {
+  const indexes = [
+    Number.parseInt(elements.missionObjectiveOneSelect.value, 10),
+    Number.parseInt(elements.missionObjectiveTwoSelect.value, 10),
+  ];
+
+  if (indexes.some((index) => !Number.isInteger(index) || !objectivesDeck.cards[index])) {
+    throw new Error("Escolha duas salas objetivo validas.");
+  }
+
+  if (indexes[0] === indexes[1]) {
+    throw new Error("Escolha dois objetivos diferentes.");
+  }
+
+  return indexes.map((index) => objectivesDeck.cards[index]);
+}
+
+async function createMissionDeck() {
+  if (!obr || !buildImage) {
+    setMessage("Abra esta extensao dentro do Owlbear Rodeo para criar a pilha.", "warning");
+    return;
+  }
+
+  const { objectives, normals } = getMissionDeckSources();
+  if (
+    !isPresetDeckReady(objectives) ||
+    !isPresetDeckReady(normals) ||
+    objectives.cards.length < 2 ||
+    normals.cards.length < MISSION_NORMAL_COUNT
+  ) {
+    setMessage("A biblioteca de salas ainda nao esta pronta para criar esta pilha.", "warning");
+    return;
+  }
+
+  elements.createMissionDeckButton.disabled = true;
+  setMessage("Criando pilha de missao...", "neutral");
+
+  try {
+    const selectedObjectives = getSelectedMissionObjectiveCards(objectives);
+    const randomNormals = shuffleCardsForMission(normals.cards).slice(0, MISSION_NORMAL_COUNT);
+    const missionCards = shuffleCardsForMission([...selectedObjectives, ...randomNormals]).map(
+      (card) => ({
+        name: card.name,
+        front: card.front,
+      }),
+    );
+    const missionDeckData = await buildPresetDeckData({
+      id: "salas-missao",
+      name: "Salas da Missao",
+      gridWidth: normals.gridWidth || objectives.gridWidth || 1.5,
+      layer: normals.layer || objectives.layer || "PROP",
+      back: normals.back?.path ? normals.back : objectives.back,
+      cards: missionCards,
+    });
+
+    await addDeckToScene({
+      ...missionDeckData,
+      deleteWhenEmpty: true,
+    });
+    await obr.notification.show("Pilha de missao criada.", "SUCCESS");
+    setMessage("Pilha de missao criada com 5 cartas.", "success");
+  } catch (error) {
+    console.error(error);
+    setMessage(error.message || "Nao consegui criar a pilha de missao.", "error");
+  } finally {
+    updateMissionDeckControls(Boolean(obr));
+  }
 }
 
 async function createCard(event) {
@@ -1451,6 +1618,18 @@ async function init() {
     createPresetDeck().catch((error) => {
       console.error(error);
       setMessage(error.message || "Nao consegui criar a pilha da biblioteca.", "error");
+    }),
+  );
+  elements.missionObjectiveOneSelect.addEventListener("change", () =>
+    updateMissionDeckControls(Boolean(obr)),
+  );
+  elements.missionObjectiveTwoSelect.addEventListener("change", () =>
+    updateMissionDeckControls(Boolean(obr)),
+  );
+  elements.createMissionDeckButton.addEventListener("click", () =>
+    createMissionDeck().catch((error) => {
+      console.error(error);
+      setMessage(error.message || "Nao consegui criar a pilha de missao.", "error");
     }),
   );
   loadPresetLibrary().catch((error) => {
@@ -1641,7 +1820,7 @@ async function init() {
   try {
     const loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=49").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=50").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
     obr = loaded.OBR;

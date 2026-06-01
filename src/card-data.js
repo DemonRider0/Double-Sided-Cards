@@ -208,8 +208,8 @@ export function createCardMetadata({
   return metadata;
 }
 
-export function createDeckMetadata({ name, back, cards, gridWidth }) {
-  return {
+export function createDeckMetadata({ name, back, cards, gridWidth, deleteWhenEmpty = false }) {
+  const metadata = {
     version: 1,
     name,
     currentFace: "back",
@@ -217,6 +217,12 @@ export function createDeckMetadata({ name, back, cards, gridWidth }) {
     cards,
     gridWidth,
   };
+
+  if (deleteWhenEmpty) {
+    metadata.deleteWhenEmpty = true;
+  }
+
+  return metadata;
 }
 
 export function deckDescription(count) {
