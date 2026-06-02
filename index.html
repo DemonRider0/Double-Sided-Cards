@@ -4,13 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Cartas Duplas</title>
-    <script type="module" src="./dist/sdk-boot.js?v=50"></script>
-    <link rel="stylesheet" href="./src/styles.css?v=50" />
+    <script type="module" src="./dist/sdk-boot.js?v=51"></script>
+    <link rel="stylesheet" href="./src/styles.css?v=51" />
   </head>
   <body>
     <main class="app">
       <header class="topbar">
-        <img src="./icons/card.svg?v=50" alt="" class="topbar__icon" />
+        <img src="./icons/card.svg?v=51" alt="" class="topbar__icon" />
         <div>
           <h1>Cartas Duplas</h1>
           <p id="connectionStatus" class="status">Carregando painel...</p>
@@ -82,21 +82,10 @@
       <section class="form">
         <h2>Pilha de miss&atilde;o</h2>
         <p id="missionDeckInfo" class="field-note">
-          Escolha 2 salas objetivo; 3 salas normais entram aleatoriamente.
+          Selecione exatamente 5 cartas sacadas para unir em uma pilha tempor&aacute;ria.
         </p>
-        <div class="row">
-          <label class="field">
-            <span>Objetivo 1</span>
-            <select id="missionObjectiveOneSelect" disabled></select>
-          </label>
-
-          <label class="field">
-            <span>Objetivo 2</span>
-            <select id="missionObjectiveTwoSelect" disabled></select>
-          </label>
-        </div>
         <button id="createMissionDeckButton" class="button button--secondary" type="button" disabled>
-          Criar pilha de miss&atilde;o
+          Criar pilha com sele&ccedil;&atilde;o
         </button>
       </section>
 
@@ -136,6 +125,6 @@
       <p id="message" class="message" role="status" aria-live="polite"></p>
     </main>
 
-    <script type="module" src="./dist/app.js?v=50"></script>
+    <script type="module" src="./dist/app.js?v=51"></script>
   </body>
 </html>
