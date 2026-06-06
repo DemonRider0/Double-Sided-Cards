@@ -413,7 +413,164 @@ function getRepairMessage(stats) {
     parts.push(stats.decks === 1 ? "1 pilha" : `${stats.decks} pilhas`);
   }
 
+  if (stats.images) {
+    parts.push(stats.images === 1 ? "1 imagem normal" : `${stats.images} imagens normais`);
+  }
+
+  if (stats.imageErrors) {
+    parts.push(
+      stats.imageErrors === 1
+        ? "1 imagem normal com erro"
+        : `${stats.imageErrors} imagens normais com erro`,
+    );
+  }
+
   return `Cena sincronizada: ${parts.join(" e ")}.`;
+}
+
+function isOwlbearRemoteImageUrl(rawUrl) {
+  try {
+    const url = new URL(rawUrl, window.location.origin);
+    return url.hostname === "images.owlbear.rodeo";
+  } catch {
+    return false;
+  }
+}
+
+function isPlainOwlbearRemoteImage(item) {
+  return Boolean(
+    item?.type === "IMAGE" &&
+      item.image?.url &&
+      isOwlbearRemoteImageUrl(item.image.url) &&
+      !getCardMetadata(item) &&
+      !getDeckMetadata(item),
+  );
+}
+
+function imageMayHaveTransparency(blob) {
+  const mime = blob.type || "";
+  return mime === "image/png" || mime === "image/webp";
+}
+
+function imageLooksTransparent(image) {
+  const sampleSize = 64;
+  const canvas = document.createElement("canvas");
+  canvas.width = sampleSize;
+  canvas.height = sampleSize;
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    return false;
+  }
+
+  context.clearRect(0, 0, sampleSize, sampleSize);
+  context.drawImage(image, 0, 0, sampleSize, sampleSize);
+  const pixels = context.getImageData(0, 0, sampleSize, sampleSize).data;
+
+  for (let index = 3; index < pixels.length; index += 4) {
+    if (pixels[index] < 250) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(reader.result));
+    reader.addEventListener("error", () => reject(reader.error));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function optimizePlainRemoteImageForScene(item, cache) {
+  const cached = cache.get(item.image.url);
+
+  if (cached) {
+    return cached;
+  }
+
+  const response = await fetch(item.image.url, {
+    cache: "no-store",
+    mode: "cors",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Nao consegui baixar "${item.name || "imagem"}" do Owlbear.`);
+  }
+
+  const originalBlob = await response.blob();
+  const info = await loadBlobImage(originalBlob);
+  const optimized = await optimizeSceneImageBlob(originalBlob, info);
+  const dataUrl = await blobToDataUrl(optimized.blob);
+  const result = {
+    url: dataUrl,
+    width: info.width,
+    height: info.height,
+    mime: optimized.mime,
+  };
+
+  cache.set(item.image.url, result);
+  return result;
+}
+
+async function optimizePlainRemoteImagesInScene() {
+  const items = await obr.scene.items.getItems();
+  const selection = await obr.player.getSelection();
+  const selectedIds = new Set(selection || []);
+  const candidates = items.filter(isPlainOwlbearRemoteImage);
+  const selectedCandidates = candidates.filter((item) => selectedIds.has(item.id));
+  const targetItems = selectedCandidates.length ? selectedCandidates : candidates;
+  const stats = {
+    images: 0,
+    imageErrors: 0,
+  };
+
+  if (!targetItems.length) {
+    return stats;
+  }
+
+  const cache = new Map();
+  const updates = new Map();
+  const scope = selectedCandidates.length ? "selecionadas" : "da cena";
+  setMessage(`Otimizando ${targetItems.length} imagens normais ${scope}...`, "neutral");
+
+  for (const item of targetItems) {
+    try {
+      updates.set(item.id, await optimizePlainRemoteImageForScene(item, cache));
+    } catch (error) {
+      console.warn("Nao consegui otimizar imagem normal da cena", item.name, error);
+      stats.imageErrors += 1;
+    }
+  }
+
+  if (updates.size) {
+    await obr.scene.items.updateItems(
+      targetItems.filter((item) => updates.has(item.id)),
+      (draftItems) => {
+        for (const item of draftItems) {
+          const optimized = updates.get(item.id);
+
+          if (!optimized) {
+            continue;
+          }
+
+          item.image = {
+            ...item.image,
+            url: optimized.url,
+            width: optimized.width,
+            height: optimized.height,
+            mime: optimized.mime,
+          };
+          stats.images += 1;
+        }
+      },
+    );
+  }
+
+  return stats;
 }
 
 async function repairSceneMetadata() {
@@ -429,43 +586,45 @@ async function repairSceneMetadata() {
 
       return result;
     },
-    { cards: 0, decks: 0 },
+    { cards: 0, decks: 0, images: 0, imageErrors: 0 },
   );
 
-  if (!repairableItems.length) {
-    return stats;
+  if (repairableItems.length) {
+    await obr.scene.items.updateItems(repairableItems, (draftItems) => {
+      for (const item of draftItems) {
+        const cardMetadata = getCardMetadata(item);
+
+        if (cardMetadata) {
+          const currentFace = cardMetadata.currentFace === "back" ? "back" : "front";
+          const nextCardMetadata = {
+            ...cardMetadata,
+            currentFace,
+            mirrorBack: shouldMirrorBackFace(cardMetadata.faces.front, cardMetadata.faces.back),
+          };
+          const face = nextCardMetadata.faces[currentFace];
+
+          item.image = createImageData(face);
+          item.grid = createGridData(face, nextCardMetadata.gridWidth);
+          applyDivinitySizing(item, face);
+          applyCardFaceTransform(item, nextCardMetadata, currentFace);
+          item.description = currentFace === "back" ? "Carta dupla: verso" : "Carta dupla: frente";
+          setCardMetadata(item, nextCardMetadata);
+          continue;
+        }
+
+        const deckMetadata = getDeckMetadata(item);
+
+        if (deckMetadata) {
+          applyDeckDisplay(item, deckMetadata);
+          setDeckMetadata(item, deckMetadata);
+        }
+      }
+    });
   }
 
-  await obr.scene.items.updateItems(repairableItems, (draftItems) => {
-    for (const item of draftItems) {
-      const cardMetadata = getCardMetadata(item);
-
-      if (cardMetadata) {
-        const currentFace = cardMetadata.currentFace === "back" ? "back" : "front";
-        const nextCardMetadata = {
-          ...cardMetadata,
-          currentFace,
-          mirrorBack: shouldMirrorBackFace(cardMetadata.faces.front, cardMetadata.faces.back),
-        };
-        const face = nextCardMetadata.faces[currentFace];
-
-        item.image = createImageData(face);
-        item.grid = createGridData(face, nextCardMetadata.gridWidth);
-        applyDivinitySizing(item, face);
-        applyCardFaceTransform(item, nextCardMetadata, currentFace);
-        item.description = currentFace === "back" ? "Carta dupla: verso" : "Carta dupla: frente";
-        setCardMetadata(item, nextCardMetadata);
-        continue;
-      }
-
-      const deckMetadata = getDeckMetadata(item);
-
-      if (deckMetadata) {
-        applyDeckDisplay(item, deckMetadata);
-        setDeckMetadata(item, deckMetadata);
-      }
-    }
-  });
+  const imageStats = await optimizePlainRemoteImagesInScene();
+  stats.images = imageStats.images;
+  stats.imageErrors = imageStats.imageErrors;
 
   return stats;
 }
@@ -642,9 +801,10 @@ function getCachedAssetInfo(rawUrl, remoteCache) {
   return remoteCache.get(rawUrl) || remoteCache.get(repairedUrl) || null;
 }
 
-function getRemoteAssetName(item) {
+function getRemoteAssetName(item, mime = "image/jpeg") {
   const fallback = item.name || getNameFromUrl(item.image?.url || "", "image");
-  return `${fallback}.jpg`;
+  const extension = mime === "image/png" ? "png" : "jpg";
+  return `${fallback}.${extension}`;
 }
 
 async function loadBlobImage(blob) {
@@ -687,6 +847,7 @@ async function optimizeSceneImageBlob(blob, info) {
   const image = await createImageBitmap(blob);
 
   try {
+    const transparent = imageMayHaveTransparency(blob) && imageLooksTransparent(image);
     const canvas = document.createElement("canvas");
     canvas.width = image.width;
     canvas.height = image.height;
@@ -696,12 +857,17 @@ async function optimizeSceneImageBlob(blob, info) {
       return { blob, mime: blob.type || info.mime || "image/png" };
     }
 
-    context.fillStyle = "#ffffff";
-    context.fillRect(0, 0, canvas.width, canvas.height);
+    if (!transparent) {
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
     context.drawImage(image, 0, 0);
+    const mime = transparent ? "image/png" : "image/jpeg";
+
     return {
-      blob: await canvasToBlob(canvas, "image/jpeg", 0.84),
-      mime: "image/jpeg",
+      blob: await canvasToBlob(canvas, mime, transparent ? undefined : 0.84),
+      mime,
     };
   } finally {
     image.close?.();
@@ -742,7 +908,7 @@ async function cachePlainSceneImage(item) {
   const originalBlob = await response.blob();
   const info = await loadBlobImage(originalBlob);
   const optimized = await optimizeSceneImageBlob(originalBlob, info);
-  const url = await uploadBlobAsLocalAsset(optimized.blob, getRemoteAssetName(item));
+  const url = await uploadBlobAsLocalAsset(optimized.blob, getRemoteAssetName(item, optimized.mime));
 
   return {
     url,
@@ -1883,10 +2049,12 @@ async function init() {
   elements.panelRepairButton.addEventListener("click", () =>
     runPanelAction(elements.panelRepairButton, async () => {
       const stats = await repairSceneMetadata();
-      const total = stats.cards + stats.decks;
+      const total = stats.cards + stats.decks + stats.images;
 
       if (!total) {
-        const warning = "Nao encontrei cartas ou pilhas para sincronizar.";
+        const warning = stats.imageErrors
+          ? getRepairMessage(stats)
+          : "Nao encontrei cartas, pilhas ou imagens normais remotas para sincronizar.";
         setMessage(warning, "warning");
         await obr.notification.show(warning, "WARNING");
         return;
@@ -1988,7 +2156,7 @@ async function init() {
   try {
     const loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=54").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=55").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
     obr = loaded.OBR;
