@@ -4,13 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Cartas Duplas</title>
-    <script type="module" src="./dist/sdk-boot.js?v=55"></script>
-    <link rel="stylesheet" href="./src/styles.css?v=55" />
+    <script type="module" src="./dist/sdk-boot.js?v=57"></script>
+    <link rel="stylesheet" href="./src/styles.css?v=57" />
   </head>
   <body>
     <main class="app">
       <header class="topbar">
-        <img src="./icons/card.svg?v=55" alt="" class="topbar__icon" />
+        <img src="./icons/card.svg?v=57" alt="" class="topbar__icon" />
         <div>
           <h1>Cartas Duplas</h1>
           <p id="connectionStatus" class="status">Carregando painel...</p>
@@ -51,7 +51,7 @@
       <section class="form">
         <h2>Biblioteca</h2>
         <label class="field">
-          <span>Pilha padrao</span>
+          <span>Pilha padr&atilde;o</span>
           <select id="presetDeckSelect" disabled></select>
         </label>
         <p id="presetDeckInfo" class="field-note"></p>
@@ -76,6 +76,38 @@
         </div>
         <button id="importPresetDeckButton" class="button button--secondary" type="button" disabled>
           Criar pilha da biblioteca
+        </button>
+
+        <label class="field">
+          <span>Grupo de cartas</span>
+          <select id="presetCardGroupSelect" disabled></select>
+        </label>
+        <label class="field">
+          <span>Carta padr&atilde;o</span>
+          <select id="presetCardSelect" disabled></select>
+        </label>
+        <p id="presetCardInfo" class="field-note"></p>
+        <div class="row">
+          <label class="field">
+            <span>Largura no grid</span>
+            <input id="presetCardGridWidth" name="presetCardGridWidth" type="number" min="0.25" max="20" step="0.25" value="2" disabled />
+          </label>
+
+          <label class="field">
+            <span>Camada</span>
+            <select id="presetCardLayer" disabled>
+              <option value="DRAWING">Drawing</option>
+              <option value="PROP" selected>Prop</option>
+              <option value="MOUNT">Mount</option>
+              <option value="CHARACTER">Character</option>
+              <option value="ATTACHMENT">Attachment</option>
+              <option value="NOTE">Note</option>
+              <option value="TEXT">Text</option>
+            </select>
+          </label>
+        </div>
+        <button id="importPresetCardButton" class="button button--secondary" type="button" disabled>
+          Criar carta da biblioteca
         </button>
       </section>
 
@@ -125,6 +157,6 @@
       <p id="message" class="message" role="status" aria-live="polite"></p>
     </main>
 
-    <script type="module" src="./dist/app.js?v=55"></script>
+    <script type="module" src="./dist/app.js?v=57"></script>
   </body>
 </html>

@@ -7,7 +7,7 @@ Extensao para Owlbear Rodeo criada por DemonRider. Ela adiciona cartas 2D com fr
 Depois que o GitHub Pages publicar este repositorio, use este link no Owlbear:
 
 ```text
-https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=55
+https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=57
 ```
 
 Se o usuario ou o nome do repositorio mudar, tambem sera necessario trocar os caminhos de `manifest.json` e as URLs dentro dos arquivos em `assets/scene-presets/`.
@@ -29,6 +29,7 @@ Se o usuario ou o nome do repositorio mudar, tambem sera necessario trocar os ca
    - `src/`
    - `vendor/`
    - `assets/preset-decks/`
+   - `assets/preset-cards/`
    - `assets/local-assets/`
    - `assets/scene-presets/`
    - `.nojekyll`
@@ -75,6 +76,39 @@ Os tamanhos padrao atuais sao:
 - Poderes da Tormenta Nivel 1, 2 e 3: `2`
 - Eventos: `2.25`
 
+## Biblioteca de cartas
+
+As cartas individuais ficam em `assets/preset-cards/`.
+
+Pastas atuais:
+
+- `classes`
+- `racas`
+- `divindades`
+- `reacoes-heroicas`
+- `herois`
+
+Para mudar cartas individuais:
+
+1. Coloque as imagens na pasta do grupo.
+2. Mantenha o verso do grupo como `Verso.png`, ou use um verso especifico com o mesmo nome da frente seguido de `verso`.
+3. Rode:
+
+   ```powershell
+   npm run build:preset-decks
+   npm run build
+   ```
+
+Classes, racas e divindades ja entram com a marcacao usada pelo sistema de selecao de personagem.
+Reacoes Heroicas e Herois entram como cartas duplas comuns.
+
+Exemplo de verso especifico:
+
+- `Thwor.png`
+- `Thwor verso.png`
+
+Quando uma carta tem verso especifico, ele substitui o `Verso.png` do grupo apenas para essa carta.
+
 ## Migrar imagens locais
 
 Os assets locais usados pelo tabuleiro padrao ja foram copiados para `assets/local-assets/`.
@@ -105,7 +139,7 @@ node dev-server.mjs 5180
 Abra no Owlbear:
 
 ```text
-http://localhost:5180/manifest.json?v=55
+http://localhost:5180/manifest.json?v=57
 ```
 
 Para testar a versao local separada sem mexer na pasta do Git, use a pasta local de testes.

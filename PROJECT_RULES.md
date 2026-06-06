@@ -112,6 +112,23 @@ Este arquivo registra as regras permanentes do projeto. Qualquer alteracao futur
   - Eventos: 2.25
 - O verso de cada pilha de biblioteca deve continuar seguindo a convencao `verso.png`, salvo pedido contrario.
 
+## Biblioteca de cartas
+
+- As cartas de biblioteca tambem sao backups infinitos: criar uma carta da biblioteca nao deve consumir a biblioteca.
+- Cartas de biblioteca devem ficar em `assets/preset-cards/`.
+- Grupos conhecidos:
+  - Classes
+  - Racas
+  - Divindades
+  - Reacoes Heroicas
+  - Herois
+- O verso de cada grupo deve continuar seguindo a convencao `Verso.png`, mas cartas individuais podem ter verso proprio com o mesmo nome da frente seguido de `verso`, como `Thwor.png` e `Thwor verso.png`.
+- Classes devem nascer marcadas como `class` para o sistema de slots.
+- Racas devem nascer marcadas como `race` para o sistema de slots.
+- Divindades devem nascer marcadas como `divinity` e preservar o tamanho especial de divindade.
+- Reacoes Heroicas e Herois devem nascer como cartas duplas comuns, sem categoria de slot, salvo pedido contrario.
+- A versao publica deve criar essas cartas a partir de imagens publicas do GitHub Pages, nao de assets crus do Owlbear.
+
 ## Camadas
 
 - Manter suporte para as camadas do Owlbear:

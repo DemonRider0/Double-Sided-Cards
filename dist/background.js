@@ -4540,7 +4540,7 @@ async function loadOwlbearSdk(timeoutMs = 5000) {
 }
 
 function assetUrl(path) {
-  return `${new URL(`../${path}`, import.meta.url).toString()}?v=55`;
+  return `${new URL(`../${path}`, import.meta.url).toString()}?v=57`;
 }
 
 const OPTIMIZED_ASSET_FILENAMES = new Map([

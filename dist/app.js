@@ -642,7 +642,11 @@ const CARD_CATEGORIES = [
 ];
 
 new Set(PLAYER_COLORS.map((color) => color.id));
-new Set(CARD_CATEGORIES.map((category) => category.id));
+const CATEGORY_IDS = new Set(CARD_CATEGORIES.map((category) => category.id));
+
+function normalizeCategory(categoryId) {
+  return CATEGORY_IDS.has(categoryId) ? categoryId : null;
+}
 
 function createEmptyState() {
   const slots = {};
@@ -906,6 +910,186 @@ async function flipSelectedItems(OBR, fallbackSelection = []) {
 }
 
 const PRESET_DECKS_URL = new URL("../assets/preset-decks/decks.json", import.meta.url);
+const ITEM_LAYERS$1 = new Set([
+  "DRAWING",
+  "PROP",
+  "MOUNT",
+  "CHARACTER",
+  "ATTACHMENT",
+  "NOTE",
+  "TEXT",
+]);
+
+function isExternalUrl$1(value) {
+  return /^(https?:|data:|blob:)/i.test(value);
+}
+
+function resolveAssetUrl$1(path) {
+  if (!path || typeof path !== "string") {
+    return "";
+  }
+
+  if (isExternalUrl$1(path)) {
+    return path;
+  }
+
+  return new URL(`../${path.replace(/^\/+/, "")}`, import.meta.url).toString();
+}
+
+function getNameFromPath$1(path, fallback) {
+  if (!path || typeof path !== "string") {
+    return fallback;
+  }
+
+  try {
+    const pathname = isExternalUrl$1(path) ? new URL(path).pathname : path;
+    const filename = pathname.split("/").filter(Boolean).pop();
+
+    if (!filename) {
+      return fallback;
+    }
+
+    return decodeURIComponent(filename.replace(/\.[^.]+$/, "")) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function normalizeAsset$1(value, fallbackName) {
+  if (typeof value === "string") {
+    return {
+      name: getNameFromPath$1(value, fallbackName),
+      path: value,
+    };
+  }
+
+  if (!value || typeof value !== "object") {
+    return {
+      name: fallbackName,
+      path: "",
+    };
+  }
+
+  return {
+    name: value.name || getNameFromPath$1(value.path || value.url, fallbackName),
+    path: value.path || value.url || "",
+    width: value.width,
+    height: value.height,
+    mime: value.mime,
+  };
+}
+
+function normalizePresetDeck(value, index) {
+  const name = value?.name || `Pilha ${index + 1}`;
+  const layer = ITEM_LAYERS$1.has(value?.layer) ? value.layer : "PROP";
+
+  return {
+    id: value?.id || `deck-${index + 1}`,
+    name,
+    gridWidth: Number.isFinite(value?.gridWidth) && value.gridWidth > 0 ? value.gridWidth : 2,
+    layer,
+    back: normalizeAsset$1(value?.back, `${name} verso`),
+    cards: Array.isArray(value?.cards)
+      ? value.cards.map((card, cardIndex) => {
+          if (typeof card === "string") {
+            return {
+              name: getNameFromPath$1(card, `Carta ${cardIndex + 1}`),
+              front: normalizeAsset$1(card, `Carta ${cardIndex + 1}`),
+            };
+          }
+
+          return {
+            name: card?.name || `Carta ${cardIndex + 1}`,
+            front: normalizeAsset$1(card?.front || card?.path || card?.url, `Carta ${cardIndex + 1}`),
+          };
+        })
+      : [],
+  };
+}
+
+async function loadPresetDecks() {
+  const response = await fetch(`${PRESET_DECKS_URL.toString()}?t=${Date.now()}`, {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error("Nao consegui carregar a biblioteca de pilhas.");
+  }
+
+  const data = await response.json();
+  const decks = Array.isArray(data?.decks) ? data.decks : [];
+
+  return decks.map(normalizePresetDeck);
+}
+
+function isPresetDeckReady(deck) {
+  return Boolean(deck?.back?.path && deck.cards?.length);
+}
+
+function readImage$1(url) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      if (!image.naturalWidth || !image.naturalHeight) {
+        reject(new Error(`Imagem sem tamanho valido: ${url}`));
+        return;
+      }
+
+      resolve({
+        width: image.naturalWidth,
+        height: image.naturalHeight,
+      });
+    };
+    image.onerror = () => reject(new Error(`Nao consegui carregar a imagem: ${url}`));
+    image.src = url;
+  });
+}
+
+async function buildFace$1(asset) {
+  const url = resolveAssetUrl$1(asset.path);
+
+  if (!url) {
+    throw new Error("A pilha padrao ainda nao tem verso configurado.");
+  }
+
+  const dimensions =
+    Number.isFinite(asset.width) && Number.isFinite(asset.height)
+      ? { width: asset.width, height: asset.height }
+      : await readImage$1(url);
+
+  return {
+    url,
+    width: dimensions.width,
+    height: dimensions.height,
+    mime: asset.mime || getMimeFromUrl(url),
+  };
+}
+
+async function buildPresetDeckData(deck) {
+  if (!isPresetDeckReady(deck)) {
+    throw new Error(`A pilha "${deck?.name || "padrao"}" ainda nao tem cartas configuradas.`);
+  }
+
+  const [back, cards] = await Promise.all([
+    buildFace$1(deck.back),
+    Promise.all(
+      deck.cards.map(async (card, index) => ({
+        name: card.name || `Carta ${index + 1}`,
+        front: await buildFace$1(card.front),
+      })),
+    ),
+  ]);
+
+  return {
+    name: deck.name,
+    back,
+    cards,
+    gridWidth: deck.gridWidth,
+    layer: deck.layer,
+  };
+}
+
+const PRESET_CARDS_URL = new URL("../assets/preset-cards/cards.json", import.meta.url);
 const ITEM_LAYERS = new Set([
   "DRAWING",
   "PROP",
@@ -975,13 +1159,15 @@ function normalizeAsset(value, fallbackName) {
   };
 }
 
-function normalizePresetDeck(value, index) {
-  const name = value?.name || `Pilha ${index + 1}`;
+function normalizePresetCardGroup(value, index) {
+  const name = value?.name || `Cartas ${index + 1}`;
   const layer = ITEM_LAYERS.has(value?.layer) ? value.layer : "PROP";
+  const category = normalizeCategory(value?.category);
 
   return {
-    id: value?.id || `deck-${index + 1}`,
+    id: value?.id || `cards-${index + 1}`,
     name,
+    category,
     gridWidth: Number.isFinite(value?.gridWidth) && value.gridWidth > 0 ? value.gridWidth : 2,
     layer,
     back: normalizeAsset(value?.back, `${name} verso`),
@@ -989,37 +1175,44 @@ function normalizePresetDeck(value, index) {
       ? value.cards.map((card, cardIndex) => {
           if (typeof card === "string") {
             return {
+              id: `card-${cardIndex + 1}`,
               name: getNameFromPath(card, `Carta ${cardIndex + 1}`),
               front: normalizeAsset(card, `Carta ${cardIndex + 1}`),
+              back: normalizeAsset("", `Carta ${cardIndex + 1} verso`),
             };
           }
 
+          const cardName = card?.name || `Carta ${cardIndex + 1}`;
+
           return {
-            name: card?.name || `Carta ${cardIndex + 1}`,
-            front: normalizeAsset(card?.front || card?.path || card?.url, `Carta ${cardIndex + 1}`),
+            id: card?.id || `card-${cardIndex + 1}`,
+            name: cardName,
+            category: normalizeCategory(card?.category) || category,
+            front: normalizeAsset(card?.front || card?.path || card?.url, cardName),
+            back: normalizeAsset(card?.back, `${cardName} verso`),
           };
         })
       : [],
   };
 }
 
-async function loadPresetDecks() {
-  const response = await fetch(`${PRESET_DECKS_URL.toString()}?t=${Date.now()}`, {
+async function loadPresetCardGroups() {
+  const response = await fetch(`${PRESET_CARDS_URL.toString()}?t=${Date.now()}`, {
     cache: "no-store",
   });
 
   if (!response.ok) {
-    throw new Error("Nao consegui carregar a biblioteca de pilhas.");
+    throw new Error("Nao consegui carregar a biblioteca de cartas.");
   }
 
   const data = await response.json();
-  const decks = Array.isArray(data?.decks) ? data.decks : [];
+  const groups = Array.isArray(data?.groups) ? data.groups : [];
 
-  return decks.map(normalizePresetDeck);
+  return groups.map(normalizePresetCardGroup);
 }
 
-function isPresetDeckReady(deck) {
-  return Boolean(deck?.back?.path && deck.cards?.length);
+function isPresetCardReady(group, card) {
+  return Boolean((card?.back?.path || group?.back?.path) && card?.front?.path);
 }
 
 function readImage(url) {
@@ -1041,11 +1234,11 @@ function readImage(url) {
   });
 }
 
-async function buildFace(asset) {
+async function buildFace(asset, label) {
   const url = resolveAssetUrl(asset.path);
 
   if (!url) {
-    throw new Error("A pilha padrao ainda nao tem verso configurado.");
+    throw new Error(`A biblioteca ainda nao tem ${label} configurado.`);
   }
 
   const dimensions =
@@ -1061,27 +1254,24 @@ async function buildFace(asset) {
   };
 }
 
-async function buildPresetDeckData(deck) {
-  if (!isPresetDeckReady(deck)) {
-    throw new Error(`A pilha "${deck?.name || "padrao"}" ainda nao tem cartas configuradas.`);
+async function buildPresetCardData(group, card) {
+  if (!isPresetCardReady(group, card)) {
+    throw new Error(`A carta "${card?.name || "padrao"}" ainda nao tem frente e verso.`);
   }
 
-  const [back, cards] = await Promise.all([
-    buildFace(deck.back),
-    Promise.all(
-      deck.cards.map(async (card, index) => ({
-        name: card.name || `Carta ${index + 1}`,
-        front: await buildFace(card.front),
-      })),
-    ),
+  const backAsset = card?.back?.path ? card.back : group.back;
+  const [front, back] = await Promise.all([
+    buildFace(card.front, "frente"),
+    buildFace(backAsset, "verso"),
   ]);
 
   return {
-    name: deck.name,
+    name: card.name,
+    front,
     back,
-    cards,
-    gridWidth: deck.gridWidth,
-    layer: deck.layer,
+    category: normalizeCategory(card.category) || group.category,
+    gridWidth: group.gridWidth,
+    layer: group.layer,
   };
 }
 
@@ -1274,6 +1464,12 @@ const elements = {
   presetDeckLayer: document.querySelector("#presetDeckLayer"),
   presetDeckInfo: document.querySelector("#presetDeckInfo"),
   importPresetDeckButton: document.querySelector("#importPresetDeckButton"),
+  presetCardGroupSelect: document.querySelector("#presetCardGroupSelect"),
+  presetCardSelect: document.querySelector("#presetCardSelect"),
+  presetCardGridWidth: document.querySelector("#presetCardGridWidth"),
+  presetCardLayer: document.querySelector("#presetCardLayer"),
+  presetCardInfo: document.querySelector("#presetCardInfo"),
+  importPresetCardButton: document.querySelector("#importPresetCardButton"),
   missionDeckInfo: document.querySelector("#missionDeckInfo"),
   createMissionDeckButton: document.querySelector("#createMissionDeckButton"),
   name: document.querySelector("#cardName"),
@@ -1322,6 +1518,7 @@ let lastCardSelection = [];
 let lastDeckSelection = [];
 let lastFlipSelection = [];
 let presetDecks = [];
+let presetCardGroups = [];
 let scenePresetEntries = [];
 let colorAssignmentsRefreshTimer = null;
 const selectedAssets = {
@@ -1379,6 +1576,7 @@ function setConnectionStatus(text, isConnected) {
   elements.panelRepairButton.disabled = !isConnected;
   elements.returnOriginButton.disabled = !isConnected;
   updatePresetDeckControls(isConnected);
+  updatePresetCardControls(isConnected);
   updateMissionDeckControls(isConnected);
 }
 
@@ -1637,38 +1835,7 @@ function getRepairMessage(stats) {
     parts.push(stats.decks === 1 ? "1 pilha" : `${stats.decks} pilhas`);
   }
 
-  if (stats.images) {
-    parts.push(stats.images === 1 ? "1 imagem normal" : `${stats.images} imagens normais`);
-  }
-
-  if (stats.imageErrors) {
-    parts.push(
-      stats.imageErrors === 1
-        ? "1 imagem normal com erro"
-        : `${stats.imageErrors} imagens normais com erro`,
-    );
-  }
-
   return `Cena sincronizada: ${parts.join(" e ")}.`;
-}
-
-function isOwlbearRemoteImageUrl(rawUrl) {
-  try {
-    const url = new URL(rawUrl, window.location.origin);
-    return url.hostname === "images.owlbear.rodeo";
-  } catch {
-    return false;
-  }
-}
-
-function isPlainOwlbearRemoteImage(item) {
-  return Boolean(
-    item?.type === "IMAGE" &&
-      item.image?.url &&
-      isOwlbearRemoteImageUrl(item.image.url) &&
-      !getCardMetadata(item) &&
-      !getDeckMetadata(item),
-  );
 }
 
 function imageMayHaveTransparency(blob) {
@@ -1700,102 +1867,6 @@ function imageLooksTransparent(image) {
   return false;
 }
 
-function blobToDataUrl(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.addEventListener("load", () => resolve(reader.result));
-    reader.addEventListener("error", () => reject(reader.error));
-    reader.readAsDataURL(blob);
-  });
-}
-
-async function optimizePlainRemoteImageForScene(item, cache) {
-  const cached = cache.get(item.image.url);
-
-  if (cached) {
-    return cached;
-  }
-
-  const response = await fetch(item.image.url, {
-    cache: "no-store",
-    mode: "cors",
-  });
-
-  if (!response.ok) {
-    throw new Error(`Nao consegui baixar "${item.name || "imagem"}" do Owlbear.`);
-  }
-
-  const originalBlob = await response.blob();
-  const info = await loadBlobImage(originalBlob);
-  const optimized = await optimizeSceneImageBlob(originalBlob, info);
-  const dataUrl = await blobToDataUrl(optimized.blob);
-  const result = {
-    url: dataUrl,
-    width: info.width,
-    height: info.height,
-    mime: optimized.mime,
-  };
-
-  cache.set(item.image.url, result);
-  return result;
-}
-
-async function optimizePlainRemoteImagesInScene() {
-  const items = await obr.scene.items.getItems();
-  const selection = await obr.player.getSelection();
-  const selectedIds = new Set(selection || []);
-  const candidates = items.filter(isPlainOwlbearRemoteImage);
-  const selectedCandidates = candidates.filter((item) => selectedIds.has(item.id));
-  const targetItems = selectedCandidates.length ? selectedCandidates : candidates;
-  const stats = {
-    images: 0,
-    imageErrors: 0,
-  };
-
-  if (!targetItems.length) {
-    return stats;
-  }
-
-  const cache = new Map();
-  const updates = new Map();
-  const scope = selectedCandidates.length ? "selecionadas" : "da cena";
-  setMessage(`Otimizando ${targetItems.length} imagens normais ${scope}...`, "neutral");
-
-  for (const item of targetItems) {
-    try {
-      updates.set(item.id, await optimizePlainRemoteImageForScene(item, cache));
-    } catch (error) {
-      console.warn("Nao consegui otimizar imagem normal da cena", item.name, error);
-      stats.imageErrors += 1;
-    }
-  }
-
-  if (updates.size) {
-    await obr.scene.items.updateItems(
-      targetItems.filter((item) => updates.has(item.id)),
-      (draftItems) => {
-        for (const item of draftItems) {
-          const optimized = updates.get(item.id);
-
-          if (!optimized) {
-            continue;
-          }
-
-          item.image = {
-            ...item.image,
-            url: optimized.url,
-            width: optimized.width,
-            height: optimized.height,
-            mime: optimized.mime,
-          };
-          stats.images += 1;
-        }
-      },
-    );
-  }
-
-  return stats;
-}
 
 async function repairSceneMetadata() {
   const items = await obr.scene.items.getItems();
@@ -1810,7 +1881,7 @@ async function repairSceneMetadata() {
 
       return result;
     },
-    { cards: 0, decks: 0, images: 0, imageErrors: 0 },
+    { cards: 0, decks: 0 },
   );
 
   if (repairableItems.length) {
@@ -1845,10 +1916,6 @@ async function repairSceneMetadata() {
       }
     });
   }
-
-  const imageStats = await optimizePlainRemoteImagesInScene();
-  stats.images = imageStats.images;
-  stats.imageErrors = imageStats.imageErrors;
 
   return stats;
 }
@@ -2785,6 +2852,36 @@ function setPresetDeckDefaultControls(deck) {
   }
 }
 
+function getSelectedPresetCardGroup() {
+  const selectedId = elements.presetCardGroupSelect.value;
+  return presetCardGroups.find((group) => group.id === selectedId) || null;
+}
+
+function getSelectedPresetCard() {
+  const group = getSelectedPresetCardGroup();
+  const selectedId = elements.presetCardSelect.value;
+  const card = group?.cards.find((entry) => entry.id === selectedId) || null;
+
+  return { group, card };
+}
+
+function setPresetCardDefaultControls(group) {
+  if (!group) {
+    elements.presetCardGridWidth.value = "2";
+    elements.presetCardLayer.value = "PROP";
+    return;
+  }
+
+  elements.presetCardGridWidth.value = String(group.gridWidth || 2);
+  if (
+    [...elements.presetCardLayer.options].some((option) => option.value === group.layer)
+  ) {
+    elements.presetCardLayer.value = group.layer;
+  } else {
+    elements.presetCardLayer.value = "PROP";
+  }
+}
+
 function shuffleCardsForMission(cards) {
   const shuffled = [...cards];
 
@@ -2865,9 +2962,107 @@ function populatePresetDeckSelect() {
   updateMissionDeckControls(Boolean(obr));
 }
 
+function updatePresetCardControls(isConnected = Boolean(obr), syncDefaults = false) {
+  const hasGroups = presetCardGroups.length > 0;
+  const { group, card } = hasGroups ? getSelectedPresetCard() : { group: null, card: null };
+  const hasCards = Boolean(group?.cards?.length);
+  const isReady = isPresetCardReady(group, card);
+
+  elements.presetCardGroupSelect.disabled = !hasGroups;
+  elements.presetCardSelect.disabled = !hasCards;
+  elements.presetCardGridWidth.disabled = !hasGroups;
+  elements.presetCardLayer.disabled = !hasGroups;
+  elements.importPresetCardButton.disabled = !isConnected || !isReady;
+
+  if (syncDefaults) {
+    setPresetCardDefaultControls(group);
+  }
+
+  if (!hasGroups) {
+    elements.presetCardInfo.textContent = "Nenhuma carta cadastrada na biblioteca.";
+    return;
+  }
+
+  if (!group) {
+    elements.presetCardInfo.textContent = "Escolha um grupo de cartas.";
+    return;
+  }
+
+  if (!hasCards) {
+    elements.presetCardInfo.textContent =
+      "Este grupo ja existe no catalogo, mas ainda precisa de verso e cartas.";
+    return;
+  }
+
+  if (!isReady) {
+    elements.presetCardInfo.textContent =
+      "Esta carta ainda precisa de frente e verso no catalogo.";
+    return;
+  }
+
+  const categoryLabel = group.category
+    ? " Marca automatica para selecao de personagem."
+    : "";
+  elements.presetCardInfo.textContent =
+    `${group.cards.length} cartas cadastradas. Padrao: ${group.gridWidth} no grid.${categoryLabel}`;
+}
+
+function populatePresetCardSelect(syncDefaults = false) {
+  const group = getSelectedPresetCardGroup();
+  elements.presetCardSelect.replaceChildren();
+
+  if (!group?.cards?.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "Nenhuma carta cadastrada";
+    elements.presetCardSelect.append(option);
+    updatePresetCardControls(Boolean(obr), syncDefaults);
+    return;
+  }
+
+  for (const card of group.cards) {
+    const option = document.createElement("option");
+    option.value = card.id;
+    option.textContent = isPresetCardReady(group, card)
+      ? card.name
+      : `${card.name} (configurar imagens)`;
+    elements.presetCardSelect.append(option);
+  }
+
+  updatePresetCardControls(Boolean(obr), syncDefaults);
+}
+
+function populatePresetCardGroupSelect() {
+  elements.presetCardGroupSelect.replaceChildren();
+
+  if (!presetCardGroups.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "Nenhuma carta cadastrada";
+    elements.presetCardGroupSelect.append(option);
+    populatePresetCardSelect(true);
+    return;
+  }
+
+  for (const group of presetCardGroups) {
+    const option = document.createElement("option");
+    option.value = group.id;
+    option.textContent = group.cards.length
+      ? `${group.name} (${group.cards.length})`
+      : `${group.name} (configurar imagens)`;
+    elements.presetCardGroupSelect.append(option);
+  }
+
+  populatePresetCardSelect(true);
+}
+
 async function loadPresetLibrary() {
-  presetDecks = await loadPresetDecks();
+  [presetDecks, presetCardGroups] = await Promise.all([
+    loadPresetDecks(),
+    loadPresetCardGroups(),
+  ]);
   populatePresetDeckSelect();
+  populatePresetCardGroupSelect();
 }
 
 function getPresetDeckGridWidth() {
@@ -2875,6 +3070,16 @@ function getPresetDeckGridWidth() {
 
   if (!Number.isFinite(gridWidth) || gridWidth <= 0) {
     throw new Error("A largura no grid da biblioteca precisa ser maior que zero.");
+  }
+
+  return gridWidth;
+}
+
+function getPresetCardGridWidth() {
+  const gridWidth = Number.parseFloat(elements.presetCardGridWidth.value);
+
+  if (!Number.isFinite(gridWidth) || gridWidth <= 0) {
+    throw new Error("A largura no grid da carta precisa ser maior que zero.");
   }
 
   return gridWidth;
@@ -2973,6 +3178,40 @@ async function addDeckToScene({
   return item;
 }
 
+async function addCardToScene({
+  name,
+  front,
+  back,
+  gridWidth,
+  layer,
+  category,
+  position,
+}) {
+  const cardPosition = position || (await getViewportCenter());
+  const metadata = createCardMetadata({ name, front, back, gridWidth });
+  const metadataMap = createCardMetadataMap(metadata);
+
+  if (category) {
+    metadataMap[CARD_CATEGORY_KEY] = {
+      version: 1,
+      category,
+    };
+  }
+
+  const item = buildImage(createImageData(front), createGridData(front, gridWidth))
+    .name(name)
+    .description("Carta dupla: frente")
+    .layer(layer)
+    .position(cardPosition)
+    .metadata(metadataMap)
+    .build();
+
+  applyCardFaceTransform(item, metadata, "front");
+  applyDivinitySizing(item, front);
+  await obr.scene.items.addItems([item]);
+  return item;
+}
+
 async function getSelectedMissionCards() {
   const selection = await obr.player.getSelection();
   const itemIds = selection?.length ? selection : lastCardSelection;
@@ -3062,17 +3301,13 @@ async function createCard(event) {
     }
 
     const name = getCardName(front);
-    const position = await getViewportCenter();
-    const metadata = createCardMetadata({ name, front, back, gridWidth });
-    const item = buildImage(createImageData(front), createGridData(front, gridWidth))
-      .name(name)
-      .description("Carta dupla: frente")
-      .layer(elements.layer.value)
-      .position(position)
-      .metadata(createCardMetadataMap(metadata))
-      .build();
-
-    await obr.scene.items.addItems([item]);
+    await addCardToScene({
+      name,
+      front,
+      back,
+      gridWidth,
+      layer: elements.layer.value,
+    });
     await obr.notification.show(`Carta "${name}" importada.`);
 
     setMessage("Carta importada.", "success");
@@ -3168,6 +3403,44 @@ async function createPresetDeck() {
   }
 }
 
+async function createPresetCard() {
+  if (!obr || !buildImage) {
+    setMessage("Abra esta extensao dentro do Owlbear Rodeo para criar uma carta.", "warning");
+    return;
+  }
+
+  const { group, card } = getSelectedPresetCard();
+  if (!group || !card) {
+    setMessage("Escolha uma carta da biblioteca.", "warning");
+    return;
+  }
+
+  if (!isPresetCardReady(group, card)) {
+    setMessage("Esta carta ainda precisa de frente e verso no catalogo.", "warning");
+    return;
+  }
+
+  elements.importPresetCardButton.disabled = true;
+  setMessage("Criando carta da biblioteca...", "neutral");
+
+  try {
+    const cardData = await buildPresetCardData(group, card);
+    const gridWidth = getPresetCardGridWidth();
+    await addCardToScene({
+      ...cardData,
+      gridWidth,
+      layer: elements.presetCardLayer.value || cardData.layer,
+    });
+    await obr.notification.show(`Carta "${cardData.name}" criada.`);
+    setMessage(`Carta "${cardData.name}" criada da biblioteca.`, "success");
+  } catch (error) {
+    console.error(error);
+    setMessage(error.message || "Nao consegui criar a carta da biblioteca.", "error");
+  } finally {
+    updatePresetCardControls(Boolean(obr));
+  }
+}
+
 async function init() {
   if (elements.form) {
     elements.form.addEventListener("submit", createCard);
@@ -3178,10 +3451,22 @@ async function init() {
   elements.presetDeckSelect.addEventListener("change", () =>
     updatePresetDeckControls(Boolean(obr), true),
   );
+  elements.presetCardGroupSelect.addEventListener("change", () =>
+    populatePresetCardSelect(true),
+  );
+  elements.presetCardSelect.addEventListener("change", () =>
+    updatePresetCardControls(Boolean(obr)),
+  );
   elements.importPresetDeckButton.addEventListener("click", () =>
     createPresetDeck().catch((error) => {
       console.error(error);
       setMessage(error.message || "Nao consegui criar a pilha da biblioteca.", "error");
+    }),
+  );
+  elements.importPresetCardButton.addEventListener("click", () =>
+    createPresetCard().catch((error) => {
+      console.error(error);
+      setMessage(error.message || "Nao consegui criar a carta da biblioteca.", "error");
     }),
   );
   elements.createMissionDeckButton.addEventListener("click", () =>
@@ -3193,9 +3478,13 @@ async function init() {
   loadPresetLibrary().catch((error) => {
     console.warn(error);
     presetDecks = [];
+    presetCardGroups = [];
     populatePresetDeckSelect();
+    populatePresetCardGroupSelect();
     elements.presetDeckInfo.textContent =
       error.message || "Nao consegui carregar a biblioteca de pilhas.";
+    elements.presetCardInfo.textContent =
+      error.message || "Nao consegui carregar a biblioteca de cartas.";
   });
   elements.publicBaseUrl.value = getDefaultPublicBaseUrl();
   elements.panelFlipButton.addEventListener("click", () =>
@@ -3273,12 +3562,10 @@ async function init() {
   elements.panelRepairButton.addEventListener("click", () =>
     runPanelAction(elements.panelRepairButton, async () => {
       const stats = await repairSceneMetadata();
-      const total = stats.cards + stats.decks + stats.images;
+      const total = stats.cards + stats.decks;
 
       if (!total) {
-        const warning = stats.imageErrors
-          ? getRepairMessage(stats)
-          : "Nao encontrei cartas, pilhas ou imagens normais remotas para sincronizar.";
+        const warning = "Nao encontrei cartas ou pilhas para sincronizar.";
         setMessage(warning, "warning");
         await obr.notification.show(warning, "WARNING");
         return;
@@ -3380,7 +3667,7 @@ async function init() {
   try {
     const loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=55").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=57").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
     obr = loaded.OBR;

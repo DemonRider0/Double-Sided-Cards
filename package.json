@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "build:preset-decks": "node scripts/build-preset-decks.mjs",
+    "build:preset-decks": "node scripts/build-preset-decks.mjs && node scripts/build-preset-cards.mjs",
+    "build:preset-cards": "node scripts/build-preset-cards.mjs",
     "prepare:github-assets": "node scripts/prepare-github-assets.mjs"
   },
   "dependencies": {
