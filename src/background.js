@@ -31,11 +31,48 @@ import {
 } from "./selection-board.js";
 
 function assetUrl(path) {
-  return `${new URL(`../${path}`, import.meta.url).toString()}?v=51`;
+  return `${new URL(`../${path}`, import.meta.url).toString()}?v=52`;
 }
+
+const OPTIMIZED_ASSET_FILENAMES = new Map([
+  [
+    "1779668122715-e5c59860-137c-4664-b55c-fc546033288b-mapa-tutorial-a-.png",
+    "1779668122715-e5c59860-137c-4664-b55c-fc546033288b-mapa-tutorial-a--mobile.jpg",
+  ],
+  [
+    "1779668122717-841f7e43-ef8f-407f-bfe7-115b51c6779c-mapa-tutorial-b-.png",
+    "1779668122717-841f7e43-ef8f-407f-bfe7-115b51c6779c-mapa-tutorial-b--mobile.jpg",
+  ],
+  [
+    "1780360314623-2d773fbe-40df-48d4-ac48-aecc7767ded0-mapa-tutorial-c-.png",
+    "1780360314623-2d773fbe-40df-48d4-ac48-aecc7767ded0-mapa-tutorial-c--mobile.jpg",
+  ],
+  [
+    "1780360314646-be4a1407-54d8-4f68-8a94-a03ba42de716-mapa-tutorial-a-.png",
+    "1780360314646-be4a1407-54d8-4f68-8a94-a03ba42de716-mapa-tutorial-a--mobile.jpg",
+  ],
+]);
 
 function isLocalhost() {
   return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+}
+
+function toOptimizedAssetUrl(value) {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  for (const [oldFilename, newFilename] of OPTIMIZED_ASSET_FILENAMES) {
+    if (value.includes(oldFilename)) {
+      return value.replace(oldFilename, newFilename);
+    }
+  }
+
+  return value;
+}
+
+function isJpegUrl(value) {
+  return typeof value === "string" && /\.jpe?g(?:$|[?#])/i.test(value);
 }
 
 function toLocalAssetUrl(value) {
@@ -84,9 +121,10 @@ function repairFaceUrl(face) {
     return { face, changed: false };
   }
 
-  const nextUrl = toLocalAssetUrl(face.url);
+  const optimizedUrl = toOptimizedAssetUrl(face.url);
+  const nextUrl = toLocalAssetUrl(optimizedUrl);
 
-  if (nextUrl === face.url) {
+  if (nextUrl === face.url && (!isJpegUrl(nextUrl) || face.mime === "image/jpeg")) {
     return { face, changed: false };
   }
 
@@ -94,6 +132,7 @@ function repairFaceUrl(face) {
     face: {
       ...face,
       url: nextUrl,
+      mime: isJpegUrl(nextUrl) ? "image/jpeg" : face.mime,
     },
     changed: true,
   };
@@ -103,12 +142,14 @@ function repairSceneAssetUrlsForItem(item) {
   let changed = false;
 
   if (item.image?.url) {
-    const nextUrl = toLocalAssetUrl(item.image.url);
+    const optimizedUrl = toOptimizedAssetUrl(item.image.url);
+    const nextUrl = toLocalAssetUrl(optimizedUrl);
 
-    if (nextUrl !== item.image.url) {
+    if (nextUrl !== item.image.url || (isJpegUrl(nextUrl) && item.image.mime !== "image/jpeg")) {
       item.image = {
         ...item.image,
         url: nextUrl,
+        mime: isJpegUrl(nextUrl) ? "image/jpeg" : item.image.mime,
       };
       changed = true;
     }
@@ -163,10 +204,6 @@ function repairSceneAssetUrlsForItem(item) {
 }
 
 async function repairSceneAssetUrls(OBR, items) {
-  if (!isLocalhost()) {
-    return 0;
-  }
-
   const repairableItems = items.filter((item) => repairSceneAssetUrlsForItem({ ...item }));
 
   if (!repairableItems.length) {

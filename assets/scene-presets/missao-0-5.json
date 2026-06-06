@@ -12290,17 +12290,17 @@
           "gridWidth": 10,
           "faces": {
             "front": {
-              "url": "https://demonrider0.github.io/Double-Sided-Cards/assets/local-assets/1779668122715-e5c59860-137c-4664-b55c-fc546033288b-mapa-tutorial-a-.png",
+              "url": "https://demonrider0.github.io/Double-Sided-Cards/assets/local-assets/1779668122715-e5c59860-137c-4664-b55c-fc546033288b-mapa-tutorial-a--mobile.jpg",
               "width": 3543,
               "height": 3543,
-              "mime": "image/png",
+              "mime": "image/jpeg",
               "name": "mapa tutorial (a)"
             },
             "back": {
-              "url": "https://demonrider0.github.io/Double-Sided-Cards/assets/local-assets/1779668122717-841f7e43-ef8f-407f-bfe7-115b51c6779c-mapa-tutorial-b-.png",
+              "url": "https://demonrider0.github.io/Double-Sided-Cards/assets/local-assets/1779668122717-841f7e43-ef8f-407f-bfe7-115b51c6779c-mapa-tutorial-b--mobile.jpg",
               "width": 3543,
               "height": 3543,
-              "mime": "image/png",
+              "mime": "image/jpeg",
               "name": "mapa tutorial (b)"
             }
           },
@@ -12321,10 +12321,10 @@
       "layer": "MAP",
       "description": "Carta dupla: frente",
       "image": {
-        "url": "https://demonrider0.github.io/Double-Sided-Cards/assets/local-assets/1779668122715-e5c59860-137c-4664-b55c-fc546033288b-mapa-tutorial-a-.png",
+        "url": "https://demonrider0.github.io/Double-Sided-Cards/assets/local-assets/1779668122715-e5c59860-137c-4664-b55c-fc546033288b-mapa-tutorial-a--mobile.jpg",
         "width": 3543,
         "height": 3543,
-        "mime": "image/png"
+        "mime": "image/jpeg"
       },
       "grid": {
         "dpi": 354.3,
@@ -18213,17 +18213,17 @@
           "mirrorBack": false,
           "faces": {
             "front": {
-              "url": "https://demonrider0.github.io/Double-Sided-Cards/assets/local-assets/1780360314623-2d773fbe-40df-48d4-ac48-aecc7767ded0-mapa-tutorial-c-.png",
+              "url": "https://demonrider0.github.io/Double-Sided-Cards/assets/local-assets/1780360314623-2d773fbe-40df-48d4-ac48-aecc7767ded0-mapa-tutorial-c--mobile.jpg",
               "width": 3543,
               "height": 3543,
-              "mime": "image/png",
+              "mime": "image/jpeg",
               "name": "mapa tutorial (c)"
             },
             "back": {
-              "url": "https://demonrider0.github.io/Double-Sided-Cards/assets/local-assets/1780360314646-be4a1407-54d8-4f68-8a94-a03ba42de716-mapa-tutorial-a-.png",
+              "url": "https://demonrider0.github.io/Double-Sided-Cards/assets/local-assets/1780360314646-be4a1407-54d8-4f68-8a94-a03ba42de716-mapa-tutorial-a--mobile.jpg",
               "width": 3543,
               "height": 3543,
-              "mime": "image/png",
+              "mime": "image/jpeg",
               "name": "mapa tutorial (a)"
             }
           }
@@ -18243,10 +18243,10 @@
       "layer": "MAP",
       "description": "Carta dupla: frente",
       "image": {
-        "url": "https://demonrider0.github.io/Double-Sided-Cards/assets/local-assets/1780360314623-2d773fbe-40df-48d4-ac48-aecc7767ded0-mapa-tutorial-c-.png",
+        "url": "https://demonrider0.github.io/Double-Sided-Cards/assets/local-assets/1780360314623-2d773fbe-40df-48d4-ac48-aecc7767ded0-mapa-tutorial-c--mobile.jpg",
         "width": 3543,
         "height": 3543,
-        "mime": "image/png"
+        "mime": "image/jpeg"
       },
       "grid": {
         "dpi": 354.3,
