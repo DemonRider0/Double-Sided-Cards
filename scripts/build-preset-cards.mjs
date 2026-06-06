@@ -7,11 +7,11 @@ const presetRoot = path.join(root, "assets", "preset-cards");
 const manifestPath = path.join(presetRoot, "cards.json");
 
 const groupDefaults = [
-  { id: "classes", name: "Classes", category: "class", gridWidth: 2.25, layer: "PROP" },
-  { id: "racas", name: "Racas", category: "race", gridWidth: 2.25, layer: "PROP" },
+  { id: "classes", name: "Classes", category: "class", gridWidth: 3, layer: "MOUNT" },
+  { id: "racas", name: "Racas", category: "race", gridWidth: 3, layer: "MOUNT" },
   { id: "divindades", name: "Divindades", category: "divinity", gridWidth: 2, layer: "PROP" },
-  { id: "reacoes-heroicas", name: "Reacoes Heroicas", gridWidth: 2.25, layer: "PROP" },
-  { id: "herois", name: "Herois", gridWidth: 2.25, layer: "PROP" },
+  { id: "reacoes-heroicas", name: "Reacoes Heroicas", gridWidth: 1.25, layer: "MOUNT" },
+  { id: "herois", name: "Herois", gridWidth: 6, layer: "MOUNT" },
 ];
 
 const imageExtensions = new Set([".apng", ".avif", ".gif", ".jpg", ".jpeg", ".png", ".svg", ".webp"]);
@@ -65,21 +65,27 @@ function displayName(filename, fallback) {
 }
 
 function getDefaultGridWidth(defaultGroup, existingGroup) {
+  if (Number.isFinite(defaultGroup.gridWidth) && defaultGroup.gridWidth > 0) {
+    return defaultGroup.gridWidth;
+  }
+
   if (Number.isFinite(existingGroup?.gridWidth) && existingGroup.gridWidth > 0) {
     return existingGroup.gridWidth;
   }
 
-  return Number.isFinite(defaultGroup.gridWidth) && defaultGroup.gridWidth > 0
-    ? defaultGroup.gridWidth
-    : 2;
+  return 2;
 }
 
 function getDefaultLayer(defaultGroup, existingGroup) {
+  if (itemLayers.has(defaultGroup.layer)) {
+    return defaultGroup.layer;
+  }
+
   if (itemLayers.has(existingGroup?.layer)) {
     return existingGroup.layer;
   }
 
-  return itemLayers.has(defaultGroup.layer) ? defaultGroup.layer : "PROP";
+  return "PROP";
 }
 
 async function readManifest() {

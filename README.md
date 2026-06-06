@@ -102,6 +102,13 @@ Para mudar cartas individuais:
 Classes, racas e divindades ja entram com a marcacao usada pelo sistema de selecao de personagem.
 Reacoes Heroicas e Herois entram como cartas duplas comuns.
 
+Tamanhos padrao das cartas individuais:
+
+- Classes: `3`, camada `Mount`
+- Racas: `3`, camada `Mount`
+- Reacoes Heroicas: `1.25`, camada `Mount`
+- Herois: `6`, camada `Mount`
+
 Exemplo de verso especifico:
 
 - `Thwor.png`

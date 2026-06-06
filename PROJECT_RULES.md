@@ -127,6 +127,11 @@ Este arquivo registra as regras permanentes do projeto. Qualquer alteracao futur
 - Racas devem nascer marcadas como `race` para o sistema de slots.
 - Divindades devem nascer marcadas como `divinity` e preservar o tamanho especial de divindade.
 - Reacoes Heroicas e Herois devem nascer como cartas duplas comuns, sem categoria de slot, salvo pedido contrario.
+- Tamanhos e camadas padrao das cartas de biblioteca:
+  - Classes: largura 3, camada Mount.
+  - Racas: largura 3, camada Mount.
+  - Reacoes Heroicas: largura 1.25, camada Mount.
+  - Herois: largura 6, camada Mount.
 - A versao publica deve criar essas cartas a partir de imagens publicas do GitHub Pages, nao de assets crus do Owlbear.
 
 ## Camadas

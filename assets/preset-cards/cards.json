@@ -5,8 +5,8 @@
       "id": "classes",
       "name": "Classes",
       "category": "class",
-      "gridWidth": 2.25,
-      "layer": "PROP",
+      "gridWidth": 3,
+      "layer": "MOUNT",
       "back": "assets/preset-cards/classes/Verso.png",
       "cards": [
         {
@@ -60,8 +60,8 @@
       "id": "racas",
       "name": "Racas",
       "category": "race",
-      "gridWidth": 2.25,
-      "layer": "PROP",
+      "gridWidth": 3,
+      "layer": "MOUNT",
       "back": "assets/preset-cards/racas/Verso.png",
       "cards": [
         {
@@ -201,8 +201,8 @@
       "id": "reacoes-heroicas",
       "name": "Reacoes Heroicas",
       "category": "",
-      "gridWidth": 2.25,
-      "layer": "PROP",
+      "gridWidth": 1.25,
+      "layer": "MOUNT",
       "back": "assets/preset-cards/reacoes-heroicas/Verso.png",
       "cards": [
         {
@@ -241,9 +241,9 @@
       "id": "herois",
       "name": "Herois",
       "category": "",
-      "gridWidth": 2.25,
-      "layer": "PROP",
-      "back": "",
+      "gridWidth": 6,
+      "layer": "MOUNT",
+      "back": "assets/preset-cards/herois/Verso.png",
       "cards": [
         {
           "id": "1-dandara-hero-na",
