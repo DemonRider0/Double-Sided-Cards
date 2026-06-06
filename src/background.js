@@ -31,7 +31,7 @@ import {
 } from "./selection-board.js";
 
 function assetUrl(path) {
-  return `${new URL(`../${path}`, import.meta.url).toString()}?v=52`;
+  return `${new URL(`../${path}`, import.meta.url).toString()}?v=54`;
 }
 
 const OPTIMIZED_ASSET_FILENAMES = new Map([
@@ -53,13 +53,57 @@ const OPTIMIZED_ASSET_FILENAMES = new Map([
   ],
 ]);
 
+const BUNDLED_REMOTE_ASSET_IDS = new Map([
+  ["edba733b-f850-4f74-8d9d-4b426f5083f6", "owlbear-edba733b-f850-4f74-8d9d-4b426f5083f6-Mesa-Expedicao-Excarlate.png"],
+  ["8ee18e58-32e4-4148-b228-8565c87d764a", "owlbear-8ee18e58-32e4-4148-b228-8565c87d764a-Player.png"],
+  ["eebc34cf-f140-4cc1-bad6-be29e352460b", "owlbear-eebc34cf-f140-4cc1-bad6-be29e352460b-Raca-Verso.png"],
+  ["4506362a-8e87-40af-b929-e09afda3fa8e", "owlbear-4506362a-8e87-40af-b929-e09afda3fa8e-Classes-Verso.png"],
+  ["ba0c7d8a-9288-49b4-a1bb-91adcabdd075", "owlbear-ba0c7d8a-9288-49b4-a1bb-91adcabdd075-Wynna-Verso.png"],
+  ["498fa6fd-56d8-4e4f-ae5c-afd5383ba8e1", "owlbear-498fa6fd-56d8-4e4f-ae5c-afd5383ba8e1-Acesso.png"],
+  ["0e503377-26e4-4cdf-8672-00d8ae907adc", "owlbear-0e503377-26e4-4cdf-8672-00d8ae907adc-Mizlah-Token.webp"],
+  ["efe0588e-57ef-49e2-9449-9d97f16f3fce", "owlbear-efe0588e-57ef-49e2-9449-9d97f16f3fce-Mithreus-Token.webp"],
+  ["e2be2ca1-9bfc-4f40-984b-7234c6c0a372", "owlbear-e2be2ca1-9bfc-4f40-984b-7234c6c0a372-Mathias-Token.webp"],
+  ["6b45ef2c-672b-4fab-baed-8812cdc7738e", "owlbear-6b45ef2c-672b-4fab-baed-8812cdc7738e-Missao-0-Tutorial-Pag-2.jpg"],
+  ["ad8ae303-af2f-4fb4-b039-7ca3fb79e01f", "owlbear-ad8ae303-af2f-4fb4-b039-7ca3fb79e01f-Missao-0-Tutorial-Pag-1.jpg"],
+  ["859beb28-9b08-4af0-9aa3-e757fa96a49a", "owlbear-859beb28-9b08-4af0-9aa3-e757fa96a49a-Missao-1.1-Pg-2.webp"],
+  ["098a5a25-6a2f-43a1-9841-7589ead78fe3", "owlbear-098a5a25-6a2f-43a1-9841-7589ead78fe3-Missao-1.1-Pg-1.webp"],
+]);
+
 function isLocalhost() {
   return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+}
+
+function toBundledRemoteAssetUrl(value) {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  try {
+    const url = new URL(value, window.location.origin);
+
+    if (url.hostname !== "images.owlbear.rodeo") {
+      return value;
+    }
+
+    const file = url.pathname.split("/").pop() || "";
+    const id = file.replace(/\.[^.]+$/, "");
+    const bundledFilename = BUNDLED_REMOTE_ASSET_IDS.get(id);
+
+    return bundledFilename ? assetUrl(`assets/local-assets/${bundledFilename}`) : value;
+  } catch {
+    return value;
+  }
 }
 
 function toOptimizedAssetUrl(value) {
   if (typeof value !== "string") {
     return value;
+  }
+
+  const bundledUrl = toBundledRemoteAssetUrl(value);
+
+  if (bundledUrl !== value) {
+    return bundledUrl;
   }
 
   for (const [oldFilename, newFilename] of OPTIMIZED_ASSET_FILENAMES) {

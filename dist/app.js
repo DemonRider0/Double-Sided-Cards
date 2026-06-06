@@ -1828,9 +1828,204 @@ function getMigratableAssetFilename(rawUrl) {
   }
 }
 
-function migrateAssetUrl(rawUrl, publicBaseUrl, stats) {
+function isRemoteSceneAssetUrl(rawUrl) {
+  try {
+    const url = new URL(rawUrl, window.location.origin);
+    const isLocalUrl = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+
+    return !isLocalUrl && (url.protocol === "http:" || url.protocol === "https:");
+  } catch {
+    return false;
+  }
+}
+
+function shouldCachePlainSceneImage(item) {
+  if (!item.image?.url || !isRemoteSceneAssetUrl(item.image.url)) {
+    return false;
+  }
+
+  try {
+    const url = new URL(item.image.url, window.location.origin);
+
+    if (url.hostname === "images.owlbear.rodeo") {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+
+  const area = (item.image.width || 0) * (item.image.height || 0);
+  const mime = item.image.mime || "";
+  const isWebp = mime === "image/webp" || /\.webp(?:$|[?#])/i.test(item.image.url);
+
+  return item.layer === "MAP" || item.layer === "NOTE" || area >= 2_000_000 || isWebp;
+}
+
+function getCachedAssetInfo(rawUrl, remoteCache) {
+  const repairedUrl = repairNestedPublicUrl(rawUrl, { urls: 0 });
+  return remoteCache.get(rawUrl) || remoteCache.get(repairedUrl) || null;
+}
+
+function getRemoteAssetName(item) {
+  const fallback = item.name || getNameFromUrl(item.image?.url || "", "image");
+  return `${fallback}.jpg`;
+}
+
+async function loadBlobImage(blob) {
+  const objectUrl = URL.createObjectURL(blob);
+
+  try {
+    return await loadImageFromUrl(objectUrl, blob.type || "image/png");
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+function canvasToBlob(canvas, mime, quality) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) {
+          resolve(blob);
+          return;
+        }
+
+        reject(new Error("Nao consegui converter a imagem para o formato otimizado."));
+      },
+      mime,
+      quality,
+    );
+  });
+}
+
+async function optimizeSceneImageBlob(blob, info) {
+  const shouldConvertToJpeg =
+    blob.type === "image/webp" ||
+    blob.type === "image/png" ||
+    (info.width || 0) * (info.height || 0) >= 2_000_000;
+
+  if (!shouldConvertToJpeg) {
+    return { blob, mime: blob.type || info.mime || "image/png" };
+  }
+
+  const image = await createImageBitmap(blob);
+
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const context = canvas.getContext("2d");
+
+    if (!context) {
+      return { blob, mime: blob.type || info.mime || "image/png" };
+    }
+
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0);
+    return {
+      blob: await canvasToBlob(canvas, "image/jpeg", 0.84),
+      mime: "image/jpeg",
+    };
+  } finally {
+    image.close?.();
+  }
+}
+
+async function uploadBlobAsLocalAsset(blob, name) {
+  const response = await fetch(`./__local_asset?name=${encodeURIComponent(name)}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": blob.type || "application/octet-stream",
+    },
+    body: blob,
+  });
+
+  if (!response.ok) {
+    throw new Error("O servidor local nao conseguiu salvar a imagem otimizada.");
+  }
+
+  const payload = await response.json();
+  if (!payload.url) {
+    throw new Error("O servidor local nao retornou a imagem otimizada.");
+  }
+
+  return payload.url;
+}
+
+async function cachePlainSceneImage(item) {
+  const response = await fetch(item.image.url, {
+    cache: "no-store",
+    mode: "cors",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Nao consegui baixar "${item.name || "imagem"}" do Owlbear.`);
+  }
+
+  const originalBlob = await response.blob();
+  const info = await loadBlobImage(originalBlob);
+  const optimized = await optimizeSceneImageBlob(originalBlob, info);
+  const url = await uploadBlobAsLocalAsset(optimized.blob, getRemoteAssetName(item));
+
+  return {
+    url,
+    width: info.width,
+    height: info.height,
+    mime: optimized.mime,
+  };
+}
+
+async function cachePlainRemoteSceneImages(items, stats) {
+  const cache = new Map();
+
+  if (window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+    return cache;
+  }
+
+  const remoteItems = [];
+  const seenUrls = new Set();
+
+  for (const item of items) {
+    if (
+      item.type !== "IMAGE" ||
+      getCardMetadata(item) ||
+      getDeckMetadata(item) ||
+      !shouldCachePlainSceneImage(item) ||
+      seenUrls.has(item.image.url)
+    ) {
+      continue;
+    }
+
+    seenUrls.add(item.image.url);
+    remoteItems.push(item);
+  }
+
+  if (!remoteItems.length) {
+    return cache;
+  }
+
+  setMessage(`Otimizando ${remoteItems.length} imagens normais da cena...`, "neutral");
+
+  for (const item of remoteItems) {
+    try {
+      const info = await cachePlainSceneImage(item);
+      cache.set(item.image.url, info);
+      stats.cached += 1;
+    } catch (error) {
+      console.warn("Nao consegui otimizar imagem normal da cena", item.name, error);
+      stats.cacheErrors += 1;
+    }
+  }
+
+  return cache;
+}
+
+function migrateAssetUrl(rawUrl, publicBaseUrl, stats, remoteCache = new Map()) {
   const repairedUrl = repairNestedPublicUrl(rawUrl, stats);
-  const filename = getMigratableAssetFilename(repairedUrl);
+  const cachedAsset = getCachedAssetInfo(repairedUrl, remoteCache);
+  const urlToMigrate = cachedAsset?.url || repairedUrl;
+  const filename = getMigratableAssetFilename(urlToMigrate);
 
   if (!filename) {
     return repairedUrl;
@@ -1838,7 +2033,7 @@ function migrateAssetUrl(rawUrl, publicBaseUrl, stats) {
 
   const nextUrl = `${publicBaseUrl}/assets/local-assets/${encodeAssetFilename(filename)}`;
 
-  if (normalizeComparableUrl(repairedUrl) === normalizeComparableUrl(nextUrl)) {
+  if (normalizeComparableUrl(rawUrl) === normalizeComparableUrl(nextUrl)) {
     return repairedUrl;
   }
 
@@ -1846,38 +2041,52 @@ function migrateAssetUrl(rawUrl, publicBaseUrl, stats) {
   return nextUrl;
 }
 
-function migrateFaceUrl(face, publicBaseUrl, stats) {
-  const nextUrl = migrateAssetUrl(face.url, publicBaseUrl, stats);
+function migrateFaceUrl(face, publicBaseUrl, stats, remoteCache) {
+  const cachedAsset = getCachedAssetInfo(face.url, remoteCache);
+  const nextUrl = migrateAssetUrl(face.url, publicBaseUrl, stats, remoteCache);
 
-  if (normalizeComparableUrl(face.url) === normalizeComparableUrl(nextUrl)) {
+  if (
+    normalizeComparableUrl(face.url) === normalizeComparableUrl(nextUrl) &&
+    (!cachedAsset?.mime || face.mime === cachedAsset.mime)
+  ) {
     return face;
   }
 
   return {
     ...face,
     url: nextUrl,
+    width: cachedAsset?.width || face.width,
+    height: cachedAsset?.height || face.height,
+    mime: cachedAsset?.mime || face.mime,
   };
 }
 
-function migrateImageItem(item, publicBaseUrl, stats) {
+function migrateImageItem(item, publicBaseUrl, stats, remoteCache) {
   if (!item.image?.url) {
     return false;
   }
 
-  const nextUrl = migrateAssetUrl(item.image.url, publicBaseUrl, stats);
+  const cachedAsset = getCachedAssetInfo(item.image.url, remoteCache);
+  const nextUrl = migrateAssetUrl(item.image.url, publicBaseUrl, stats, remoteCache);
 
-  if (normalizeComparableUrl(item.image.url) === normalizeComparableUrl(nextUrl)) {
+  if (
+    normalizeComparableUrl(item.image.url) === normalizeComparableUrl(nextUrl) &&
+    (!cachedAsset?.mime || item.image.mime === cachedAsset.mime)
+  ) {
     return false;
   }
 
   item.image = {
     ...item.image,
     url: nextUrl,
+    width: cachedAsset?.width || item.image.width,
+    height: cachedAsset?.height || item.image.height,
+    mime: cachedAsset?.mime || item.image.mime,
   };
   return true;
 }
 
-function migrateCardItem(item, publicBaseUrl, stats) {
+function migrateCardItem(item, publicBaseUrl, stats, remoteCache) {
   const metadata = getCardMetadata(item);
 
   if (!metadata) {
@@ -1888,8 +2097,8 @@ function migrateCardItem(item, publicBaseUrl, stats) {
   const nextMetadata = {
     ...metadata,
     faces: {
-      front: migrateFaceUrl(metadata.faces.front, publicBaseUrl, stats),
-      back: migrateFaceUrl(metadata.faces.back, publicBaseUrl, stats),
+      front: migrateFaceUrl(metadata.faces.front, publicBaseUrl, stats, remoteCache),
+      back: migrateFaceUrl(metadata.faces.back, publicBaseUrl, stats, remoteCache),
     },
   };
   nextMetadata.mirrorBack = shouldMirrorBackFace(
@@ -1920,7 +2129,7 @@ function migrateCardItem(item, publicBaseUrl, stats) {
   return true;
 }
 
-function migrateDeckItem(item, publicBaseUrl, stats) {
+function migrateDeckItem(item, publicBaseUrl, stats, remoteCache) {
   const metadata = getDeckMetadata(item);
 
   if (!metadata) {
@@ -1930,11 +2139,11 @@ function migrateDeckItem(item, publicBaseUrl, stats) {
   const urlCountBefore = stats.urls;
   const nextCards = metadata.cards.map((card) => ({
     ...card,
-    front: migrateFaceUrl(card.front, publicBaseUrl, stats),
+    front: migrateFaceUrl(card.front, publicBaseUrl, stats, remoteCache),
   }));
   const nextMetadata = {
     ...metadata,
-    back: migrateFaceUrl(metadata.back, publicBaseUrl, stats),
+    back: migrateFaceUrl(metadata.back, publicBaseUrl, stats, remoteCache),
     cards: nextCards,
   };
 
@@ -1962,17 +2171,20 @@ async function migrateSceneLocalAssets() {
   const publicBaseUrl = normalizePublicBaseUrl(rawBaseUrl);
   const items = await obr.scene.items.getItems();
   const stats = {
+    cached: 0,
+    cacheErrors: 0,
     items: 0,
     urls: 0,
     sized: 0,
   };
+  const remoteCache = await cachePlainRemoteSceneImages(items, stats);
 
   await obr.scene.items.updateItems(items, (draftItems) => {
     for (const item of draftItems) {
       const changed =
-        migrateCardItem(item, publicBaseUrl, stats) ||
-        migrateDeckItem(item, publicBaseUrl, stats) ||
-        migrateImageItem(item, publicBaseUrl, stats);
+        migrateCardItem(item, publicBaseUrl, stats, remoteCache) ||
+        migrateDeckItem(item, publicBaseUrl, stats, remoteCache) ||
+        migrateImageItem(item, publicBaseUrl, stats, remoteCache);
 
       if (changed) {
         stats.items += 1;
@@ -1989,11 +2201,24 @@ async function migrateSceneLocalAssets() {
   const urlLabel = stats.urls === 1 ? "1 imagem" : `${stats.urls} imagens`;
   const divinityLabel =
     stats.sized === 1 ? "1 divindade ajustada" : `${stats.sized} divindades ajustadas`;
+  const cachedLabel =
+    stats.cached === 1 ? "1 imagem normal otimizada" : `${stats.cached} imagens normais otimizadas`;
+  const cacheErrorLabel =
+    stats.cacheErrors === 1
+      ? "1 imagem normal nao pode ser otimizada"
+      : `${stats.cacheErrors} imagens normais nao puderam ser otimizadas`;
   const message = stats.urls
     ? `Migrei ${itemLabel} da cena para usar ${urlLabel} publicas${
-        stats.sized ? `; ${divinityLabel}.` : "."
+        stats.sized || stats.cached || stats.cacheErrors
+          ? `; ${[stats.cached ? cachedLabel : "", stats.sized ? divinityLabel : ""]
+              .filter(Boolean)
+              .concat(stats.cacheErrors ? [cacheErrorLabel] : [])
+              .join("; ")}.`
+          : "."
       }`
-    : `${divinityLabel}.`;
+    : stats.sized
+      ? `${divinityLabel}.`
+      : cacheErrorLabel;
 
   setMessage(message, "success");
   await obr.notification.show(
@@ -2987,7 +3212,7 @@ async function init() {
   try {
     const loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=52").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=54").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
     obr = loaded.OBR;
