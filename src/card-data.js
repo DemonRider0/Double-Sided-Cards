@@ -181,6 +181,7 @@ export function createCardMetadata({
   front,
   back,
   gridWidth,
+  origin,
   currentFace = "front",
   sourceDeckId,
   sourceDeckName,
@@ -196,6 +197,13 @@ export function createCardMetadata({
       back,
     },
   };
+
+  if (Number.isFinite(origin?.x) && Number.isFinite(origin?.y)) {
+    metadata.origin = {
+      x: origin.x,
+      y: origin.y,
+    };
+  }
 
   if (sourceDeckId) {
     metadata.sourceDeckId = sourceDeckId;
@@ -238,15 +246,19 @@ export function createImageData(face) {
   };
 }
 
-export function createGridData(face, gridWidth) {
+export function createGridData(face, gridWidth, origin) {
   const dpi = Math.max(1, face.width / gridWidth);
+  const offset =
+    Number.isFinite(origin?.x) && Number.isFinite(origin?.y)
+      ? { x: origin.x, y: origin.y }
+      : {
+          x: face.width / 2,
+          y: face.height / 2,
+        };
 
   return {
     dpi,
-    offset: {
-      x: face.width / 2,
-      y: face.height / 2,
-    },
+    offset,
   };
 }
 

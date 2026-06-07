@@ -11,7 +11,8 @@ const groupDefaults = [
   { id: "racas", name: "Racas", category: "race", gridWidth: 3, layer: "MOUNT" },
   { id: "divindades", name: "Divindades", category: "divinity", gridWidth: 2, layer: "PROP" },
   { id: "reacoes-heroicas", name: "Reacoes Heroicas", gridWidth: 1.25, layer: "MOUNT" },
-  { id: "herois", name: "Herois", gridWidth: 6, layer: "MOUNT" },
+  { id: "herois", name: "Herois", gridWidth: 6, layer: "MOUNT", origin: { x: 885, y: 531.5 } },
+  { id: "herois-montaria", name: "Herois Montaria", gridWidth: 1, layer: "MOUNT" },
 ];
 
 const imageExtensions = new Set([".apng", ".avif", ".gif", ".jpg", ".jpeg", ".png", ".svg", ".webp"]);
@@ -88,6 +89,21 @@ function getDefaultLayer(defaultGroup, existingGroup) {
   return "PROP";
 }
 
+function getDefaultOrigin(defaultGroup, existingGroup) {
+  const origin = Number.isFinite(defaultGroup.origin?.x) && Number.isFinite(defaultGroup.origin?.y)
+    ? defaultGroup.origin
+    : existingGroup?.origin;
+
+  if (!Number.isFinite(origin?.x) || !Number.isFinite(origin?.y)) {
+    return null;
+  }
+
+  return {
+    x: origin.x,
+    y: origin.y,
+  };
+}
+
 async function readManifest() {
   try {
     return JSON.parse(await readFile(manifestPath, "utf8"));
@@ -134,6 +150,7 @@ function mergeGroup(defaultGroup, existingGroup, files) {
     category: defaultGroup.category || existingGroup?.category || "",
     gridWidth: getDefaultGridWidth(defaultGroup, existingGroup),
     layer: getDefaultLayer(defaultGroup, existingGroup),
+    origin: getDefaultOrigin(defaultGroup, existingGroup),
     back: backFile ? publicPath(defaultGroup.id, backFile) : existingGroup?.back || "",
     cards: cardFiles.length
       ? cardFiles.map((file, index) => {

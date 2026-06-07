@@ -31,7 +31,7 @@ import {
 } from "./selection-board.js";
 
 function assetUrl(path) {
-  return `${new URL(`../${path}`, import.meta.url).toString()}?v=57`;
+  return `${new URL(`../${path}`, import.meta.url).toString()}?v=58`;
 }
 
 const OPTIMIZED_ASSET_FILENAMES = new Map([

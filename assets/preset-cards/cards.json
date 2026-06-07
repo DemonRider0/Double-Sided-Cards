@@ -7,6 +7,7 @@
       "category": "class",
       "gridWidth": 3,
       "layer": "MOUNT",
+      "origin": null,
       "back": "assets/preset-cards/classes/Verso.png",
       "cards": [
         {
@@ -62,6 +63,7 @@
       "category": "race",
       "gridWidth": 3,
       "layer": "MOUNT",
+      "origin": null,
       "back": "assets/preset-cards/racas/Verso.png",
       "cards": [
         {
@@ -127,6 +129,7 @@
       "category": "divinity",
       "gridWidth": 2,
       "layer": "PROP",
+      "origin": null,
       "back": "",
       "cards": [
         {
@@ -203,6 +206,7 @@
       "category": "",
       "gridWidth": 1.25,
       "layer": "MOUNT",
+      "origin": null,
       "back": "assets/preset-cards/reacoes-heroicas/Verso.png",
       "cards": [
         {
@@ -243,6 +247,10 @@
       "category": "",
       "gridWidth": 6,
       "layer": "MOUNT",
+      "origin": {
+        "x": 885,
+        "y": 531.5
+      },
       "back": "assets/preset-cards/herois/Verso.png",
       "cards": [
         {
@@ -269,6 +277,42 @@
           "id": "5-warryn-hero-2",
           "name": "Warryn heroí 2",
           "front": "assets/preset-cards/herois/Warryn heroí 2.png"
+        }
+      ]
+    },
+    {
+      "id": "herois-montaria",
+      "name": "Herois Montaria",
+      "category": "",
+      "gridWidth": 1,
+      "layer": "MOUNT",
+      "origin": null,
+      "back": "assets/preset-cards/herois-montaria/Verso.png",
+      "cards": [
+        {
+          "id": "1-dandara-token",
+          "name": "Dandara token",
+          "front": "assets/preset-cards/herois-montaria/Dandara token.png"
+        },
+        {
+          "id": "2-ergon-token",
+          "name": "Ergon token",
+          "front": "assets/preset-cards/herois-montaria/Ergon token.png"
+        },
+        {
+          "id": "3-jonas-token",
+          "name": "Jonas token",
+          "front": "assets/preset-cards/herois-montaria/Jonas token.png"
+        },
+        {
+          "id": "4-maguie-token",
+          "name": "Maguie token",
+          "front": "assets/preset-cards/herois-montaria/Maguie token.png"
+        },
+        {
+          "id": "5-warryn-token",
+          "name": "Warryn token",
+          "front": "assets/preset-cards/herois-montaria/Warryn token.png"
         }
       ]
     }

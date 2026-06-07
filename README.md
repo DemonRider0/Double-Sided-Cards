@@ -7,7 +7,7 @@ Extensao para Owlbear Rodeo criada por DemonRider. Ela adiciona cartas 2D com fr
 Depois que o GitHub Pages publicar este repositorio, use este link no Owlbear:
 
 ```text
-https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=57
+https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=58
 ```
 
 Se o usuario ou o nome do repositorio mudar, tambem sera necessario trocar os caminhos de `manifest.json` e as URLs dentro dos arquivos em `assets/scene-presets/`.
@@ -87,6 +87,7 @@ Pastas atuais:
 - `divindades`
 - `reacoes-heroicas`
 - `herois`
+- `herois-montaria`
 
 Para mudar cartas individuais:
 
@@ -107,7 +108,8 @@ Tamanhos padrao das cartas individuais:
 - Classes: `3`, camada `Mount`
 - Racas: `3`, camada `Mount`
 - Reacoes Heroicas: `1.25`, camada `Mount`
-- Herois: `6`, camada `Mount`
+- Herois: `6`, camada `Mount`, origin `885 x 531.5`
+- Herois Montaria: `1`, camada `Mount`
 
 Exemplo de verso especifico:
 
@@ -146,7 +148,7 @@ node dev-server.mjs 5180
 Abra no Owlbear:
 
 ```text
-http://localhost:5180/manifest.json?v=57
+http://localhost:5180/manifest.json?v=58
 ```
 
 Para testar a versao local separada sem mexer na pasta do Git, use a pasta local de testes.

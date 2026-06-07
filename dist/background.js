@@ -177,6 +177,7 @@ function createCardMetadata({
   front,
   back,
   gridWidth,
+  origin,
   currentFace = "front",
   sourceDeckId,
   sourceDeckName,
@@ -192,6 +193,13 @@ function createCardMetadata({
       back,
     },
   };
+
+  if (Number.isFinite(origin?.x) && Number.isFinite(origin?.y)) {
+    metadata.origin = {
+      x: origin.x,
+      y: origin.y,
+    };
+  }
 
   if (sourceDeckId) {
     metadata.sourceDeckId = sourceDeckId;
@@ -217,15 +225,19 @@ function createImageData(face) {
   };
 }
 
-function createGridData(face, gridWidth) {
+function createGridData(face, gridWidth, origin) {
   const dpi = Math.max(1, face.width / gridWidth);
+  const offset =
+    Number.isFinite(origin?.x) && Number.isFinite(origin?.y)
+      ? { x: origin.x, y: origin.y }
+      : {
+          x: face.width / 2,
+          y: face.height / 2,
+        };
 
   return {
     dpi,
-    offset: {
-      x: face.width / 2,
-      y: face.height / 2,
-    },
+    offset,
   };
 }
 
@@ -1212,7 +1224,7 @@ async function flipItems(OBR, items) {
         const face = nextMetadata.faces[targetFace];
 
         item.image = createImageData(face);
-        item.grid = createGridData(face, nextMetadata.gridWidth);
+        item.grid = createGridData(face, nextMetadata.gridWidth, nextMetadata.origin);
         applyDivinitySizing(item, face);
         applyCardFaceTransform(item, nextMetadata, targetFace);
         item.description = `Carta dupla: ${faceLabel(targetFace)}`;
@@ -4540,7 +4552,7 @@ async function loadOwlbearSdk(timeoutMs = 5000) {
 }
 
 function assetUrl(path) {
-  return `${new URL(`../${path}`, import.meta.url).toString()}?v=57`;
+  return `${new URL(`../${path}`, import.meta.url).toString()}?v=58`;
 }
 
 const OPTIMIZED_ASSET_FILENAMES = new Map([

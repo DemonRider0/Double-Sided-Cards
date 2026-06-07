@@ -491,7 +491,7 @@ async function repairSceneMetadata() {
           const face = nextCardMetadata.faces[currentFace];
 
           item.image = createImageData(face);
-          item.grid = createGridData(face, nextCardMetadata.gridWidth);
+          item.grid = createGridData(face, nextCardMetadata.gridWidth, nextCardMetadata.origin);
           applyDivinitySizing(item, face);
           applyCardFaceTransform(item, nextCardMetadata, currentFace);
           item.description = currentFace === "back" ? "Carta dupla: verso" : "Carta dupla: frente";
@@ -940,7 +940,7 @@ function migrateCardItem(item, publicBaseUrl, stats, remoteCache) {
   }
 
   item.image = createImageData(currentFace);
-  item.grid = createGridData(currentFace, nextMetadata.gridWidth);
+  item.grid = createGridData(currentFace, nextMetadata.gridWidth, nextMetadata.origin);
   applyDivinitySizing(item, currentFace);
   applyCardFaceTransform(
     item,
@@ -1777,10 +1777,11 @@ async function addCardToScene({
   gridWidth,
   layer,
   category,
+  origin,
   position,
 }) {
   const cardPosition = position || (await getViewportCenter());
-  const metadata = createCardMetadata({ name, front, back, gridWidth });
+  const metadata = createCardMetadata({ name, front, back, gridWidth, origin });
   const metadataMap = createCardMetadataMap(metadata);
 
   if (category) {
@@ -1790,7 +1791,7 @@ async function addCardToScene({
     };
   }
 
-  const item = buildImage(createImageData(front), createGridData(front, gridWidth))
+  const item = buildImage(createImageData(front), createGridData(front, gridWidth, origin))
     .name(name)
     .description("Carta dupla: frente")
     .layer(layer)
@@ -2022,6 +2023,7 @@ async function createPresetCard() {
       ...cardData,
       gridWidth,
       layer: elements.presetCardLayer.value || cardData.layer,
+      origin: cardData.origin,
     });
     await obr.notification.show(`Carta "${cardData.name}" criada.`);
     setMessage(`Carta "${cardData.name}" criada da biblioteca.`, "success");
@@ -2259,7 +2261,7 @@ async function init() {
   try {
     const loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=57").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=58").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
     obr = loaded.OBR;

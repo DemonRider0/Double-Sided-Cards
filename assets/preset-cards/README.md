@@ -7,6 +7,7 @@ Use estas pastas para cartas individuais da biblioteca.
 - `divindades`
 - `reacoes-heroicas`
 - `herois`
+- `herois-montaria`
 
 Em cada pasta, coloque uma imagem de verso chamada `Verso.png` e as frentes das cartas com qualquer nome.
 

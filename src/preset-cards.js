@@ -71,10 +71,22 @@ function normalizeAsset(value, fallbackName) {
   };
 }
 
+function normalizeOrigin(value) {
+  if (!Number.isFinite(value?.x) || !Number.isFinite(value?.y)) {
+    return null;
+  }
+
+  return {
+    x: value.x,
+    y: value.y,
+  };
+}
+
 function normalizePresetCardGroup(value, index) {
   const name = value?.name || `Cartas ${index + 1}`;
   const layer = ITEM_LAYERS.has(value?.layer) ? value.layer : "PROP";
   const category = normalizeCategory(value?.category);
+  const groupOrigin = normalizeOrigin(value?.origin);
 
   return {
     id: value?.id || `cards-${index + 1}`,
@@ -82,6 +94,7 @@ function normalizePresetCardGroup(value, index) {
     category,
     gridWidth: Number.isFinite(value?.gridWidth) && value.gridWidth > 0 ? value.gridWidth : 2,
     layer,
+    origin: groupOrigin,
     back: normalizeAsset(value?.back, `${name} verso`),
     cards: Array.isArray(value?.cards)
       ? value.cards.map((card, cardIndex) => {
@@ -91,6 +104,7 @@ function normalizePresetCardGroup(value, index) {
               name: getNameFromPath(card, `Carta ${cardIndex + 1}`),
               front: normalizeAsset(card, `Carta ${cardIndex + 1}`),
               back: normalizeAsset("", `Carta ${cardIndex + 1} verso`),
+              origin: null,
             };
           }
 
@@ -102,6 +116,7 @@ function normalizePresetCardGroup(value, index) {
             category: normalizeCategory(card?.category) || category,
             front: normalizeAsset(card?.front || card?.path || card?.url, cardName),
             back: normalizeAsset(card?.back, `${cardName} verso`),
+            origin: normalizeOrigin(card?.origin),
           };
         })
       : [],
@@ -184,5 +199,6 @@ export async function buildPresetCardData(group, card) {
     category: normalizeCategory(card.category) || group.category,
     gridWidth: group.gridWidth,
     layer: group.layer,
+    origin: card.origin || group.origin,
   };
 }

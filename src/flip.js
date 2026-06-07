@@ -60,7 +60,7 @@ export async function flipItems(OBR, items) {
         const face = nextMetadata.faces[targetFace];
 
         item.image = createImageData(face);
-        item.grid = createGridData(face, nextMetadata.gridWidth);
+        item.grid = createGridData(face, nextMetadata.gridWidth, nextMetadata.origin);
         applyDivinitySizing(item, face);
         applyCardFaceTransform(item, nextMetadata, targetFace);
         item.description = `Carta dupla: ${faceLabel(targetFace)}`;

@@ -183,6 +183,7 @@ function createCardMetadata({
   front,
   back,
   gridWidth,
+  origin,
   currentFace = "front",
   sourceDeckId,
   sourceDeckName,
@@ -198,6 +199,13 @@ function createCardMetadata({
       back,
     },
   };
+
+  if (Number.isFinite(origin?.x) && Number.isFinite(origin?.y)) {
+    metadata.origin = {
+      x: origin.x,
+      y: origin.y,
+    };
+  }
 
   if (sourceDeckId) {
     metadata.sourceDeckId = sourceDeckId;
@@ -240,15 +248,19 @@ function createImageData(face) {
   };
 }
 
-function createGridData(face, gridWidth) {
+function createGridData(face, gridWidth, origin) {
   const dpi = Math.max(1, face.width / gridWidth);
+  const offset =
+    Number.isFinite(origin?.x) && Number.isFinite(origin?.y)
+      ? { x: origin.x, y: origin.y }
+      : {
+          x: face.width / 2,
+          y: face.height / 2,
+        };
 
   return {
     dpi,
-    offset: {
-      x: face.width / 2,
-      y: face.height / 2,
-    },
+    offset,
   };
 }
 
@@ -879,7 +891,7 @@ async function flipItems(OBR, items) {
         const face = nextMetadata.faces[targetFace];
 
         item.image = createImageData(face);
-        item.grid = createGridData(face, nextMetadata.gridWidth);
+        item.grid = createGridData(face, nextMetadata.gridWidth, nextMetadata.origin);
         applyDivinitySizing(item, face);
         applyCardFaceTransform(item, nextMetadata, targetFace);
         item.description = `Carta dupla: ${faceLabel(targetFace)}`;
@@ -1159,10 +1171,22 @@ function normalizeAsset(value, fallbackName) {
   };
 }
 
+function normalizeOrigin(value) {
+  if (!Number.isFinite(value?.x) || !Number.isFinite(value?.y)) {
+    return null;
+  }
+
+  return {
+    x: value.x,
+    y: value.y,
+  };
+}
+
 function normalizePresetCardGroup(value, index) {
   const name = value?.name || `Cartas ${index + 1}`;
   const layer = ITEM_LAYERS.has(value?.layer) ? value.layer : "PROP";
   const category = normalizeCategory(value?.category);
+  const groupOrigin = normalizeOrigin(value?.origin);
 
   return {
     id: value?.id || `cards-${index + 1}`,
@@ -1170,6 +1194,7 @@ function normalizePresetCardGroup(value, index) {
     category,
     gridWidth: Number.isFinite(value?.gridWidth) && value.gridWidth > 0 ? value.gridWidth : 2,
     layer,
+    origin: groupOrigin,
     back: normalizeAsset(value?.back, `${name} verso`),
     cards: Array.isArray(value?.cards)
       ? value.cards.map((card, cardIndex) => {
@@ -1179,6 +1204,7 @@ function normalizePresetCardGroup(value, index) {
               name: getNameFromPath(card, `Carta ${cardIndex + 1}`),
               front: normalizeAsset(card, `Carta ${cardIndex + 1}`),
               back: normalizeAsset("", `Carta ${cardIndex + 1} verso`),
+              origin: null,
             };
           }
 
@@ -1190,6 +1216,7 @@ function normalizePresetCardGroup(value, index) {
             category: normalizeCategory(card?.category) || category,
             front: normalizeAsset(card?.front || card?.path || card?.url, cardName),
             back: normalizeAsset(card?.back, `${cardName} verso`),
+            origin: normalizeOrigin(card?.origin),
           };
         })
       : [],
@@ -1272,6 +1299,7 @@ async function buildPresetCardData(group, card) {
     category: normalizeCategory(card.category) || group.category,
     gridWidth: group.gridWidth,
     layer: group.layer,
+    origin: card.origin || group.origin,
   };
 }
 
@@ -1899,7 +1927,7 @@ async function repairSceneMetadata() {
           const face = nextCardMetadata.faces[currentFace];
 
           item.image = createImageData(face);
-          item.grid = createGridData(face, nextCardMetadata.gridWidth);
+          item.grid = createGridData(face, nextCardMetadata.gridWidth, nextCardMetadata.origin);
           applyDivinitySizing(item, face);
           applyCardFaceTransform(item, nextCardMetadata, currentFace);
           item.description = currentFace === "back" ? "Carta dupla: verso" : "Carta dupla: frente";
@@ -2348,7 +2376,7 @@ function migrateCardItem(item, publicBaseUrl, stats, remoteCache) {
   }
 
   item.image = createImageData(currentFace);
-  item.grid = createGridData(currentFace, nextMetadata.gridWidth);
+  item.grid = createGridData(currentFace, nextMetadata.gridWidth, nextMetadata.origin);
   applyDivinitySizing(item, currentFace);
   applyCardFaceTransform(
     item,
@@ -3185,10 +3213,11 @@ async function addCardToScene({
   gridWidth,
   layer,
   category,
+  origin,
   position,
 }) {
   const cardPosition = position || (await getViewportCenter());
-  const metadata = createCardMetadata({ name, front, back, gridWidth });
+  const metadata = createCardMetadata({ name, front, back, gridWidth, origin });
   const metadataMap = createCardMetadataMap(metadata);
 
   if (category) {
@@ -3198,7 +3227,7 @@ async function addCardToScene({
     };
   }
 
-  const item = buildImage(createImageData(front), createGridData(front, gridWidth))
+  const item = buildImage(createImageData(front), createGridData(front, gridWidth, origin))
     .name(name)
     .description("Carta dupla: frente")
     .layer(layer)
@@ -3430,6 +3459,7 @@ async function createPresetCard() {
       ...cardData,
       gridWidth,
       layer: elements.presetCardLayer.value || cardData.layer,
+      origin: cardData.origin,
     });
     await obr.notification.show(`Carta "${cardData.name}" criada.`);
     setMessage(`Carta "${cardData.name}" criada da biblioteca.`, "success");
@@ -3667,7 +3697,7 @@ async function init() {
   try {
     const loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=57").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=58").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
     obr = loaded.OBR;
