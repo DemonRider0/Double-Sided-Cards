@@ -152,6 +152,79 @@ textarea {
   line-height: 1.35;
 }
 
+.native-select-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.custom-select {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.custom-select__button {
+  min-height: 38px;
+  padding: 8px 34px 8px 10px;
+  border: 1px solid var(--line);
+  background:
+    linear-gradient(45deg, transparent 50%, var(--text) 50%) right 15px center / 7px 7px no-repeat,
+    linear-gradient(135deg, var(--text) 50%, transparent 50%) right 10px center / 7px 7px no-repeat,
+    var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 650;
+  text-align: left;
+}
+
+.custom-select__button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.custom-select[data-open="true"] .custom-select__button {
+  border-color: var(--accent-strong);
+  outline: 2px solid rgba(181, 42, 34, 0.35);
+  outline-offset: 1px;
+}
+
+.custom-select__menu {
+  display: grid;
+  gap: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(32, 28, 22, 0.06);
+}
+
+.custom-select__option {
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 650;
+  text-align: left;
+}
+
+.custom-select__option:hover,
+.custom-select__option[data-selected="true"] {
+  border-color: rgba(181, 42, 34, 0.45);
+  background: rgba(181, 42, 34, 0.16);
+}
+
+.custom-select__option:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 input:focus,
 textarea:focus,
 select:focus,

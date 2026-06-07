@@ -1,7 +1,8 @@
 export const EXTENSION_ID = "br.demonrider.double-sided-cards";
+export const REGISTRATION_ID = EXTENSION_ID;
 export const METADATA_KEY = `${EXTENSION_ID}/card`;
 export const DECK_METADATA_KEY = `${EXTENSION_ID}/deck`;
-export const COMMANDS_CHANNEL = `${EXTENSION_ID}/commands`;
+export const COMMANDS_CHANNEL = `${REGISTRATION_ID}/commands`;
 
 export function isCardMetadata(value) {
   return Boolean(

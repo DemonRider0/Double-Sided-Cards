@@ -1,9 +1,10 @@
 const process = { env: { NODE_ENV: "production" } };
 
 const EXTENSION_ID = "br.demonrider.double-sided-cards";
+const REGISTRATION_ID = EXTENSION_ID;
 const METADATA_KEY = `${EXTENSION_ID}/card`;
 const DECK_METADATA_KEY = `${EXTENSION_ID}/deck`;
-const COMMANDS_CHANNEL = `${EXTENSION_ID}/commands`;
+const COMMANDS_CHANNEL = `${REGISTRATION_ID}/commands`;
 
 function isCardMetadata(value) {
   return Boolean(
@@ -1549,6 +1550,7 @@ let presetDecks = [];
 let presetCardGroups = [];
 let scenePresetEntries = [];
 let colorAssignmentsRefreshTimer = null;
+const customSelects = new Map();
 const selectedAssets = {
   front: null,
   back: null,
@@ -1735,10 +1737,6 @@ async function refreshPlayerColorAssignments() {
   }
 }
 
-function isLocalhost() {
-  return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-}
-
 function formatPresetDate(value) {
   try {
     return new Intl.DateTimeFormat("pt-BR", {
@@ -1754,8 +1752,8 @@ function updateDefaultBoardControls(isConnected = Boolean(obr)) {
   const entriesById = new Map(scenePresetEntries.map((entry) => [entry.definition.id, entry]));
 
   for (const button of elements.createScenePresetButtons) {
-    button.hidden = !isLocalhost();
-    button.disabled = !isConnected || !isLocalhost();
+    button.hidden = true;
+    button.disabled = true;
   }
 
   for (const button of elements.restoreScenePresetButtons) {
@@ -1850,6 +1848,179 @@ async function runPanelAction(button, action) {
   } finally {
     button.disabled = false;
   }
+}
+
+function getSelectLabel(select) {
+  return select.selectedOptions?.[0]?.textContent || select.options?.[0]?.textContent || "Escolha uma opcao";
+}
+
+function closeCustomSelect(select) {
+  const state = customSelects.get(select);
+
+  if (!state) {
+    return;
+  }
+
+  state.root.dataset.open = "false";
+  state.menu.hidden = true;
+  state.button.setAttribute("aria-expanded", "false");
+}
+
+function closeOtherCustomSelects(currentSelect) {
+  for (const select of customSelects.keys()) {
+    if (select !== currentSelect) {
+      closeCustomSelect(select);
+    }
+  }
+}
+
+function buildCustomSelectMenu(select) {
+  const state = customSelects.get(select);
+
+  if (!state) {
+    return;
+  }
+
+  state.menu.replaceChildren();
+
+  for (const option of select.options) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "custom-select__option";
+    item.textContent = option.textContent;
+    item.disabled = option.disabled;
+    item.dataset.selected = String(option.selected);
+    item.setAttribute("role", "option");
+    item.setAttribute("aria-selected", String(option.selected));
+    item.addEventListener("click", () => {
+      select.value = option.value;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      closeCustomSelect(select);
+      syncAllCustomSelects();
+    });
+    state.menu.append(item);
+  }
+}
+
+function openCustomSelect(select) {
+  const state = customSelects.get(select);
+
+  if (!state || select.disabled) {
+    return;
+  }
+
+  closeOtherCustomSelects(select);
+  buildCustomSelectMenu(select);
+  state.root.dataset.open = "true";
+  state.menu.hidden = false;
+  state.button.setAttribute("aria-expanded", "true");
+}
+
+function syncCustomSelect(select) {
+  const state = customSelects.get(select);
+
+  if (!state) {
+    return;
+  }
+
+  state.button.textContent = getSelectLabel(select);
+  state.button.disabled = select.disabled;
+  state.root.dataset.disabled = String(select.disabled);
+
+  if (state.root.dataset.open === "true") {
+    buildCustomSelectMenu(select);
+  }
+}
+
+function syncAllCustomSelects() {
+  for (const select of customSelects.keys()) {
+    syncCustomSelect(select);
+  }
+}
+
+function enhanceCustomSelect(select) {
+  if (!select || customSelects.has(select)) {
+    return;
+  }
+
+  select.classList.add("native-select-hidden");
+  select.tabIndex = -1;
+  select.setAttribute("aria-hidden", "true");
+
+  const root = document.createElement("div");
+  root.className = "custom-select";
+  root.dataset.open = "false";
+  root.dataset.disabled = String(select.disabled);
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "custom-select__button";
+  button.textContent = getSelectLabel(select);
+  button.disabled = select.disabled;
+  button.setAttribute("aria-haspopup", "listbox");
+  button.setAttribute("aria-expanded", "false");
+
+  const menu = document.createElement("div");
+  menu.className = "custom-select__menu";
+  menu.hidden = true;
+  menu.setAttribute("role", "listbox");
+
+  root.append(button, menu);
+  select.after(root);
+
+  const observer = new MutationObserver(() => syncCustomSelect(select));
+  observer.observe(select, {
+    attributes: true,
+    attributeFilter: ["disabled"],
+    childList: true,
+    subtree: true,
+  });
+
+  customSelects.set(select, { button, menu, observer, root });
+
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+
+    if (root.dataset.open === "true") {
+      closeCustomSelect(select);
+      return;
+    }
+
+    openCustomSelect(select);
+  });
+
+  button.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeCustomSelect(select);
+      return;
+    }
+
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openCustomSelect(select);
+    }
+  });
+
+  select.addEventListener("change", () => syncCustomSelect(select));
+  syncCustomSelect(select);
+}
+
+function enhancePanelSelects() {
+  for (const select of document.querySelectorAll("select")) {
+    enhanceCustomSelect(select);
+  }
+
+  document.addEventListener("click", (event) => {
+    for (const { root } of customSelects.values()) {
+      if (!root.contains(event.target)) {
+        root.dataset.open = "false";
+        root.querySelector(".custom-select__menu").hidden = true;
+        root.querySelector(".custom-select__button").setAttribute("aria-expanded", "false");
+      }
+    }
+  });
+
+  syncAllCustomSelects();
 }
 
 function getRepairMessage(stats) {
@@ -2941,6 +3112,8 @@ function updatePresetDeckControls(isConnected = Boolean(obr), syncDefaults = fal
     setPresetDeckDefaultControls(deck);
   }
 
+  syncAllCustomSelects();
+
   if (!hasDecks) {
     elements.presetDeckInfo.textContent = "Nenhuma pilha cadastrada na biblioteca.";
     return;
@@ -3005,6 +3178,8 @@ function updatePresetCardControls(isConnected = Boolean(obr), syncDefaults = fal
   if (syncDefaults) {
     setPresetCardDefaultControls(group);
   }
+
+  syncAllCustomSelects();
 
   if (!hasGroups) {
     elements.presetCardInfo.textContent = "Nenhuma carta cadastrada na biblioteca.";
@@ -3472,6 +3647,8 @@ async function createPresetCard() {
 }
 
 async function init() {
+  enhancePanelSelects();
+
   if (elements.form) {
     elements.form.addEventListener("submit", createCard);
   }
@@ -3697,7 +3874,7 @@ async function init() {
   try {
     const loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=58").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=59").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
     obr = loaded.OBR;

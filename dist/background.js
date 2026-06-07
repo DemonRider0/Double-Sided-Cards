@@ -1,9 +1,10 @@
 const process = { env: { NODE_ENV: "production" } };
 
 const EXTENSION_ID = "br.demonrider.double-sided-cards";
+const REGISTRATION_ID = EXTENSION_ID;
 const METADATA_KEY = `${EXTENSION_ID}/card`;
 const DECK_METADATA_KEY = `${EXTENSION_ID}/deck`;
-const COMMANDS_CHANNEL = `${EXTENSION_ID}/commands`;
+const COMMANDS_CHANNEL = `${REGISTRATION_ID}/commands`;
 
 function isCardMetadata(value) {
   return Boolean(
@@ -4552,7 +4553,7 @@ async function loadOwlbearSdk(timeoutMs = 5000) {
 }
 
 function assetUrl(path) {
-  return `${new URL(`../${path}`, import.meta.url).toString()}?v=58`;
+  return `${new URL(`../${path}`, import.meta.url).toString()}?v=59`;
 }
 
 const OPTIMIZED_ASSET_FILENAMES = new Map([
@@ -4575,6 +4576,7 @@ const OPTIMIZED_ASSET_FILENAMES = new Map([
 ]);
 
 const BUNDLED_REMOTE_ASSET_IDS = new Map([
+  ["ed545ed3-1b28-4bdf-8744-96fb835e2a14", "owlbear-edba733b-f850-4f74-8d9d-4b426f5083f6-Mesa-Expedicao-Excarlate.png"],
   ["edba733b-f850-4f74-8d9d-4b426f5083f6", "owlbear-edba733b-f850-4f74-8d9d-4b426f5083f6-Mesa-Expedicao-Excarlate.png"],
   ["8ee18e58-32e4-4148-b228-8565c87d764a", "owlbear-8ee18e58-32e4-4148-b228-8565c87d764a-Player.png"],
   ["eebc34cf-f140-4cc1-bad6-be29e352460b", "owlbear-eebc34cf-f140-4cc1-bad6-be29e352460b-Raca-Verso.png"],
@@ -4647,6 +4649,16 @@ function toLocalAssetUrl(value) {
 
   try {
     const url = new URL(value, window.location.origin);
+    const publicAssetMarker = "/Double-Sided-Cards/assets/";
+
+    if (url.hostname === "demonrider0.github.io") {
+      const markerIndex = url.pathname.indexOf(publicAssetMarker);
+
+      if (markerIndex >= 0) {
+        return `${window.location.origin}/assets/${url.pathname.slice(markerIndex + publicAssetMarker.length)}`;
+      }
+    }
+
     const markers = ["/.local-assets/", "/assets/local-assets/"];
     let filename = "";
 
@@ -4785,7 +4797,7 @@ async function repairSceneAssetUrls(OBR, items) {
 }
 
 async function removePreviousRegistrations(OBR) {
-  const extensionIds = [EXTENSION_ID];
+  const extensionIds = [REGISTRATION_ID];
   const contextMenuIds = [
     "flip",
     "flip-deck-top",
@@ -4822,12 +4834,16 @@ async function removePreviousRegistrations(OBR) {
 
 async function createContextMenu(OBR, contextMenu) {
   await OBR.contextMenu.remove(contextMenu.id).catch(() => {});
-  await OBR.contextMenu.create(contextMenu);
+  await OBR.contextMenu.create(contextMenu).catch((error) => {
+    console.warn(`Nao consegui registrar o menu ${contextMenu.id}`, error);
+  });
 }
 
 async function createToolAction(OBR, action) {
   await OBR.tool.removeAction(action.id).catch(() => {});
-  await OBR.tool.createAction(action);
+  await OBR.tool.createAction(action).catch((error) => {
+    console.warn(`Nao consegui registrar a acao ${action.id}`, error);
+  });
 }
 
 async function setupContextMenu() {
@@ -4835,49 +4851,39 @@ async function setupContextMenu() {
   let lastCardSelection = [];
   let lastDeckSelection = [];
   let lastFlipSelection = [];
+  let lastImageSelection = [];
   let activePlayerColor = null;
+  let deckDisplaySyncTimer = null;
 
-  async function rememberCardSelection(selection) {
+  async function rememberSelection(selection) {
     if (!selection?.length) {
       return;
     }
 
     const selectedItems = await OBR.scene.items.getItems(selection);
     const cardIds = getDoubleSidedCards(selectedItems).map((item) => item.id);
+    const deckIds = getDeckItems(selectedItems).map((item) => item.id);
+    const imageItems = selectedItems.filter((item) => item.type === "IMAGE");
 
     if (cardIds.length) {
       lastCardSelection = cardIds;
       lastFlipSelection = cardIds;
     }
-  }
-
-  async function rememberDeckSelection(selection) {
-    if (!selection?.length) {
-      return;
-    }
-
-    const selectedItems = await OBR.scene.items.getItems(selection);
-    const deckIds = getDeckItems(selectedItems).map((item) => item.id);
 
     if (deckIds.length) {
       lastDeckSelection = deckIds;
       lastFlipSelection = deckIds;
     }
-  }
-
-  async function rememberImageSelection(selection) {
-    if (!selection?.length) {
-      return;
-    }
-
-    const selectedItems = await OBR.scene.items.getItems(selection);
-    const imageItems = selectedItems.filter((item) => item.type === "IMAGE");
 
     if (!imageItems.length) {
       return;
     }
 
-    imageItems.map((item) => item.id);
+    if (imageItems.length === lastImageSelection.length && imageItems.every((item, index) => item.id === lastImageSelection[index])) {
+      return;
+    }
+
+    lastImageSelection = imageItems.map((item) => item.id);
 
     const color = detectPlayerColorFromItem(imageItems[0]);
 
@@ -4900,6 +4906,23 @@ async function setupContextMenu() {
         await showCommandError(error);
       }
     }
+  }
+
+  function queueDeckDisplaySync(items) {
+    if (!getDeckItems(items).length) {
+      return;
+    }
+
+    if (deckDisplaySyncTimer) {
+      window.clearTimeout(deckDisplaySyncTimer);
+    }
+
+    deckDisplaySyncTimer = window.setTimeout(() => {
+      deckDisplaySyncTimer = null;
+      syncDeckDisplays(OBR, items).catch((error) => {
+        console.warn("Nao consegui sincronizar os contadores das pilhas", error);
+      });
+    }, 450);
   }
 
   async function getAnchorItems(fallbackSelection = []) {
@@ -4946,27 +4969,15 @@ async function setupContextMenu() {
 
   OBR.player
     .getSelection()
-    .then(async (selection) => {
-      await Promise.all([
-        rememberCardSelection(selection),
-        rememberDeckSelection(selection),
-        rememberImageSelection(selection),
-      ]);
-    })
+    .then((selection) => rememberSelection(selection))
     .catch((error) => {
       console.warn("Nao consegui ler a selecao inicial", error);
     });
 
   OBR.player.onChange((player) => {
     activePlayerColor = player.metadata?.[ACTIVE_COLOR_KEY]?.color || activePlayerColor;
-    rememberCardSelection(player.selection).catch((error) => {
-      console.warn("Nao consegui atualizar a selecao de cartas", error);
-    });
-    rememberDeckSelection(player.selection).catch((error) => {
-      console.warn("Nao consegui atualizar a selecao de pilhas", error);
-    });
-    rememberImageSelection(player.selection).catch((error) => {
-      console.warn("Nao consegui atualizar a selecao de imagens", error);
+    rememberSelection(player.selection).catch((error) => {
+      console.warn("Nao consegui atualizar a selecao", error);
     });
   });
   OBR.scene.items
@@ -4979,19 +4990,14 @@ async function setupContextMenu() {
       console.warn("Nao consegui sincronizar os contadores das pilhas", error);
     });
   OBR.scene.items.onChange((items) => {
-    repairSceneAssetUrls(OBR, items).then(async (repairedCount) => {
-      const nextItems = repairedCount ? await OBR.scene.items.getItems() : items;
-      await syncDeckDisplays(OBR, nextItems);
-    }).catch((error) => {
-      console.warn("Nao consegui sincronizar os itens alterados da cena", error);
-    });
+    queueDeckDisplaySync(items);
   });
 
   async function registerCommands() {
     await removePreviousRegistrations(OBR);
 
     await createContextMenu(OBR, {
-      id: `${EXTENSION_ID}/flip`,
+      id: `${REGISTRATION_ID}/flip`,
       icons: [
         {
           icon: assetUrl("icons/flip.svg"),
@@ -5016,7 +5022,7 @@ async function setupContextMenu() {
     });
 
     await createContextMenu(OBR, {
-      id: `${EXTENSION_ID}/draw-from-deck`,
+      id: `${REGISTRATION_ID}/draw-from-deck`,
       icons: [
         {
           icon: assetUrl("icons/draw.svg"),
@@ -5046,7 +5052,7 @@ async function setupContextMenu() {
     });
 
     await createContextMenu(OBR, {
-      id: `${EXTENSION_ID}/flip-deck-top`,
+      id: `${REGISTRATION_ID}/flip-deck-top`,
       icons: [
         {
           icon: assetUrl("icons/flip.svg"),
@@ -5071,7 +5077,7 @@ async function setupContextMenu() {
     });
 
     await createContextMenu(OBR, {
-      id: `${EXTENSION_ID}/shuffle-deck`,
+      id: `${REGISTRATION_ID}/shuffle-deck`,
       icons: [
         {
           icon: assetUrl("icons/shuffle.svg"),
@@ -5096,7 +5102,7 @@ async function setupContextMenu() {
     });
 
     await createContextMenu(OBR, {
-      id: `${EXTENSION_ID}/return-to-deck`,
+      id: `${REGISTRATION_ID}/return-to-deck`,
       icons: [
         {
           icon: assetUrl("icons/return.svg"),
@@ -5124,7 +5130,7 @@ async function setupContextMenu() {
     });
 
     await createToolAction(OBR, {
-      id: `${EXTENSION_ID}/flip-action`,
+      id: `${REGISTRATION_ID}/flip-action`,
       icons: [
         {
           icon: assetUrl("icons/flip.svg"),
@@ -5134,10 +5140,7 @@ async function setupContextMenu() {
       shortcut: "V",
       async onClick() {
         const selection = await OBR.player.getSelection();
-        await Promise.all([
-          rememberCardSelection(selection),
-          rememberDeckSelection(selection),
-        ]);
+        await rememberSelection(selection);
         const fallbackSelection = lastFlipSelection.length
           ? lastFlipSelection
           : lastDeckSelection.length
@@ -5156,7 +5159,7 @@ async function setupContextMenu() {
     });
 
     await createToolAction(OBR, {
-      id: `${EXTENSION_ID}/draw-action`,
+      id: `${REGISTRATION_ID}/draw-action`,
       icons: [
         {
           icon: assetUrl("icons/draw.svg"),
@@ -5182,7 +5185,7 @@ async function setupContextMenu() {
     });
 
     await createToolAction(OBR, {
-      id: `${EXTENSION_ID}/shuffle-action`,
+      id: `${REGISTRATION_ID}/shuffle-action`,
       icons: [
         {
           icon: assetUrl("icons/shuffle.svg"),
@@ -5204,7 +5207,7 @@ async function setupContextMenu() {
     });
 
     await createToolAction(OBR, {
-      id: `${EXTENSION_ID}/return-action`,
+      id: `${REGISTRATION_ID}/return-action`,
       icons: [
         {
           icon: assetUrl("icons/return.svg"),
