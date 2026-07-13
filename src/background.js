@@ -31,7 +31,7 @@ import {
 } from "./selection-board.js";
 
 function assetUrl(path) {
-  return `${new URL(`../${path}`, import.meta.url).toString()}?v=63`;
+  return `${new URL(`../${path}`, import.meta.url).toString()}?v=64`;
 }
 
 const COMMAND_REGISTRATION_DEBOUNCE_MS = 200;

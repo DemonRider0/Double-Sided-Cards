@@ -194,37 +194,82 @@ async function selectDecks(OBR, deckIds) {
   await OBR.player.select(deckIds, true).catch(() => {});
 }
 
-function createDrawnCardItem(buildImage, deck, metadata, card, drawnFace, drawOffset, options) {
-  const face = drawnFace === "front" ? card.front : metadata.back;
-  const cardMetadata = createCardMetadata({
-    name: card.name,
-    front: card.front,
-    back: metadata.back,
-    gridWidth: metadata.gridWidth,
-    currentFace: drawnFace,
-    sourceDeckId: deck.id,
-    sourceDeckName: metadata.name,
-  });
-  const position = options.drawPositionsByDeckId?.get(deck.id) || {
+function getDrawPosition(deck, drawOffset, options) {
+  const configuredPosition = options.drawPositionsByDeckId?.get(deck.id);
+
+  return cloneSerializable(configuredPosition) || {
     x: deck.position.x + drawOffset,
     y: deck.position.y + drawOffset,
   };
+}
+
+function createDrawnCardItem(buildImage, operation) {
+  const face = operation.drawnFace === "front" ? operation.drawnCard.front : operation.back;
+  const cardMetadata = createCardMetadata({
+    name: operation.drawnCard.name,
+    front: operation.drawnCard.front,
+    back: operation.back,
+    gridWidth: operation.gridWidth,
+    currentFace: operation.drawnFace,
+    sourceDeckId: operation.deckId,
+    sourceDeckName: operation.deckName,
+  });
   const item = buildImage(
     createImageData(face),
-    createGridData(face, metadata.gridWidth),
+    createGridData(face, operation.gridWidth),
   )
-    .name(card.name)
-    .description(`Carta dupla: ${faceLabel(drawnFace)}`)
-    .layer(deck.layer)
-    .position(position)
+    .name(operation.drawnCard.name)
+    .description(`Carta dupla: ${faceLabel(operation.drawnFace)}`)
+    .layer(operation.layer)
+    .position(operation.position)
     .metadata(createCardMetadataMap(cardMetadata))
     .build();
 
-  applyCardFaceTransform(item, cardMetadata, drawnFace);
+  applyCardFaceTransform(item, cardMetadata, operation.drawnFace);
   return item;
 }
 
-function applyDrawToDeckDraft(buildImage, deck, drawOffset, options) {
+function summarizeDrawnItemForLog(item) {
+  if (!item || typeof item !== "object") {
+    return {
+      exists: false,
+      isPromise: Boolean(item?.then),
+    };
+  }
+
+  let hasCardMetadata = false;
+
+  try {
+    hasCardMetadata = Boolean(getCardMetadata(item));
+  } catch {
+    hasCardMetadata = false;
+  }
+
+  return {
+    exists: true,
+    isPromise: Boolean(item.then),
+    id: item.id,
+    type: item.type,
+    layer: item.layer,
+    hasImageUrl: typeof item.image?.url === "string",
+    hasGrid: Boolean(item.grid),
+    hasPosition: Boolean(item.position),
+    hasCardMetadata,
+  };
+}
+
+function logDrawFailure(stage, error, operation, item) {
+  console.warn(`Falha ao comprar carta durante ${stage}`, {
+    errorName: error?.name,
+    errorMessage: error?.message,
+    deckId: operation?.deckId,
+    deckName: operation?.deckName,
+    cardName: operation?.drawnCard?.name,
+    item: summarizeDrawnItemForLog(item),
+  }, error);
+}
+
+function applyDrawToDeckDraft(deck, drawOffset, options) {
   const metadata = getDeckMetadata(deck);
 
   if (!metadata?.cards.length) {
@@ -234,19 +279,11 @@ function applyDrawToDeckDraft(buildImage, deck, drawOffset, options) {
   const drawnCard = cloneDeckCard(metadata.cards[0]);
   const remainingCards = metadata.cards.slice(1).map(cloneDeckCard);
   const drawnFace = currentDeckFace(metadata);
-  const drawnItem = createDrawnCardItem(
-    buildImage,
-    deck,
-    metadata,
-    drawnCard,
-    drawnFace,
-    drawOffset,
-    options,
-  );
+  const drawnPosition = getDrawPosition(deck, drawOffset, options);
   const nextMetadata = {
     ...metadata,
     cards: remainingCards,
-    currentFace: currentDeckFace(metadata),
+    currentFace: drawnFace,
   };
 
   applyDeckDisplay(deck, nextMetadata);
@@ -259,8 +296,13 @@ function applyDrawToDeckDraft(buildImage, deck, drawOffset, options) {
 
   return {
     deckId: deck.id,
+    deckName: metadata.name,
+    layer: deck.layer,
+    position: drawnPosition,
+    back: cloneSerializable(metadata.back),
+    gridWidth: metadata.gridWidth,
     drawnCard,
-    drawnItem,
+    drawnFace,
     remainingCards,
     deleteWhenEmpty: Boolean(metadata.deleteWhenEmpty && remainingCards.length === 0),
   };
@@ -293,6 +335,7 @@ async function rollbackDrawnCard(OBR, operation) {
 
 async function drawSingleDeck(OBR, buildImage, deckId, drawOffset, options) {
   let operation = null;
+  let drawnItem = null;
 
   await OBR.scene.items.updateItems([deckId], (draftItems) => {
     const deck = draftItems[0];
@@ -301,7 +344,7 @@ async function drawSingleDeck(OBR, buildImage, deckId, drawOffset, options) {
       return;
     }
 
-    operation = applyDrawToDeckDraft(buildImage, deck, drawOffset, options);
+    operation = applyDrawToDeckDraft(deck, drawOffset, options);
   });
 
   if (!operation) {
@@ -309,8 +352,37 @@ async function drawSingleDeck(OBR, buildImage, deckId, drawOffset, options) {
   }
 
   try {
-    await OBR.scene.items.addItems([operation.drawnItem]);
+    drawnItem = createDrawnCardItem(buildImage, operation);
   } catch (error) {
+    logDrawFailure("montagem do item", error, operation, drawnItem);
+
+    try {
+      const rollbackSucceeded = await rollbackDrawnCard(OBR, operation);
+
+      if (rollbackSucceeded) {
+        throw new Error("Nao consegui montar a carta; a pilha foi restaurada.");
+      }
+    } catch (rollbackError) {
+      if (rollbackError.message === "Nao consegui montar a carta; a pilha foi restaurada.") {
+        throw rollbackError;
+      }
+
+      console.warn("Nao consegui restaurar a pilha apos falha ao montar carta", rollbackError);
+      throw new Error(
+        "Nao consegui montar a carta e tambem nao consegui restaurar a pilha automaticamente.",
+      );
+    }
+
+    throw new Error(
+      "Nao consegui montar a carta; a pilha mudou depois da compra e nao foi alterada de novo.",
+    );
+  }
+
+  try {
+    await OBR.scene.items.addItems([drawnItem]);
+  } catch (error) {
+    logDrawFailure("addItems", error, operation, drawnItem);
+
     let rollbackSucceeded = false;
 
     try {
