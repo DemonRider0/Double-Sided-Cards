@@ -73,21 +73,24 @@ export async function flipItems(OBR, items) {
 }
 
 export async function flipSelectedItems(OBR, fallbackSelection = []) {
-  const fallbackItems = getPreferredFlipItems(await getItemsSafely(OBR, fallbackSelection));
+  let selection = [];
 
-  if (fallbackItems.length) {
-    return flipItems(OBR, fallbackItems);
+  try {
+    selection = (await OBR.player.getSelection()) || [];
+  } catch {
+    selection = [];
   }
 
-  const selection = await OBR.player.getSelection();
-  const selectedItems = await getItemsSafely(OBR, selection || []);
+  const selectedItems = await getItemsSafely(OBR, selection);
   const selectedFlipItems = getPreferredFlipItems(selectedItems);
 
   if (selectedFlipItems.length) {
     return flipItems(OBR, selectedFlipItems);
   }
 
-  return flipItems(OBR, getPreferredFlipItems(await getItemsSafely(OBR, fallbackSelection)));
+  const fallbackItems = getPreferredFlipItems(await getItemsSafely(OBR, fallbackSelection));
+
+  return flipItems(OBR, fallbackItems);
 }
 
 export async function showFlipResult(OBR, count) {

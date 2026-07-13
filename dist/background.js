@@ -883,18 +883,15 @@ async function getSelectedItems(OBR, fallbackSelection = []) {
   return OBR.scene.items.getItems(itemIds);
 }
 
-function getPrimaryImage(items) {
-  return items.find((item) => item.type === "IMAGE") || null;
-}
+async function getSingleSelectedImage(OBR, fallbackSelection = []) {
+  const items = await getSelectedItems(OBR, fallbackSelection);
+  const imageItems = items.filter((item) => item.type === "IMAGE");
 
-async function getSelectedImage(OBR, fallbackSelection = []) {
-  const item = getPrimaryImage(await getSelectedItems(OBR, fallbackSelection));
-
-  if (!item) {
-    throw new Error("Selecione uma imagem na cena.");
+  if (items.length !== 1 || imageItems.length !== 1) {
+    throw new Error("Selecione exatamente uma imagem na cena.");
   }
 
-  return item;
+  return imageItems[0];
 }
 
 async function safeGetItems(OBR, ids) {
@@ -923,7 +920,11 @@ function colorFromText(text) {
     .toLowerCase();
 
   for (const color of PLAYER_COLORS) {
-    if (color.aliases.some((alias) => normalized.includes(alias))) {
+    if (
+      color.aliases.some((alias) =>
+        new RegExp(`(^|[^a-z0-9])${alias}([^a-z0-9]|$)`, "u").test(normalized),
+      )
+    ) {
       return color.id;
     }
   }
@@ -943,7 +944,6 @@ function detectPlayerColorFromItem(item) {
       item.name,
       item.description,
       item.text?.plainText,
-      item.image?.url,
     ]
       .filter(Boolean)
       .join(" "),
@@ -1040,7 +1040,7 @@ async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelection = 
     throw new Error("Escolha uma categoria valida.");
   }
 
-  const selectedItem = await getSelectedImage(OBR, fallbackSelection);
+  const selectedItem = await getSingleSelectedImage(OBR, fallbackSelection);
   const state = await getSceneState(OBR);
   const selectedWasAssigned = isAssignedItem(state, selectedItem.id);
 
@@ -1238,21 +1238,24 @@ async function flipItems(OBR, items) {
 }
 
 async function flipSelectedItems(OBR, fallbackSelection = []) {
-  const fallbackItems = getPreferredFlipItems(await getItemsSafely(OBR, fallbackSelection));
+  let selection = [];
 
-  if (fallbackItems.length) {
-    return flipItems(OBR, fallbackItems);
+  try {
+    selection = (await OBR.player.getSelection()) || [];
+  } catch {
+    selection = [];
   }
 
-  const selection = await OBR.player.getSelection();
-  const selectedItems = await getItemsSafely(OBR, selection || []);
+  const selectedItems = await getItemsSafely(OBR, selection);
   const selectedFlipItems = getPreferredFlipItems(selectedItems);
 
   if (selectedFlipItems.length) {
     return flipItems(OBR, selectedFlipItems);
   }
 
-  return flipItems(OBR, getPreferredFlipItems(await getItemsSafely(OBR, fallbackSelection)));
+  const fallbackItems = getPreferredFlipItems(await getItemsSafely(OBR, fallbackSelection));
+
+  return flipItems(OBR, fallbackItems);
 }
 
 var __awaiter$j = (undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
@@ -4553,7 +4556,7 @@ async function loadOwlbearSdk(timeoutMs = 5000) {
 }
 
 function assetUrl(path) {
-  return `${new URL(`../${path}`, import.meta.url).toString()}?v=59`;
+  return `${new URL(`../${path}`, import.meta.url).toString()}?v=60`;
 }
 
 const OPTIMIZED_ASSET_FILENAMES = new Map([
@@ -4885,7 +4888,14 @@ async function setupContextMenu() {
 
     lastImageSelection = imageItems.map((item) => item.id);
 
-    const color = detectPlayerColorFromItem(imageItems[0]);
+    const singleImageItem =
+      selectedItems.length === 1 && imageItems.length === 1 ? imageItems[0] : null;
+
+    if (!singleImageItem) {
+      return;
+    }
+
+    const color = detectPlayerColorFromItem(singleImageItem);
 
     if (color && color !== activePlayerColor) {
       try {
@@ -4897,11 +4907,11 @@ async function setupContextMenu() {
       }
     }
 
-    const category = detectCardCategoryFromItem(imageItems[0]);
+    const category = detectCardCategoryFromItem(singleImageItem);
 
     if (category) {
       try {
-        await placeSelectedCardInCategory(OBR, category, [imageItems[0].id]);
+        await placeSelectedCardInCategory(OBR, category, [singleImageItem.id]);
       } catch (error) {
         await showCommandError(error);
       }

@@ -148,6 +148,17 @@ async function getSelectedImage(OBR, fallbackSelection = []) {
   return item;
 }
 
+async function getSingleSelectedImage(OBR, fallbackSelection = []) {
+  const items = await getSelectedItems(OBR, fallbackSelection);
+  const imageItems = items.filter((item) => item.type === "IMAGE");
+
+  if (items.length !== 1 || imageItems.length !== 1) {
+    throw new Error("Selecione exatamente uma imagem na cena.");
+  }
+
+  return imageItems[0];
+}
+
 async function safeGetItems(OBR, ids) {
   const uniqueIds = [...new Set(ids.filter(Boolean))];
 
@@ -174,7 +185,11 @@ function colorFromText(text) {
     .toLowerCase();
 
   for (const color of PLAYER_COLORS) {
-    if (color.aliases.some((alias) => normalized.includes(alias))) {
+    if (
+      color.aliases.some((alias) =>
+        new RegExp(`(^|[^a-z0-9])${alias}([^a-z0-9]|$)`, "u").test(normalized),
+      )
+    ) {
       return color.id;
     }
   }
@@ -194,7 +209,6 @@ export function detectPlayerColorFromItem(item) {
       item.name,
       item.description,
       item.text?.plainText,
-      item.image?.url,
     ]
       .filter(Boolean)
       .join(" "),
@@ -375,7 +389,7 @@ export async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelec
     throw new Error("Escolha uma categoria valida.");
   }
 
-  const selectedItem = await getSelectedImage(OBR, fallbackSelection);
+  const selectedItem = await getSingleSelectedImage(OBR, fallbackSelection);
   const state = await getSceneState(OBR);
   const selectedWasAssigned = isAssignedItem(state, selectedItem.id);
 

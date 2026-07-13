@@ -31,7 +31,7 @@ import {
 } from "./selection-board.js";
 
 function assetUrl(path) {
-  return `${new URL(`../${path}`, import.meta.url).toString()}?v=59`;
+  return `${new URL(`../${path}`, import.meta.url).toString()}?v=60`;
 }
 
 const OPTIMIZED_ASSET_FILENAMES = new Map([
@@ -363,7 +363,14 @@ async function setupContextMenu() {
 
     lastImageSelection = imageItems.map((item) => item.id);
 
-    const color = detectPlayerColorFromItem(imageItems[0]);
+    const singleImageItem =
+      selectedItems.length === 1 && imageItems.length === 1 ? imageItems[0] : null;
+
+    if (!singleImageItem) {
+      return;
+    }
+
+    const color = detectPlayerColorFromItem(singleImageItem);
 
     if (color && color !== activePlayerColor) {
       try {
@@ -375,11 +382,11 @@ async function setupContextMenu() {
       }
     }
 
-    const category = detectCardCategoryFromItem(imageItems[0]);
+    const category = detectCardCategoryFromItem(singleImageItem);
 
     if (category) {
       try {
-        await placeSelectedCardInCategory(OBR, category, [imageItems[0].id]);
+        await placeSelectedCardInCategory(OBR, category, [singleImageItem.id]);
       } catch (error) {
         await showCommandError(error);
       }

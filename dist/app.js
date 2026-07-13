@@ -905,21 +905,24 @@ async function flipItems(OBR, items) {
 }
 
 async function flipSelectedItems(OBR, fallbackSelection = []) {
-  const fallbackItems = getPreferredFlipItems(await getItemsSafely(OBR, fallbackSelection));
+  let selection = [];
 
-  if (fallbackItems.length) {
-    return flipItems(OBR, fallbackItems);
+  try {
+    selection = (await OBR.player.getSelection()) || [];
+  } catch {
+    selection = [];
   }
 
-  const selection = await OBR.player.getSelection();
-  const selectedItems = await getItemsSafely(OBR, selection || []);
+  const selectedItems = await getItemsSafely(OBR, selection);
   const selectedFlipItems = getPreferredFlipItems(selectedItems);
 
   if (selectedFlipItems.length) {
     return flipItems(OBR, selectedFlipItems);
   }
 
-  return flipItems(OBR, getPreferredFlipItems(await getItemsSafely(OBR, fallbackSelection)));
+  const fallbackItems = getPreferredFlipItems(await getItemsSafely(OBR, fallbackSelection));
+
+  return flipItems(OBR, fallbackItems);
 }
 
 const PRESET_DECKS_URL = new URL("../assets/preset-decks/decks.json", import.meta.url);
@@ -1735,6 +1738,23 @@ async function refreshPlayerColorAssignments() {
       elements.colorAssignments.append(item);
     }
   }
+}
+
+function schedulePlayerColorAssignmentsRefresh(fallbackPlayers = null) {
+  if (colorAssignmentsRefreshTimer) {
+    window.clearTimeout(colorAssignmentsRefreshTimer);
+  }
+
+  colorAssignmentsRefreshTimer = window.setTimeout(() => {
+    colorAssignmentsRefreshTimer = null;
+    refreshPlayerColorAssignments().catch((error) => {
+      console.warn("Nao consegui atualizar as cores do painel", error);
+
+      if (fallbackPlayers) {
+        renderPlayerColorAssignments(fallbackPlayers);
+      }
+    });
+  }, 150);
 }
 
 function formatPresetDate(value) {
@@ -3874,7 +3894,7 @@ async function init() {
   try {
     const loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=59").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=60").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
     obr = loaded.OBR;
@@ -3895,26 +3915,16 @@ async function init() {
       rememberDeckSelection(player.selection).catch((error) => {
         console.warn("Nao consegui atualizar a selecao de pilhas", error);
       });
-      refreshPlayerColorAssignments().catch((error) => {
-        console.warn("Nao consegui atualizar as cores do painel", error);
-      });
+      schedulePlayerColorAssignmentsRefresh();
     });
     if (obr.party?.onChange) {
       obr.party.onChange((players) => {
-        refreshPlayerColorAssignments().catch((error) => {
-          console.warn("Nao consegui atualizar as cores do painel", error);
-          renderPlayerColorAssignments(players);
-        });
+        schedulePlayerColorAssignmentsRefresh(players);
       });
     }
     if (colorAssignmentsRefreshTimer) {
-      window.clearInterval(colorAssignmentsRefreshTimer);
+      window.clearTimeout(colorAssignmentsRefreshTimer);
     }
-    colorAssignmentsRefreshTimer = window.setInterval(() => {
-      refreshPlayerColorAssignments().catch((error) => {
-        console.warn("Nao consegui atualizar as cores periodicamente", error);
-      });
-    }, 2500);
     setConnectionStatus("Conectado ao Owlbear", true);
     setMessage("", "neutral");
   } catch (error) {
