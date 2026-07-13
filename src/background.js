@@ -31,8 +31,10 @@ import {
 } from "./selection-board.js";
 
 function assetUrl(path) {
-  return `${new URL(`../${path}`, import.meta.url).toString()}?v=60`;
+  return `${new URL(`../${path}`, import.meta.url).toString()}?v=62`;
 }
+
+const COMMAND_REGISTRATION_DEBOUNCE_MS = 200;
 
 const OPTIMIZED_ASSET_FILENAMES = new Map([
   [
@@ -171,95 +173,151 @@ function normalizeUrl(value) {
   }
 }
 
-function repairFaceUrl(face) {
-  if (!face?.url) {
-    return { face, changed: false };
+function repairImageData(image) {
+  if (!image?.url) {
+    return { value: image, changed: false };
   }
 
-  const optimizedUrl = toOptimizedAssetUrl(face.url);
+  const optimizedUrl = toOptimizedAssetUrl(image.url);
   const nextUrl = toLocalAssetUrl(optimizedUrl);
+  const nextMime = isJpegUrl(nextUrl) ? "image/jpeg" : image.mime;
 
-  if (nextUrl === face.url && (!isJpegUrl(nextUrl) || face.mime === "image/jpeg")) {
-    return { face, changed: false };
+  if (nextUrl === image.url && nextMime === image.mime) {
+    return { value: image, changed: false };
   }
 
   return {
-    face: {
-      ...face,
+    value: {
+      ...image,
       url: nextUrl,
-      mime: isJpegUrl(nextUrl) ? "image/jpeg" : face.mime,
+      mime: nextMime,
     },
     changed: true,
   };
 }
 
-function repairSceneAssetUrlsForItem(item) {
-  let changed = false;
+function repairCardMetadata(cardMetadata) {
+  const front = repairImageData(cardMetadata.faces.front);
+  const back = repairImageData(cardMetadata.faces.back);
 
-  if (item.image?.url) {
-    const optimizedUrl = toOptimizedAssetUrl(item.image.url);
-    const nextUrl = toLocalAssetUrl(optimizedUrl);
+  if (!front.changed && !back.changed) {
+    return { value: cardMetadata, changed: false };
+  }
 
-    if (nextUrl !== item.image.url || (isJpegUrl(nextUrl) && item.image.mime !== "image/jpeg")) {
-      item.image = {
-        ...item.image,
-        url: nextUrl,
-        mime: isJpegUrl(nextUrl) ? "image/jpeg" : item.image.mime,
-      };
-      changed = true;
-    }
+  return {
+    value: {
+      ...cardMetadata,
+      faces: {
+        ...cardMetadata.faces,
+        front: front.value,
+        back: back.value,
+      },
+    },
+    changed: true,
+  };
+}
+
+function repairDeckMetadata(deckMetadata) {
+  const back = repairImageData(deckMetadata.back);
+  let cardsChanged = false;
+  const cards = deckMetadata.cards.map((card) => {
+    const front = repairImageData(card.front);
+    cardsChanged ||= front.changed;
+
+    return front.changed
+      ? {
+          ...card,
+          front: front.value,
+        }
+      : card;
+  });
+
+  if (!back.changed && !cardsChanged) {
+    return { value: deckMetadata, changed: false };
+  }
+
+  return {
+    value: {
+      ...deckMetadata,
+      back: back.value,
+      cards,
+    },
+    changed: true,
+  };
+}
+
+function getSceneAssetUrlRepair(item) {
+  const repair = {
+    changed: false,
+    image: null,
+    cardMetadata: null,
+    deckMetadata: null,
+  };
+
+  const image = repairImageData(item.image);
+
+  if (image.changed) {
+    repair.image = image.value;
+    repair.changed = true;
   }
 
   const cardMetadata = getCardMetadata(item);
 
   if (cardMetadata) {
-    const front = repairFaceUrl(cardMetadata.faces.front);
-    const back = repairFaceUrl(cardMetadata.faces.back);
+    const cardRepair = repairCardMetadata(cardMetadata);
 
-    if (front.changed || back.changed) {
-      setCardMetadata(item, {
-        ...cardMetadata,
-        faces: {
-          front: front.face,
-          back: back.face,
-        },
-      });
-      changed = true;
+    if (cardRepair.changed) {
+      repair.cardMetadata = cardRepair.value;
+      repair.changed = true;
     }
   }
 
   const deckMetadata = getDeckMetadata(item);
 
   if (deckMetadata) {
-    const back = repairFaceUrl(deckMetadata.back);
-    let deckChanged = back.changed;
-    const cards = deckMetadata.cards.map((card) => {
-      const front = repairFaceUrl(card.front);
-      deckChanged ||= front.changed;
+    const deckRepair = repairDeckMetadata(deckMetadata);
 
-      return front.changed
-        ? {
-            ...card,
-            front: front.face,
-          }
-        : card;
-    });
-
-    if (deckChanged) {
-      setDeckMetadata(item, {
-        ...deckMetadata,
-        back: back.face,
-        cards,
-      });
-      changed = true;
+    if (deckRepair.changed) {
+      repair.deckMetadata = deckRepair.value;
+      repair.changed = true;
     }
   }
 
-  return changed;
+  return repair;
+}
+
+function applySceneAssetUrlRepair(item) {
+  const repair = getSceneAssetUrlRepair(item);
+
+  if (!repair.changed) {
+    return false;
+  }
+
+  if (repair.image) {
+    item.image = repair.image;
+  }
+
+  if (repair.cardMetadata) {
+    setCardMetadata(item, repair.cardMetadata);
+  }
+
+  if (repair.deckMetadata) {
+    setDeckMetadata(item, repair.deckMetadata);
+  }
+
+  return true;
+}
+
+function repairSceneAssetUrlsForItem(item) {
+  return applySceneAssetUrlRepair(item);
+}
+
+function itemNeedsSceneAssetUrlRepair(item) {
+  return getSceneAssetUrlRepair(item).changed;
 }
 
 async function repairSceneAssetUrls(OBR, items) {
-  const repairableItems = items.filter((item) => repairSceneAssetUrlsForItem({ ...item }));
+  const repairableItems = items.filter(itemNeedsSceneAssetUrlRepair);
 
   if (!repairableItems.length) {
     return 0;
@@ -722,25 +780,79 @@ async function setupContextMenu() {
 
   }
 
-  let commandRegistration = Promise.resolve();
-  function queueCommandRegistration(reason) {
-    commandRegistration = commandRegistration
-      .catch(() => {})
-      .then(() => registerCommands())
-      .catch((error) => {
-        console.warn(`Nao consegui registrar os comandos das Cartas Duplas (${reason})`, error);
-      });
+  let commandRegistrationActive = false;
+  let commandRegistrationPending = false;
+  let commandRegistrationReason = "";
+  let commandRegistrationTimer = null;
+  let commandRegistrationWaiters = [];
 
-    return commandRegistration;
+  function resolveCommandRegistrationWaiters() {
+    const waiters = commandRegistrationWaiters;
+    commandRegistrationWaiters = [];
+
+    for (const resolve of waiters) {
+      resolve();
+    }
+  }
+
+  async function runCommandRegistrationQueue() {
+    if (commandRegistrationActive) {
+      return;
+    }
+
+    commandRegistrationActive = true;
+
+    try {
+      while (commandRegistrationPending) {
+        const reason = commandRegistrationReason;
+        commandRegistrationPending = false;
+
+        try {
+          await registerCommands();
+        } catch (error) {
+          console.warn(`Nao consegui registrar os comandos das Cartas Duplas (${reason})`, error);
+        }
+      }
+    } finally {
+      commandRegistrationActive = false;
+      resolveCommandRegistrationWaiters();
+    }
+  }
+
+  function queueCommandRegistration(reason, options = {}) {
+    commandRegistrationPending = true;
+    commandRegistrationReason = reason;
+
+    const registration = new Promise((resolve) => {
+      commandRegistrationWaiters.push(resolve);
+    });
+
+    if (commandRegistrationActive) {
+      return registration;
+    }
+
+    if (commandRegistrationTimer) {
+      window.clearTimeout(commandRegistrationTimer);
+    }
+
+    commandRegistrationTimer = window.setTimeout(() => {
+      commandRegistrationTimer = null;
+      runCommandRegistrationQueue().catch((error) => {
+        console.warn("Nao consegui processar a fila de comandos das Cartas Duplas", error);
+        resolveCommandRegistrationWaiters();
+      });
+    }, options.immediate ? 0 : COMMAND_REGISTRATION_DEBOUNCE_MS);
+
+    return registration;
   }
 
   OBR.broadcast.onMessage(COMMANDS_CHANNEL, () => {
     queueCommandRegistration("pedido do painel");
   });
 
-  await queueCommandRegistration("carregamento inicial");
+  await queueCommandRegistration("carregamento inicial", { immediate: true });
 
-  for (const delayMs of [250, 1000, 2500, 5000]) {
+  for (const delayMs of [1200, 5000]) {
     window.setTimeout(() => {
       queueCommandRegistration(`atraso de ${delayMs}ms`);
     }, delayMs);

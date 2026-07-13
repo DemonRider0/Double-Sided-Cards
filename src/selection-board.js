@@ -1,4 +1,10 @@
-import { EXTENSION_ID } from "./card-data.js";
+import {
+  DECK_METADATA_KEY,
+  EXTENSION_ID,
+  METADATA_KEY,
+  getCardMetadata,
+  getDeckMetadata,
+} from "./card-data.js";
 
 export const COLOR_TOKEN_KEY = `${EXTENSION_ID}/color-token`;
 export const CARD_CATEGORY_KEY = `${EXTENSION_ID}/card-category`;
@@ -197,11 +203,25 @@ function colorFromText(text) {
   return null;
 }
 
+function hasCardOrDeckMetadata(item) {
+  return Boolean(
+    getCardMetadata(item) ||
+      getDeckMetadata(item) ||
+      item.metadata?.[METADATA_KEY] ||
+      item.metadata?.[DECK_METADATA_KEY] ||
+      item.metadata?.[CARD_CATEGORY_KEY],
+  );
+}
+
 export function detectPlayerColorFromItem(item) {
   const metadataColor = normalizePlayerColor(item.metadata?.[COLOR_TOKEN_KEY]?.color);
 
   if (metadataColor) {
     return metadataColor;
+  }
+
+  if (hasCardOrDeckMetadata(item)) {
+    return null;
   }
 
   return colorFromText(
