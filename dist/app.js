@@ -296,6 +296,51 @@ function getCardItems(items) {
   return items.filter((item) => isCardMetadata(getCardMetadata(item)));
 }
 
+const deckOperationQueues = new Map();
+const activeDeckOperationIds = new Set();
+
+function cloneSerializable(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value));
+}
+
+function cloneDeckCard(card) {
+  return cloneSerializable(card);
+}
+
+function cardsMatch(leftCards, rightCards) {
+  return JSON.stringify(leftCards) === JSON.stringify(rightCards);
+}
+
+function currentDeckFace(metadata) {
+  return metadata.currentFace === "front" ? "front" : "back";
+}
+
+function uniqueDeckIds(items) {
+  return [...new Set(getDeckItems(items).map((item) => item.id))];
+}
+
+async function withDeckOperationLock(deckId, operation) {
+  const previousOperation = deckOperationQueues.get(deckId) || Promise.resolve();
+  const queuedOperation = previousOperation.catch(() => {}).then(async () => {
+    activeDeckOperationIds.add(deckId);
+
+    try {
+      return await operation();
+    } finally {
+      activeDeckOperationIds.delete(deckId);
+    }
+  });
+  const storedOperation = queuedOperation.catch(() => {});
+
+  deckOperationQueues.set(deckId, storedOperation);
+
+  return queuedOperation.finally(() => {
+    if (deckOperationQueues.get(deckId) === storedOperation) {
+      deckOperationQueues.delete(deckId);
+    }
+  });
+}
+
 function createDeckText(count) {
   const text = String(count);
 
@@ -373,95 +418,184 @@ async function selectDecks(OBR, deckIds) {
   await OBR.player.select(deckIds, true).catch(() => {});
 }
 
-async function drawFromDecks(OBR, buildImage, items, options = {}) {
-  const decks = getDeckItems(items).filter(
-    (item) => getDeckMetadata(item).cards.length > 0,
-  );
+function createDrawnCardItem(buildImage, deck, metadata, card, drawnFace, drawOffset, options) {
+  const face = drawnFace === "front" ? card.front : metadata.back;
+  const cardMetadata = createCardMetadata({
+    name: card.name,
+    front: card.front,
+    back: metadata.back,
+    gridWidth: metadata.gridWidth,
+    currentFace: drawnFace,
+    sourceDeckId: deck.id,
+    sourceDeckName: metadata.name,
+  });
+  const position = options.drawPositionsByDeckId?.get(deck.id) || {
+    x: deck.position.x + drawOffset,
+    y: deck.position.y + drawOffset,
+  };
+  const item = buildImage(
+    createImageData(face),
+    createGridData(face, metadata.gridWidth),
+  )
+    .name(card.name)
+    .description(`Carta dupla: ${faceLabel(drawnFace)}`)
+    .layer(deck.layer)
+    .position(position)
+    .metadata(createCardMetadataMap(cardMetadata))
+    .build();
 
-  if (!decks.length) {
+  applyCardFaceTransform(item, cardMetadata, drawnFace);
+  return item;
+}
+
+function applyDrawToDeckDraft(buildImage, deck, drawOffset, options) {
+  const metadata = getDeckMetadata(deck);
+
+  if (!metadata?.cards.length) {
+    return null;
+  }
+
+  const drawnCard = cloneDeckCard(metadata.cards[0]);
+  const remainingCards = metadata.cards.slice(1).map(cloneDeckCard);
+  const drawnFace = currentDeckFace(metadata);
+  const drawnItem = createDrawnCardItem(
+    buildImage,
+    deck,
+    metadata,
+    drawnCard,
+    drawnFace,
+    drawOffset,
+    options,
+  );
+  const nextMetadata = {
+    ...metadata,
+    cards: remainingCards,
+    currentFace: currentDeckFace(metadata),
+  };
+
+  applyDeckDisplay(deck, nextMetadata);
+  setDeckMetadata(deck, nextMetadata);
+
+  const restoredPosition = options.deckPositionsById?.get(deck.id);
+  if (restoredPosition) {
+    deck.position = restoredPosition;
+  }
+
+  return {
+    deckId: deck.id,
+    drawnCard,
+    drawnItem,
+    remainingCards,
+    deleteWhenEmpty: Boolean(metadata.deleteWhenEmpty && remainingCards.length === 0),
+  };
+}
+
+async function rollbackDrawnCard(OBR, operation) {
+  let restored = false;
+
+  await OBR.scene.items.updateItems([operation.deckId], (draftItems) => {
+    const deck = draftItems[0];
+    const metadata = deck ? getDeckMetadata(deck) : null;
+
+    if (!metadata || !cardsMatch(metadata.cards, operation.remainingCards)) {
+      return;
+    }
+
+    const nextMetadata = {
+      ...metadata,
+      cards: [cloneDeckCard(operation.drawnCard), ...metadata.cards.map(cloneDeckCard)],
+      currentFace: currentDeckFace(metadata),
+    };
+
+    applyDeckDisplay(deck, nextMetadata);
+    setDeckMetadata(deck, nextMetadata);
+    restored = true;
+  });
+
+  return restored;
+}
+
+async function drawSingleDeck(OBR, buildImage, deckId, drawOffset, options) {
+  let operation = null;
+
+  await OBR.scene.items.updateItems([deckId], (draftItems) => {
+    const deck = draftItems[0];
+
+    if (!deck) {
+      return;
+    }
+
+    operation = applyDrawToDeckDraft(buildImage, deck, drawOffset, options);
+  });
+
+  if (!operation) {
+    return { count: 0, deckId, deckDeleted: false };
+  }
+
+  try {
+    await OBR.scene.items.addItems([operation.drawnItem]);
+  } catch (error) {
+    let rollbackSucceeded = false;
+
+    try {
+      rollbackSucceeded = await rollbackDrawnCard(OBR, operation);
+    } catch (rollbackError) {
+      console.warn("Nao consegui restaurar a pilha apos falha ao comprar carta", rollbackError);
+      throw new Error(
+        "Nao consegui criar a carta e tambem nao consegui restaurar a pilha automaticamente.",
+      );
+    }
+
+    if (rollbackSucceeded) {
+      throw new Error("Nao consegui criar a carta; a pilha foi restaurada.");
+    }
+
+    console.warn("Compra parcial sem rollback seguro", error);
+    throw new Error(
+      "Nao consegui criar a carta; a pilha mudou depois da compra e nao foi alterada de novo.",
+    );
+  }
+
+  if (operation.deleteWhenEmpty) {
+    try {
+      await OBR.scene.items.deleteItems([operation.deckId]);
+      return { count: 1, deckId, deckDeleted: true };
+    } catch (error) {
+      console.warn("Carta comprada, mas nao consegui apagar a pilha temporaria vazia", error);
+      await OBR.notification
+        .show("Carta comprada, mas nao consegui apagar a pilha vazia.", "WARNING")
+        .catch(() => {});
+    }
+  }
+
+  return { count: 1, deckId, deckDeleted: false };
+}
+
+async function drawFromDecks(OBR, buildImage, items, options = {}) {
+  const deckIds = uniqueDeckIds(items);
+
+  if (!deckIds.length) {
     return 0;
   }
 
   const offset = await getDrawOffset(OBR);
-  const nextMetadataById = new Map();
-  const deckIdsToDelete = new Set();
-  const drawnItems = [];
-
-  for (const [index, deck] of decks.entries()) {
-    const metadata = getDeckMetadata(deck);
-    const [card, ...remainingCards] = metadata.cards;
-    const drawnFace = metadata.currentFace === "front" ? "front" : "back";
-    const face = drawnFace === "front" ? card.front : metadata.back;
-    const cardMetadata = createCardMetadata({
-      name: card.name,
-      front: card.front,
-      back: metadata.back,
-      gridWidth: metadata.gridWidth,
-      currentFace: drawnFace,
-      sourceDeckId: deck.id,
-      sourceDeckName: metadata.name,
-    });
-    const drawOffset = offset * (index + 1);
-    const position = options.drawPositionsByDeckId?.get(deck.id) || {
-      x: deck.position.x + drawOffset,
-      y: deck.position.y + drawOffset,
-    };
-    const item = buildImage(
-      createImageData(face),
-      createGridData(face, metadata.gridWidth),
-    )
-      .name(card.name)
-      .description(`Carta dupla: ${faceLabel(drawnFace)}`)
-      .layer(deck.layer)
-      .position(position)
-      .metadata(createCardMetadataMap(cardMetadata))
-      .build();
-    applyCardFaceTransform(item, cardMetadata, drawnFace);
-
-    drawnItems.push(item);
-    const nextMetadata = {
-      ...metadata,
-      cards: remainingCards,
-      currentFace: metadata.currentFace === "front" ? "front" : "back",
-    };
-
-    if (metadata.deleteWhenEmpty && remainingCards.length === 0) {
-      deckIdsToDelete.add(deck.id);
-    } else {
-      nextMetadataById.set(deck.id, nextMetadata);
-    }
-  }
-
-  const decksToUpdate = decks.filter((deck) => !deckIdsToDelete.has(deck.id));
-
-  if (decksToUpdate.length) {
-    await OBR.scene.items.updateItems(decksToUpdate, (draftItems) => {
-      for (const item of draftItems) {
-        const metadata = nextMetadataById.get(item.id);
-        if (!metadata) {
-          continue;
-        }
-
-        applyDeckDisplay(item, metadata);
-        setDeckMetadata(item, metadata);
-
-        const restoredPosition = options.deckPositionsById?.get(item.id);
-        if (restoredPosition) {
-          item.position = restoredPosition;
-        }
-      }
-    });
-  }
-
-  await OBR.scene.items.addItems(drawnItems);
-  if (deckIdsToDelete.size) {
-    await OBR.scene.items.deleteItems([...deckIdsToDelete]).catch(() => {});
-  }
-  await selectDecks(
-    OBR,
-    decks.filter((deck) => !deckIdsToDelete.has(deck.id)).map((deck) => deck.id),
+  const results = await Promise.all(
+    deckIds.map((deckId, index) =>
+      withDeckOperationLock(deckId, () =>
+        drawSingleDeck(OBR, buildImage, deckId, offset * (index + 1), options),
+      ),
+    ),
   );
-  return drawnItems.length;
+  const count = results.reduce((total, result) => total + result.count, 0);
+  const remainingDeckIds = results
+    .filter((result) => result.count && !result.deckDeleted)
+    .map((result) => result.deckId);
+
+  if (count) {
+    await selectDecks(OBR, remainingDeckIds);
+  }
+
+  return count;
 }
 
 async function getSelectedDeckItems(OBR, fallbackSelection = []) {
@@ -485,28 +619,41 @@ async function drawSelectedDecks(OBR, buildImage, fallbackSelection = []) {
 }
 
 async function shuffleDecks(OBR, items) {
-  const decks = getDeckItems(items).filter(
-    (item) => getDeckMetadata(item).cards.length > 1,
-  );
+  const deckIds = uniqueDeckIds(items);
 
-  if (!decks.length) {
+  if (!deckIds.length) {
     return 0;
   }
 
-  await OBR.scene.items.updateItems(decks, (draftItems) => {
-    for (const item of draftItems) {
-      const metadata = getDeckMetadata(item);
-      const nextMetadata = {
-        ...metadata,
-        cards: shuffleCards(metadata.cards),
-      };
+  const results = await Promise.all(
+    deckIds.map((deckId) =>
+      withDeckOperationLock(deckId, async () => {
+        let shuffled = false;
 
-      applyDeckDisplay(item, nextMetadata);
-      setDeckMetadata(item, nextMetadata);
-    }
-  });
+        await OBR.scene.items.updateItems([deckId], (draftItems) => {
+          const item = draftItems[0];
+          const metadata = item ? getDeckMetadata(item) : null;
 
-  return decks.length;
+          if (!metadata || metadata.cards.length <= 1) {
+            return;
+          }
+
+          const nextMetadata = {
+            ...metadata,
+            cards: shuffleCards(metadata.cards),
+          };
+
+          applyDeckDisplay(item, nextMetadata);
+          setDeckMetadata(item, nextMetadata);
+          shuffled = true;
+        });
+
+        return shuffled ? 1 : 0;
+      }),
+    ),
+  );
+
+  return results.reduce((total, count) => total + count, 0);
 }
 
 async function flipDeckItems(OBR, items) {
@@ -3900,7 +4047,7 @@ async function init() {
   try {
     const loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=62").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=63").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
     obr = loaded.OBR;

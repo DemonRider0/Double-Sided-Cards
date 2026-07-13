@@ -31,7 +31,7 @@ import {
 } from "./selection-board.js";
 
 function assetUrl(path) {
-  return `${new URL(`../${path}`, import.meta.url).toString()}?v=62`;
+  return `${new URL(`../${path}`, import.meta.url).toString()}?v=63`;
 }
 
 const COMMAND_REGISTRATION_DEBOUNCE_MS = 200;
@@ -578,19 +578,23 @@ async function setupContextMenu() {
         },
       ],
       async onClick(context) {
-        const count = await drawFromDecks(OBR, sdk.buildImage, context.items);
-        if (count) {
-          lastDeckSelection = getDeckItems(context.items).map((item) => item.id);
-          lastFlipSelection = lastDeckSelection;
-          lastCardSelection = [];
+        try {
+          const count = await drawFromDecks(OBR, sdk.buildImage, context.items);
+          if (count) {
+            lastDeckSelection = getDeckItems(context.items).map((item) => item.id);
+            lastFlipSelection = lastDeckSelection;
+            lastCardSelection = [];
+          }
+          await showActionResult(
+            count,
+            "Carta comprada.",
+            (total) => `${total} cartas compradas.`,
+            "A pilha esta vazia.",
+            context.items,
+          );
+        } catch (error) {
+          await showCommandError(error);
         }
-        await showActionResult(
-          count,
-          "Carta comprada.",
-          (total) => `${total} cartas compradas.`,
-          "A pilha esta vazia.",
-          context.items,
-        );
       },
     });
 
@@ -711,19 +715,23 @@ async function setupContextMenu() {
       ],
       shortcut: "C",
       async onClick() {
-        const anchors = await getAnchorItems(lastDeckSelection);
-        const count = await drawSelectedDecks(OBR, sdk.buildImage, lastDeckSelection);
-        if (count) {
-          lastFlipSelection = lastDeckSelection;
-          lastCardSelection = [];
+        try {
+          const anchors = await getAnchorItems(lastDeckSelection);
+          const count = await drawSelectedDecks(OBR, sdk.buildImage, lastDeckSelection);
+          if (count) {
+            lastFlipSelection = lastDeckSelection;
+            lastCardSelection = [];
+          }
+          await showActionResult(
+            count,
+            "Carta comprada.",
+            (total) => `${total} cartas compradas.`,
+            "Selecione uma pilha com cartas para comprar.",
+            anchors,
+          );
+        } catch (error) {
+          await showCommandError(error);
         }
-        await showActionResult(
-          count,
-          "Carta comprada.",
-          (total) => `${total} cartas compradas.`,
-          "Selecione uma pilha com cartas para comprar.",
-          anchors,
-        );
       },
     });
 
