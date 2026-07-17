@@ -26,6 +26,75 @@ export const CARD_CATEGORIES = [
 
 const PLAYER_COLOR_IDS = new Set(PLAYER_COLORS.map((color) => color.id));
 const CATEGORY_IDS = new Set(CARD_CATEGORIES.map((category) => category.id));
+const selectionOperationTails = new Map();
+let playerColorOperationTail = Promise.resolve();
+
+function isRecord(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function copyDefinedRecord(value) {
+  if (!isRecord(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entryValue]) => entryValue !== undefined),
+  );
+}
+
+function createVersionedMetadata(existing, field, value) {
+  return {
+    ...copyDefinedRecord(existing),
+    version: 1,
+    [field]: value,
+  };
+}
+
+function sameSerializedValue(left, right) {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
+function slotOperationKey(color, category) {
+  return `slot:${color}:${category}`;
+}
+
+async function withSelectionOperationLocks(keys, operation) {
+  const lockKeys = [...new Set(keys.filter(Boolean))].sort();
+  const previousOperations = lockKeys
+    .map((key) => selectionOperationTails.get(key))
+    .filter(Boolean);
+  let releaseOperation;
+  const currentOperation = new Promise((resolve) => {
+    releaseOperation = resolve;
+  });
+
+  for (const key of lockKeys) {
+    selectionOperationTails.set(key, currentOperation);
+  }
+
+  await Promise.all(previousOperations);
+
+  try {
+    return await operation();
+  } finally {
+    releaseOperation();
+
+    for (const key of lockKeys) {
+      if (selectionOperationTails.get(key) === currentOperation) {
+        selectionOperationTails.delete(key);
+      }
+    }
+  }
+}
+
+function withPlayerColorOperation(operation) {
+  const currentOperation = playerColorOperationTail
+    .catch(() => {})
+    .then(operation);
+  playerColorOperationTail = currentOperation.catch(() => {});
+  return currentOperation;
+}
 
 export function getColorLabel(colorId) {
   return PLAYER_COLORS.find((color) => color.id === colorId)?.label || "cor";
@@ -68,25 +137,37 @@ function createEmptyState() {
 }
 
 function normalizeState(value) {
-  const state = createEmptyState();
+  const emptyState = createEmptyState();
 
-  if (!value || typeof value !== "object") {
-    return state;
+  if (!isRecord(value)) {
+    return emptyState;
   }
+
+  const sourceSlots = copyDefinedRecord(value.slots);
+  const sourceAssigned = copyDefinedRecord(value.assigned);
+  const sourceOrigins = copyDefinedRecord(value.origins);
+  const sourceTokens = copyDefinedRecord(value.tokens);
+  const state = {
+    ...copyDefinedRecord(value),
+    version: Number.isFinite(value.version) ? value.version : 1,
+    slots: { ...sourceSlots },
+    assigned: { ...sourceAssigned },
+    origins: { ...sourceOrigins },
+    tokens: { ...sourceTokens },
+  };
 
   for (const color of PLAYER_COLORS) {
     state.slots[color.id] = {
-      ...state.slots[color.id],
-      ...(value.slots?.[color.id] || {}),
+      ...emptyState.slots[color.id],
+      ...copyDefinedRecord(sourceSlots[color.id]),
     };
     state.assigned[color.id] = {
-      ...state.assigned[color.id],
-      ...(value.assigned?.[color.id] || {}),
+      ...emptyState.assigned[color.id],
+      ...copyDefinedRecord(sourceAssigned[color.id]),
     };
-    state.tokens[color.id] = value.tokens?.[color.id] || null;
+    state.tokens[color.id] = sourceTokens[color.id] || null;
   }
 
-  state.origins = value.origins && typeof value.origins === "object" ? value.origins : {};
   return state;
 }
 
@@ -112,6 +193,21 @@ function capturePlacement(item) {
   };
 }
 
+function placementMatches(left, right) {
+  return Boolean(
+    left &&
+      right &&
+      left.position?.x === right.position?.x &&
+      left.position?.y === right.position?.y &&
+      left.rotation === right.rotation &&
+      left.scale?.x === right.scale?.x &&
+      left.scale?.y === right.scale?.y &&
+      left.layer === right.layer &&
+      left.zIndex === right.zIndex &&
+      left.locked === right.locked,
+  );
+}
+
 function getTopZIndex(placement) {
   return Math.max(Date.now(), Number.isFinite(placement?.zIndex) ? placement.zIndex + 1 : 0);
 }
@@ -129,9 +225,13 @@ function applyPlacement(item, placement, options = {}) {
   }
 }
 
-async function getSelectedItems(OBR, fallbackSelection = []) {
+async function getSelectedItemIds(OBR, fallbackSelection = []) {
   const selection = await OBR.player.getSelection();
-  const itemIds = selection?.length ? selection : fallbackSelection;
+  return Array.isArray(selection) ? selection : fallbackSelection;
+}
+
+async function getSelectedItems(OBR, fallbackSelection = []) {
+  const itemIds = await getSelectedItemIds(OBR, fallbackSelection);
 
   if (!itemIds.length) {
     return [];
@@ -165,6 +265,26 @@ async function getSingleSelectedImage(OBR, fallbackSelection = []) {
   return imageItems[0];
 }
 
+async function getCurrentSingleSelectedImage(OBR, expectedItemId = null) {
+  const itemIds = await getSelectedItemIds(OBR);
+
+  if (
+    itemIds.length !== 1 ||
+    (expectedItemId && itemIds[0] !== expectedItemId)
+  ) {
+    throw new Error("Selecione exatamente uma imagem na cena.");
+  }
+
+  const items = await OBR.scene.items.getItems([itemIds[0]]);
+  const item = items[0];
+
+  if (!item || item.type !== "IMAGE") {
+    throw new Error("A imagem selecionada nao esta mais disponivel.");
+  }
+
+  return item;
+}
+
 async function safeGetItems(OBR, ids) {
   const uniqueIds = [...new Set(ids.filter(Boolean))];
 
@@ -182,6 +302,45 @@ async function safeGetItems(OBR, ids) {
   );
 
   return itemResults.filter(Boolean);
+}
+
+function getAssignmentReferences(state, itemId) {
+  const references = [];
+
+  for (const color of PLAYER_COLORS) {
+    for (const category of CARD_CATEGORIES) {
+      if (state.assigned[color.id]?.[category.id] === itemId) {
+        references.push({
+          color: color.id,
+          category: category.id,
+        });
+      }
+    }
+  }
+
+  return references;
+}
+
+function clearExactAssignmentReferences(state, itemId, references = null) {
+  const exactReferences = references || getAssignmentReferences(state, itemId);
+  let cleared = 0;
+
+  for (const reference of exactReferences) {
+    if (state.assigned[reference.color]?.[reference.category] === itemId) {
+      state.assigned[reference.color][reference.category] = null;
+      cleared += 1;
+    }
+  }
+
+  return cleared;
+}
+
+function isAssignedItem(state, itemId) {
+  return getAssignmentReferences(state, itemId).length > 0;
+}
+
+function getForeignAssignment(references, color) {
+  return references.find((reference) => reference.color !== color) || null;
 }
 
 function colorFromText(text) {
@@ -271,35 +430,105 @@ async function getPlayerUsingColor(OBR, color) {
   );
 }
 
-export async function setActivePlayerColor(OBR, colorId) {
+async function validateSelectedColorToken(OBR, color, selectedTokenId) {
+  if (!selectedTokenId) {
+    return;
+  }
+
+  const selectedItem = await getCurrentSingleSelectedImage(OBR, selectedTokenId);
+  const tokenMetadata = selectedItem.metadata?.[COLOR_TOKEN_KEY];
+  const explicitColor = normalizePlayerColor(
+    tokenMetadata?.color,
+  );
+  const detectedColor =
+    tokenMetadata === undefined
+      ? detectPlayerColorFromItem(selectedItem)
+      : explicitColor;
+
+  if (detectedColor !== color) {
+    console.warn("Identificador de cor invalido ou com metadata parcial", {
+      itemId: selectedItem.id,
+      requestedColor: color,
+      explicitColor,
+    });
+    throw new Error("O identificador selecionado nao possui uma cor valida.");
+  }
+}
+
+async function restorePreviousPlayerColor(OBR, previousValue) {
+  const restoredValue =
+    previousValue === undefined ? null : previousValue;
+  await OBR.player.setMetadata({
+    [ACTIVE_COLOR_KEY]: restoredValue,
+  });
+}
+
+export async function setActivePlayerColor(OBR, colorId, options = {}) {
   const color = normalizePlayerColor(colorId);
 
   if (!color) {
+    console.warn("Tentativa de selecionar uma cor invalida", { colorId });
     throw new Error("Escolha uma cor valida.");
   }
 
-  const claimedBy = await getPlayerUsingColor(OBR, color);
+  return withPlayerColorOperation(async () => {
+    await validateSelectedColorToken(OBR, color, options.selectedTokenId);
 
-  if (claimedBy) {
-    throw new Error(
-      `${getColorLabel(color)} ja esta em uso por ${claimedBy.name || "outro jogador"}.`,
-    );
-  }
+    const playerMetadata = await OBR.player.getMetadata();
+    const previousValue = playerMetadata[ACTIVE_COLOR_KEY];
+    const previousColor = normalizePlayerColor(previousValue?.color);
+    const claimedBy = await getPlayerUsingColor(OBR, color);
 
-  await OBR.player.setMetadata({
-    [ACTIVE_COLOR_KEY]: {
-      version: 1,
-      color,
-    },
+    if (claimedBy) {
+      console.warn("Cor ocupada por outro jogador", {
+        color,
+        claimedBy: claimedBy.id,
+      });
+      throw new Error(
+        `${getColorLabel(color)} ja esta em uso por ${claimedBy.name || "outro jogador"}.`,
+      );
+    }
+
+    if (previousColor !== color) {
+      await OBR.player.setMetadata({
+        [ACTIVE_COLOR_KEY]: createVersionedMetadata(previousValue, "color", color),
+      });
+    }
+
+    const conflictingPlayer = await getPlayerUsingColor(OBR, color);
+
+    if (conflictingPlayer) {
+      console.warn("Conflito de cor detectado apos a gravacao", {
+        color,
+        conflictingPlayer: conflictingPlayer.id,
+      });
+
+      if (previousColor !== color) {
+        try {
+          await restorePreviousPlayerColor(OBR, previousValue);
+        } catch (rollbackError) {
+          console.error("Nao consegui restaurar a cor anterior do jogador", rollbackError);
+          throw new Error(
+            "A cor entrou em conflito e nao consegui restaurar o estado anterior.",
+          );
+        }
+      }
+
+      throw new Error(
+        `${getColorLabel(color)} foi escolhida ao mesmo tempo por outro jogador. Tente outra cor.`,
+      );
+    }
+
+    const pointerColor = getPointerColor(color);
+
+    if (pointerColor && typeof OBR.player.setColor === "function") {
+      await OBR.player.setColor(pointerColor).catch((error) => {
+        console.warn("Nao consegui atualizar a cor do pointer", error);
+      });
+    }
+
+    return color;
   });
-
-  const pointerColor = getPointerColor(color);
-
-  if (pointerColor && typeof OBR.player.setColor === "function") {
-    await OBR.player.setColor(pointerColor).catch(() => {});
-  }
-
-  return color;
 }
 
 export async function markSelectedTokenColor(OBR, colorId, fallbackSelection = []) {
@@ -309,17 +538,18 @@ export async function markSelectedTokenColor(OBR, colorId, fallbackSelection = [
     throw new Error("Escolha uma cor valida.");
   }
 
-  const item = await getSelectedImage(OBR, fallbackSelection);
-  const state = await getSceneState(OBR);
+  const item = await getSingleSelectedImage(OBR, fallbackSelection);
 
   await OBR.scene.items.updateItems([item], (items) => {
     items[0].metadata ||= {};
-    items[0].metadata[COLOR_TOKEN_KEY] = {
-      version: 1,
+    items[0].metadata[COLOR_TOKEN_KEY] = createVersionedMetadata(
+      items[0].metadata[COLOR_TOKEN_KEY],
+      "color",
       color,
-    };
+    );
   });
 
+  const state = await getSceneState(OBR);
   state.tokens[color] = item.id;
   await setSceneState(OBR, state);
   await setActivePlayerColor(OBR, color);
@@ -331,6 +561,7 @@ export async function markSelectedCardsCategory(OBR, categoryId, fallbackSelecti
   const category = normalizeCategory(categoryId);
 
   if (!category) {
+    console.warn("Tentativa de marcar uma categoria invalida", { categoryId });
     throw new Error("Escolha uma categoria valida.");
   }
 
@@ -342,23 +573,29 @@ export async function markSelectedCardsCategory(OBR, categoryId, fallbackSelecti
     throw new Error("Selecione uma ou mais cartas na cena.");
   }
 
-  const state = await getSceneState(OBR);
-
-  for (const item of items) {
-    if (!isAssignedItem(state, item.id)) {
-      state.origins[item.id] = capturePlacement(item);
-    }
-  }
+  const placements = new Map(
+    items.map((item) => [item.id, capturePlacement(item)]),
+  );
 
   await OBR.scene.items.updateItems(items, (draftItems) => {
     for (const item of draftItems) {
       item.metadata ||= {};
-      item.metadata[CARD_CATEGORY_KEY] = {
-        version: 1,
+      item.metadata[CARD_CATEGORY_KEY] = createVersionedMetadata(
+        item.metadata[CARD_CATEGORY_KEY],
+        "category",
         category,
-      };
+      );
     }
   });
+
+  const state = await getSceneState(OBR);
+
+  for (const item of items) {
+    if (!isAssignedItem(state, item.id) && !state.origins[item.id]) {
+      state.origins[item.id] = placements.get(item.id);
+    }
+  }
+
   await setSceneState(OBR, state);
 
   return { category, count: items.length };
@@ -377,7 +614,7 @@ export async function saveSlotFromSelectedItem(
     throw new Error("Escolha uma cor e uma categoria para salvar o slot.");
   }
 
-  const item = await getSelectedImage(OBR, fallbackSelection);
+  const item = await getSingleSelectedImage(OBR, fallbackSelection);
   const state = await getSceneState(OBR);
 
   state.slots[color][category] = capturePlacement(item);
@@ -386,121 +623,545 @@ export async function saveSlotFromSelectedItem(
   return { color, category };
 }
 
-function clearAssignmentsForItem(state, itemId) {
-  for (const color of PLAYER_COLORS) {
-    for (const category of CARD_CATEGORIES) {
-      if (state.assigned[color.id][category.id] === itemId) {
-        state.assigned[color.id][category.id] = null;
-      }
-    }
+async function rollbackSlotReservation(
+  OBR,
+  color,
+  category,
+  selectedItemId,
+  previousItemId,
+) {
+  const state = await getSceneState(OBR);
+
+  if (state.assigned[color]?.[category] !== selectedItemId) {
+    console.warn("Rollback de slot recusado porque o ocupante mudou", {
+      color,
+      category,
+      selectedItemId,
+    });
+    return false;
+  }
+
+  state.assigned[color][category] = previousItemId || null;
+  await setSceneState(OBR, state);
+  const verifiedState = await getSceneState(OBR);
+  return (verifiedState.assigned[color]?.[category] || null) === (previousItemId || null);
+}
+
+async function reconcileSlotItemsAfterFailure(
+  OBR,
+  {
+    color,
+    category,
+    selectedItemId,
+    selectedOrigin,
+    selectedDestination,
+    previousItemId,
+    previousOrigin,
+    slot,
+  },
+) {
+  const state = await getSceneState(OBR);
+  const selectedReferences = getAssignmentReferences(state, selectedItemId);
+  const currentAssignment = state.assigned[color]?.[category] || null;
+  const items = await safeGetItems(OBR, [selectedItemId, previousItemId]);
+  const selectedItem = items.find((item) => item.id === selectedItemId);
+
+  if (
+    selectedItem &&
+    selectedReferences.length === 0 &&
+    [selectedOrigin, selectedDestination].some((placement) =>
+      placementMatches(capturePlacement(selectedItem), placement),
+    )
+  ) {
+    await OBR.scene.items.updateItems([selectedItem], (draftItems) => {
+      applyPlacement(draftItems[0], selectedOrigin);
+      draftItems[0].locked = selectedOrigin.locked;
+    });
+  }
+
+  const previousItem = previousItemId
+    ? items.find((item) => item.id === previousItemId)
+    : null;
+
+  if (
+    previousItem &&
+    previousOrigin &&
+    currentAssignment === previousItemId &&
+    placementMatches(capturePlacement(previousItem), previousOrigin)
+  ) {
+    await OBR.scene.items.updateItems([previousItem], (draftItems) => {
+      applyPlacement(draftItems[0], slot, { zIndex: getTopZIndex(slot) });
+      draftItems[0].locked = category !== "divinity";
+    });
   }
 }
 
-function isAssignedItem(state, itemId) {
-  return PLAYER_COLORS.some((color) =>
-    CARD_CATEGORIES.some((category) => state.assigned[color.id][category.id] === itemId),
-  );
+async function clearItemAssignmentReferences(OBR, itemId, maxAttempts = 2) {
+  let lastError = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const state = await getSceneState(OBR);
+    const references = getAssignmentReferences(state, itemId);
+
+    if (!references.length) {
+      return 0;
+    }
+
+    clearExactAssignmentReferences(state, itemId, references);
+
+    try {
+      await setSceneState(OBR, state);
+    } catch (error) {
+      lastError = error;
+      console.warn("Falha ao limpar metadata de slot", {
+        itemId,
+        attempt: attempt + 1,
+        error,
+      });
+      continue;
+    }
+
+    const verifiedState = await getSceneState(OBR);
+    const remainingReferences = getAssignmentReferences(verifiedState, itemId);
+
+    if (!remainingReferences.length) {
+      return references.length;
+    }
+
+    lastError = new Error("A referencia de slot reapareceu durante a limpeza.");
+  }
+
+  throw lastError || new Error("Nao consegui limpar a referencia do slot.");
 }
 
 export async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelection = []) {
   const category = normalizeCategory(categoryId);
 
   if (!category) {
+    console.warn("Categoria invalida durante o posicionamento", { categoryId });
     throw new Error("Escolha uma categoria valida.");
   }
 
   const selectedItem = await getSingleSelectedImage(OBR, fallbackSelection);
-  const state = await getSceneState(OBR);
-  const selectedWasAssigned = isAssignedItem(state, selectedItem.id);
 
-  if (selectedWasAssigned) {
-    return {
-      ignored: true,
+  if (detectCardCategoryFromItem(selectedItem) !== category) {
+    console.warn("A carta selecionada nao corresponde a categoria solicitada", {
+      itemId: selectedItem.id,
       category,
-    };
+    });
+    throw new Error("A carta selecionada nao possui uma categoria valida.");
   }
 
-  const color = await getActivePlayerColor(OBR);
+  const [initialState, color] = await Promise.all([
+    getSceneState(OBR),
+    getActivePlayerColor(OBR),
+  ]);
 
   if (!color) {
+    console.warn("Jogador sem cor ativa ao posicionar carta", {
+      itemId: selectedItem.id,
+      category,
+    });
     throw new Error("Escolha uma cor antes de posicionar a carta.");
   }
 
-  const slot = state.slots[color]?.[category];
+  const initialReferences = getAssignmentReferences(initialState, selectedItem.id);
+  const foreignAssignment = getForeignAssignment(initialReferences, color);
 
-  if (!slot) {
+  if (foreignAssignment) {
+    console.warn("Carta ja pertence ao slot de outra cor", {
+      itemId: selectedItem.id,
+      ownerColor: foreignAssignment.color,
+      requestedColor: color,
+    });
+    throw new Error("Essa carta ja pertence ao espaco de outro jogador.");
+  }
+
+  if (initialReferences.length) {
+    return {
+      ignored: true,
+      category,
+      color,
+    };
+  }
+
+  const initialSlot = initialState.slots[color]?.[category];
+
+  if (!initialSlot) {
     throw new Error(
       `Salve primeiro o slot de ${getCategoryLabel(category)} para ${getColorLabel(color)}.`,
     );
   }
 
-  const previousItemId = state.assigned[color]?.[category];
-  const items = await safeGetItems(OBR, [selectedItem.id, previousItemId]);
-  const previousItem = previousItemId
-    ? items.find((item) => item.id === previousItemId)
-    : null;
+  const expectedPreviousItemId = initialState.assigned[color]?.[category] || null;
+  const initialPlacement = capturePlacement(selectedItem);
+  const lockKeys = [
+    `card:${selectedItem.id}`,
+    slotOperationKey(color, category),
+  ];
 
-  if (!state.origins[selectedItem.id]) {
-    state.origins[selectedItem.id] = capturePlacement(selectedItem);
-  }
+  return withSelectionOperationLocks(lockKeys, async () => {
+    const [currentItem, currentState, currentColor] = await Promise.all([
+      getSingleSelectedImage(OBR, [selectedItem.id]),
+      getSceneState(OBR),
+      getActivePlayerColor(OBR),
+    ]);
 
-  clearAssignmentsForItem(state, selectedItem.id);
-  state.assigned[color][category] = selectedItem.id;
-
-  if (previousItem && previousItem.id !== selectedItem.id) {
-    const origin = state.origins[previousItem.id];
-
-    if (origin) {
-      clearAssignmentsForItem(state, previousItem.id);
+    if (currentItem.id !== selectedItem.id) {
+      throw new Error("A selecao mudou antes de posicionar a carta.");
     }
-  }
 
-  await OBR.scene.items.updateItems(items, (draftItems) => {
-    for (const item of draftItems) {
-      if (item.id === selectedItem.id) {
-        applyPlacement(item, slot, { zIndex: getTopZIndex(slot) });
-        item.locked = category !== "divinity";
-        continue;
-      }
+    if (currentColor !== color) {
+      console.warn("A cor ativa mudou durante o posicionamento", {
+        itemId: selectedItem.id,
+        expectedColor: color,
+        currentColor,
+      });
+      throw new Error("Sua cor ativa mudou. Selecione a carta novamente.");
+    }
 
-      if (previousItem && item.id === previousItem.id) {
-        const origin = state.origins[item.id];
+    if (detectCardCategoryFromItem(currentItem) !== category) {
+      throw new Error("A categoria da carta mudou. Selecione-a novamente.");
+    }
 
-        if (origin) {
-          applyPlacement(item, origin);
-          item.locked = origin.locked;
-        } else {
-          item.locked = false;
+    if (!placementMatches(capturePlacement(currentItem), initialPlacement)) {
+      console.warn("A carta foi movida antes de ocupar o slot", {
+        itemId: selectedItem.id,
+      });
+      throw new Error("A carta foi alterada por outra acao. Tente novamente.");
+    }
+
+    const currentSlot = currentState.slots[color]?.[category];
+    const currentPreviousItemId = currentState.assigned[color]?.[category] || null;
+
+    if (
+      !sameSerializedValue(currentSlot, initialSlot) ||
+      currentPreviousItemId !== expectedPreviousItemId
+    ) {
+      console.warn("Slot alterado antes do posicionamento", {
+        color,
+        category,
+        expectedPreviousItemId,
+        currentPreviousItemId,
+      });
+      throw new Error("Esse slot foi alterado por outra acao. Tente novamente.");
+    }
+
+    const currentReferences = getAssignmentReferences(currentState, currentItem.id);
+    const currentForeignAssignment = getForeignAssignment(currentReferences, color);
+
+    if (currentForeignAssignment) {
+      throw new Error("Essa carta ja pertence ao espaco de outro jogador.");
+    }
+
+    if (currentReferences.length) {
+      return {
+        ignored: true,
+        category,
+        color,
+      };
+    }
+
+    const selectedOrigin =
+      currentState.origins[currentItem.id] || capturePlacement(currentItem);
+    currentState.origins[currentItem.id] ||= selectedOrigin;
+    currentState.assigned[color][category] = currentItem.id;
+
+    try {
+      await setSceneState(OBR, currentState);
+    } catch (error) {
+      console.error("Falha ao reservar o slot na metadata da cena", error);
+      throw new Error("Nao consegui reservar esse slot. Tente novamente.");
+    }
+
+    let reservedState = await getSceneState(OBR);
+    let reservedReferences = getAssignmentReferences(reservedState, currentItem.id);
+    let reservedForeignAssignment = getForeignAssignment(reservedReferences, color);
+
+    if (
+      reservedState.assigned[color]?.[category] !== currentItem.id ||
+      reservedForeignAssignment
+    ) {
+      await rollbackSlotReservation(
+        OBR,
+        color,
+        category,
+        currentItem.id,
+        expectedPreviousItemId,
+      ).catch((error) => {
+        console.error("Falha no rollback da reserva de slot", error);
+      });
+      throw new Error("O slot entrou em conflito com outra acao. Tente novamente.");
+    }
+
+    let latestItem;
+    let latestColor;
+
+    try {
+      [latestItem, reservedState, latestColor] = await Promise.all([
+        getSingleSelectedImage(OBR, [currentItem.id]),
+        getSceneState(OBR),
+        getActivePlayerColor(OBR),
+      ]);
+    } catch (error) {
+      await rollbackSlotReservation(
+        OBR,
+        color,
+        category,
+        currentItem.id,
+        expectedPreviousItemId,
+      ).catch((rollbackError) => {
+        console.error("Falha no rollback apos mudanca de selecao", rollbackError);
+      });
+      throw error;
+    }
+
+    reservedReferences = getAssignmentReferences(reservedState, currentItem.id);
+    reservedForeignAssignment = getForeignAssignment(reservedReferences, color);
+
+    if (
+      latestItem.id !== currentItem.id ||
+      latestColor !== color ||
+      reservedState.assigned[color]?.[category] !== currentItem.id ||
+      reservedForeignAssignment ||
+      !sameSerializedValue(reservedState.slots[color]?.[category], initialSlot) ||
+      detectCardCategoryFromItem(latestItem) !== category ||
+      !placementMatches(capturePlacement(latestItem), initialPlacement)
+    ) {
+      await rollbackSlotReservation(
+        OBR,
+        color,
+        category,
+        currentItem.id,
+        expectedPreviousItemId,
+      ).catch((error) => {
+        console.error("Falha no rollback da reserva invalidada", error);
+      });
+      throw new Error("A carta ou o slot mudou durante a operacao. Tente novamente.");
+    }
+
+    const refreshedItems = await safeGetItems(OBR, [
+      latestItem.id,
+      expectedPreviousItemId,
+    ]);
+    const refreshedSelectedItem = refreshedItems.find(
+      (item) => item.id === latestItem.id,
+    );
+
+    if (!refreshedSelectedItem) {
+      await rollbackSlotReservation(
+        OBR,
+        color,
+        category,
+        currentItem.id,
+        expectedPreviousItemId,
+      ).catch((error) => {
+        console.error("Falha no rollback apos a carta desaparecer", error);
+      });
+      throw new Error("A carta selecionada nao esta mais disponivel.");
+    }
+
+    const previousItem = expectedPreviousItemId
+      ? refreshedItems.find((item) => item.id === expectedPreviousItemId)
+      : null;
+    const previousOrigin = expectedPreviousItemId
+      ? reservedState.origins[expectedPreviousItemId]
+      : null;
+    const previousReferences = expectedPreviousItemId
+      ? getAssignmentReferences(reservedState, expectedPreviousItemId)
+      : [];
+    const itemsToMove = [refreshedSelectedItem];
+
+    if (previousItem && previousReferences.length === 0) {
+      itemsToMove.push(previousItem);
+    } else if (previousItem && previousReferences.length) {
+      console.warn("O ocupante anterior foi atribuido em outro slot e nao sera movido", {
+        previousItemId: previousItem.id,
+      });
+    }
+
+    const destinationZIndex = getTopZIndex(initialSlot);
+    const selectedDestination = {
+      ...initialSlot,
+      zIndex: destinationZIndex,
+      locked: category !== "divinity",
+    };
+
+    try {
+      await OBR.scene.items.updateItems(itemsToMove, (draftItems) => {
+        for (const item of draftItems) {
+          if (item.id === refreshedSelectedItem.id) {
+            applyPlacement(item, initialSlot, { zIndex: destinationZIndex });
+            item.locked = category !== "divinity";
+            continue;
+          }
+
+          if (previousItem && item.id === previousItem.id) {
+            if (previousOrigin) {
+              applyPlacement(item, previousOrigin);
+              item.locked = previousOrigin.locked;
+            } else {
+              item.locked = false;
+            }
+          }
         }
+      });
+    } catch (error) {
+      console.error("Falha ao mover ou bloquear os itens do slot", error);
+      const rolledBack = await rollbackSlotReservation(
+        OBR,
+        color,
+        category,
+        currentItem.id,
+        expectedPreviousItemId,
+      ).catch((rollbackError) => {
+        console.error("Falha no rollback da metadata do slot", rollbackError);
+        return false;
+      });
+
+      if (rolledBack) {
+        await reconcileSlotItemsAfterFailure(OBR, {
+          color,
+          category,
+          selectedItemId: currentItem.id,
+          selectedOrigin,
+          selectedDestination,
+          previousItemId: expectedPreviousItemId,
+          previousOrigin,
+          slot: initialSlot,
+        }).catch((reconciliationError) => {
+          console.error("Falha ao reconciliar os itens do slot", reconciliationError);
+        });
       }
+
+      throw new Error("Nao consegui posicionar a carta; o slot foi restaurado.");
     }
+
+    const finalState = await getSceneState(OBR);
+    const finalReferences = getAssignmentReferences(finalState, currentItem.id);
+    const finalForeignAssignment = getForeignAssignment(finalReferences, color);
+
+    if (
+      finalState.assigned[color]?.[category] !== currentItem.id ||
+      finalForeignAssignment
+    ) {
+      console.warn("A reserva do slot foi perdida depois do movimento", {
+        itemId: currentItem.id,
+        color,
+        category,
+      });
+      await reconcileSlotItemsAfterFailure(OBR, {
+        color,
+        category,
+        selectedItemId: currentItem.id,
+        selectedOrigin,
+        selectedDestination,
+        previousItemId: expectedPreviousItemId,
+        previousOrigin,
+        slot: initialSlot,
+      }).catch((error) => {
+        console.error("Falha ao reconciliar um conflito posterior de slot", error);
+      });
+      throw new Error("O slot mudou durante a operacao. A carta foi reconciliada.");
+    }
+
+    return {
+      color,
+      category,
+      replaced: Boolean(previousItem && previousItem.id !== currentItem.id),
+    };
   });
-
-  await setSceneState(OBR, state);
-
-  return {
-    color,
-    category,
-    replaced: Boolean(previousItem && previousItem.id !== selectedItem.id),
-  };
 }
 
 export async function returnSelectedCardToOrigin(OBR, fallbackSelection = []) {
-  const selectedItem = await getSelectedImage(OBR, fallbackSelection);
-  const state = await getSceneState(OBR);
-  const origin = state.origins[selectedItem.id];
+  const selectedIds = await getSelectedItemIds(OBR, fallbackSelection);
 
-  if (!origin) {
-    throw new Error("Nao encontrei a posicao original dessa carta.");
+  if (selectedIds.length !== 1) {
+    throw new Error("Selecione exatamente uma imagem na cena.");
   }
 
-  clearAssignmentsForItem(state, selectedItem.id);
+  const itemId = selectedIds[0];
+  const initialState = await getSceneState(OBR);
+  const initialReferences = getAssignmentReferences(initialState, itemId);
+  const lockKeys = [
+    `card:${itemId}`,
+    ...initialReferences.map((reference) =>
+      slotOperationKey(reference.color, reference.category),
+    ),
+  ];
 
-  await OBR.scene.items.updateItems([selectedItem], (items) => {
-    applyPlacement(items[0], origin);
-    items[0].locked = origin.locked;
+  return withSelectionOperationLocks(lockKeys, async () => {
+    const currentSelection = await getSelectedItemIds(OBR, [itemId]);
+
+    if (
+      currentSelection.length !== 1 ||
+      currentSelection[0] !== itemId
+    ) {
+      throw new Error("A selecao mudou antes de devolver a carta.");
+    }
+
+    const [currentItems, currentState] = await Promise.all([
+      OBR.scene.items.getItems([itemId]),
+      getSceneState(OBR),
+    ]);
+    const currentItem = currentItems[0] || null;
+    const currentReferences = getAssignmentReferences(currentState, itemId);
+
+    if (!currentItem) {
+      if (!currentReferences.length) {
+        throw new Error("A imagem selecionada nao esta mais disponivel.");
+      }
+
+      console.warn("Item ausente; limpando somente referencias exatas de slot", {
+        itemId,
+        references: currentReferences,
+      });
+      await clearItemAssignmentReferences(OBR, itemId);
+      return true;
+    }
+
+    if (currentItem.type !== "IMAGE") {
+      throw new Error("Selecione exatamente uma imagem na cena.");
+    }
+
+    const origin = currentState.origins[itemId];
+
+    if (!origin) {
+      console.warn("Carta sem origem registrada", { itemId });
+      throw new Error("Nao encontrei a posicao original dessa carta.");
+    }
+
+    const alreadyAtOrigin =
+      placementMatches(capturePlacement(currentItem), origin) &&
+      currentReferences.length === 0;
+
+    if (alreadyAtOrigin) {
+      return true;
+    }
+
+    try {
+      await OBR.scene.items.updateItems([currentItem], (items) => {
+        applyPlacement(items[0], origin);
+        items[0].locked = origin.locked;
+      });
+    } catch (error) {
+      console.error("Falha ao mover ou desbloquear a carta para a origem", error);
+      throw new Error("Nao consegui devolver a carta para a origem.");
+    }
+
+    try {
+      await clearItemAssignmentReferences(OBR, itemId);
+    } catch (error) {
+      console.error("Retorno a origem parcial: metadata de slot nao foi limpa", {
+        itemId,
+        error,
+      });
+      throw new Error(
+        "A carta voltou para a origem, mas nao consegui limpar o slot. Tente novamente.",
+      );
+    }
+
+    console.info("Carta devolvida para a origem e slot reconciliado", { itemId });
+    return true;
   });
-  await setSceneState(OBR, state);
-
-  return true;
 }

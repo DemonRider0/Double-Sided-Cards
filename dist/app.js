@@ -1601,6 +1601,55 @@ const CARD_CATEGORIES = [
 
 new Set(PLAYER_COLORS.map((color) => color.id));
 const CATEGORY_IDS = new Set(CARD_CATEGORIES.map((category) => category.id));
+const selectionOperationTails = new Map();
+Promise.resolve();
+
+function isRecord(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function copyDefinedRecord(value) {
+  if (!isRecord(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entryValue]) => entryValue !== undefined),
+  );
+}
+
+function slotOperationKey(color, category) {
+  return `slot:${color}:${category}`;
+}
+
+async function withSelectionOperationLocks(keys, operation) {
+  const lockKeys = [...new Set(keys.filter(Boolean))].sort();
+  const previousOperations = lockKeys
+    .map((key) => selectionOperationTails.get(key))
+    .filter(Boolean);
+  let releaseOperation;
+  const currentOperation = new Promise((resolve) => {
+    releaseOperation = resolve;
+  });
+
+  for (const key of lockKeys) {
+    selectionOperationTails.set(key, currentOperation);
+  }
+
+  await Promise.all(previousOperations);
+
+  try {
+    return await operation();
+  } finally {
+    releaseOperation();
+
+    for (const key of lockKeys) {
+      if (selectionOperationTails.get(key) === currentOperation) {
+        selectionOperationTails.delete(key);
+      }
+    }
+  }
+}
 
 function normalizeCategory(categoryId) {
   return CATEGORY_IDS.has(categoryId) ? categoryId : null;
@@ -1627,25 +1676,37 @@ function createEmptyState() {
 }
 
 function normalizeState(value) {
-  const state = createEmptyState();
+  const emptyState = createEmptyState();
 
-  if (!value || typeof value !== "object") {
-    return state;
+  if (!isRecord(value)) {
+    return emptyState;
   }
+
+  const sourceSlots = copyDefinedRecord(value.slots);
+  const sourceAssigned = copyDefinedRecord(value.assigned);
+  const sourceOrigins = copyDefinedRecord(value.origins);
+  const sourceTokens = copyDefinedRecord(value.tokens);
+  const state = {
+    ...copyDefinedRecord(value),
+    version: Number.isFinite(value.version) ? value.version : 1,
+    slots: { ...sourceSlots },
+    assigned: { ...sourceAssigned },
+    origins: { ...sourceOrigins },
+    tokens: { ...sourceTokens },
+  };
 
   for (const color of PLAYER_COLORS) {
     state.slots[color.id] = {
-      ...state.slots[color.id],
-      ...(value.slots?.[color.id] || {}),
+      ...emptyState.slots[color.id],
+      ...copyDefinedRecord(sourceSlots[color.id]),
     };
     state.assigned[color.id] = {
-      ...state.assigned[color.id],
-      ...(value.assigned?.[color.id] || {}),
+      ...emptyState.assigned[color.id],
+      ...copyDefinedRecord(sourceAssigned[color.id]),
     };
-    state.tokens[color.id] = value.tokens?.[color.id] || null;
+    state.tokens[color.id] = sourceTokens[color.id] || null;
   }
 
-  state.origins = value.origins && typeof value.origins === "object" ? value.origins : {};
   return state;
 }
 
@@ -1658,6 +1719,32 @@ async function setSceneState(OBR, state) {
   await OBR.scene.setMetadata({
     [SELECTION_BOARD_KEY]: state,
   });
+}
+
+function capturePlacement(item) {
+  return {
+    position: { ...item.position },
+    rotation: item.rotation,
+    scale: { ...item.scale },
+    layer: item.layer,
+    zIndex: item.zIndex,
+    locked: item.locked,
+  };
+}
+
+function placementMatches(left, right) {
+  return Boolean(
+    left &&
+      right &&
+      left.position?.x === right.position?.x &&
+      left.position?.y === right.position?.y &&
+      left.rotation === right.rotation &&
+      left.scale?.x === right.scale?.x &&
+      left.scale?.y === right.scale?.y &&
+      left.layer === right.layer &&
+      left.zIndex === right.zIndex &&
+      left.locked === right.locked,
+  );
 }
 
 function applyPlacement(item, placement, options = {}) {
@@ -1673,59 +1760,171 @@ function applyPlacement(item, placement, options = {}) {
   }
 }
 
-async function getSelectedItems(OBR, fallbackSelection = []) {
+async function getSelectedItemIds(OBR, fallbackSelection = []) {
   const selection = await OBR.player.getSelection();
-  const itemIds = selection?.length ? selection : fallbackSelection;
-
-  if (!itemIds.length) {
-    return [];
-  }
-
-  return OBR.scene.items.getItems(itemIds);
+  return Array.isArray(selection) ? selection : fallbackSelection;
 }
 
-function getPrimaryImage(items) {
-  return items.find((item) => item.type === "IMAGE") || null;
-}
+function getAssignmentReferences(state, itemId) {
+  const references = [];
 
-async function getSelectedImage(OBR, fallbackSelection = []) {
-  const item = getPrimaryImage(await getSelectedItems(OBR, fallbackSelection));
-
-  if (!item) {
-    throw new Error("Selecione uma imagem na cena.");
-  }
-
-  return item;
-}
-
-function clearAssignmentsForItem(state, itemId) {
   for (const color of PLAYER_COLORS) {
     for (const category of CARD_CATEGORIES) {
-      if (state.assigned[color.id][category.id] === itemId) {
-        state.assigned[color.id][category.id] = null;
+      if (state.assigned[color.id]?.[category.id] === itemId) {
+        references.push({
+          color: color.id,
+          category: category.id,
+        });
       }
     }
   }
+
+  return references;
+}
+
+function clearExactAssignmentReferences(state, itemId, references = null) {
+  const exactReferences = references || getAssignmentReferences(state, itemId);
+  let cleared = 0;
+
+  for (const reference of exactReferences) {
+    if (state.assigned[reference.color]?.[reference.category] === itemId) {
+      state.assigned[reference.color][reference.category] = null;
+      cleared += 1;
+    }
+  }
+
+  return cleared;
+}
+
+async function clearItemAssignmentReferences(OBR, itemId, maxAttempts = 2) {
+  let lastError = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const state = await getSceneState(OBR);
+    const references = getAssignmentReferences(state, itemId);
+
+    if (!references.length) {
+      return 0;
+    }
+
+    clearExactAssignmentReferences(state, itemId, references);
+
+    try {
+      await setSceneState(OBR, state);
+    } catch (error) {
+      lastError = error;
+      console.warn("Falha ao limpar metadata de slot", {
+        itemId,
+        attempt: attempt + 1,
+        error,
+      });
+      continue;
+    }
+
+    const verifiedState = await getSceneState(OBR);
+    const remainingReferences = getAssignmentReferences(verifiedState, itemId);
+
+    if (!remainingReferences.length) {
+      return references.length;
+    }
+
+    lastError = new Error("A referencia de slot reapareceu durante a limpeza.");
+  }
+
+  throw lastError || new Error("Nao consegui limpar a referencia do slot.");
 }
 
 async function returnSelectedCardToOrigin(OBR, fallbackSelection = []) {
-  const selectedItem = await getSelectedImage(OBR, fallbackSelection);
-  const state = await getSceneState(OBR);
-  const origin = state.origins[selectedItem.id];
+  const selectedIds = await getSelectedItemIds(OBR, fallbackSelection);
 
-  if (!origin) {
-    throw new Error("Nao encontrei a posicao original dessa carta.");
+  if (selectedIds.length !== 1) {
+    throw new Error("Selecione exatamente uma imagem na cena.");
   }
 
-  clearAssignmentsForItem(state, selectedItem.id);
+  const itemId = selectedIds[0];
+  const initialState = await getSceneState(OBR);
+  const initialReferences = getAssignmentReferences(initialState, itemId);
+  const lockKeys = [
+    `card:${itemId}`,
+    ...initialReferences.map((reference) =>
+      slotOperationKey(reference.color, reference.category),
+    ),
+  ];
 
-  await OBR.scene.items.updateItems([selectedItem], (items) => {
-    applyPlacement(items[0], origin);
-    items[0].locked = origin.locked;
+  return withSelectionOperationLocks(lockKeys, async () => {
+    const currentSelection = await getSelectedItemIds(OBR, [itemId]);
+
+    if (
+      currentSelection.length !== 1 ||
+      currentSelection[0] !== itemId
+    ) {
+      throw new Error("A selecao mudou antes de devolver a carta.");
+    }
+
+    const [currentItems, currentState] = await Promise.all([
+      OBR.scene.items.getItems([itemId]),
+      getSceneState(OBR),
+    ]);
+    const currentItem = currentItems[0] || null;
+    const currentReferences = getAssignmentReferences(currentState, itemId);
+
+    if (!currentItem) {
+      if (!currentReferences.length) {
+        throw new Error("A imagem selecionada nao esta mais disponivel.");
+      }
+
+      console.warn("Item ausente; limpando somente referencias exatas de slot", {
+        itemId,
+        references: currentReferences,
+      });
+      await clearItemAssignmentReferences(OBR, itemId);
+      return true;
+    }
+
+    if (currentItem.type !== "IMAGE") {
+      throw new Error("Selecione exatamente uma imagem na cena.");
+    }
+
+    const origin = currentState.origins[itemId];
+
+    if (!origin) {
+      console.warn("Carta sem origem registrada", { itemId });
+      throw new Error("Nao encontrei a posicao original dessa carta.");
+    }
+
+    const alreadyAtOrigin =
+      placementMatches(capturePlacement(currentItem), origin) &&
+      currentReferences.length === 0;
+
+    if (alreadyAtOrigin) {
+      return true;
+    }
+
+    try {
+      await OBR.scene.items.updateItems([currentItem], (items) => {
+        applyPlacement(items[0], origin);
+        items[0].locked = origin.locked;
+      });
+    } catch (error) {
+      console.error("Falha ao mover ou desbloquear a carta para a origem", error);
+      throw new Error("Nao consegui devolver a carta para a origem.");
+    }
+
+    try {
+      await clearItemAssignmentReferences(OBR, itemId);
+    } catch (error) {
+      console.error("Retorno a origem parcial: metadata de slot nao foi limpa", {
+        itemId,
+        error,
+      });
+      throw new Error(
+        "A carta voltou para a origem, mas nao consegui limpar o slot. Tente novamente.",
+      );
+    }
+
+    console.info("Carta devolvida para a origem e slot reconciliado", { itemId });
+    return true;
   });
-  await setSceneState(OBR, state);
-
-  return true;
 }
 
 const DIVINITY_GRID_WIDTH = 2;

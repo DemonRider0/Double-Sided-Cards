@@ -2,6 +2,149 @@
 
 Este changelog registra alteracoes realizadas com auxilio de IA. Ele deve ser atualizado em futuras implementacoes, auditorias ou documentacoes.
 
+## 2026-07-17 - Etapa 6: cores, slots e multiplayer
+
+### Sessao
+
+Implementacao da Etapa 6 do plano oficial de correcoes, limitada a S-11, S-12,
+S-13 e S-14.
+
+O mantenedor informou que todos os testes manuais da Etapa 5 foram aprovados no
+Owlbear Rodeo, incluindo criacao e uso da pilha de missao, versos individuais,
+acionamento rapido, duas contas e mobile. A Etapa 5 foi marcada como
+`Concluido`.
+
+### Diagnostico
+
+- S-11: a disponibilidade da cor era consultada uma vez e a metadata do jogador
+  era gravada depois, sem revalidacao posterior. Duas contas ainda podiam
+  observar a mesma cor como livre.
+- S-11: o background podia usar o identificador detectado sem confirmar que a
+  selecao atual ainda continha exatamente aquele item.
+- S-12: o auto-place usava snapshots de item, cor e `selection-board` obtidos
+  antes das mutacoes. Duas operacoes podiam disputar carta ou slot com estado
+  antigo.
+- S-12: uma carta atribuida a outra cor era apenas ignorada genericamente, sem
+  distinguir pertencimento alheio.
+- S-13: `Devolver origem` movia o item e depois gravava um snapshot antigo da
+  cena. Falha na segunda etapa podia deixar referencia orfa; falha na primeira
+  nao possuia reconciliacao.
+- S-14: marcacoes locais substituiam objetos internos de metadata, descartando
+  campos desconhecidos. A normalizacao do `selection-board` tambem descartava
+  propriedades futuras.
+- O SDK 3.1.0 permite reler e atualizar metadata, itens e jogadores, mas nao
+  oferece compare-and-swap ou transacao distribuida entre essas entidades.
+
+### Solucao aplicada
+
+- Escolhas de cor sao serializadas localmente, validam a selecao atual e o
+  identificador, releem jogadores imediatamente antes da gravacao e verificam
+  conflitos novamente depois dela.
+- Em conflito posterior, somente a metadata do jogador atual e restaurada para
+  o valor anterior. Metadata de outro jogador nunca e alterada.
+- Identificadores antigos sem `color-token` ainda podem usar o fallback textual
+  inequivoco existente. Uma metadata `color-token` presente, mas parcial, e
+  recusada em vez de cair no texto.
+- Marcacoes novas de cor, categoria e cor ativa gravam `version: 1` com valor
+  validado e preservam campos desconhecidos serializaveis.
+- A normalizacao de `selection-board` preserva propriedades desconhecidas nos
+  niveis principal, de slots, atribuicoes, origens e tokens.
+- Operacoes de slot recebem contencao local por ID da carta e chave
+  `cor/categoria`, sempre em ordem estavel e com liberacao em `finally`.
+- Antes de reservar e mover, o fluxo rele selecao, item, categoria, cor ativa,
+  slot, ocupante anterior, origem e atribuicoes. Mudancas detectadas recusam a
+  operacao sem sobrescrever o estado conhecido como mais recente.
+- Cartas atribuidas a outra cor nao sao movidas, desbloqueadas nem gravadas em
+  outro slot.
+- A reserva do slot e gravada antes do movimento e verificada por releitura. Se
+  o movimento falha, a referencia anterior e restaurada apenas quando o slot
+  ainda aponta para a carta esperada.
+- O ocupante anterior so retorna a origem quando a releitura confirma que ele
+  nao ganhou outra atribuicao.
+- `Devolver origem` move o item primeiro e limpa apenas referencias exatas ao
+  seu ID. Falha de movimento preserva a metadata; falha de limpeza faz uma nova
+  releitura e tentativa localizada.
+- Carta ja devolvida sem referencia e tratada de forma idempotente. Item ausente
+  permite somente a limpeza de referencias inequivocas ao mesmo ID.
+- O background limpa o cache de imagens quando a selecao fica vazia, passa o ID
+  exato do identificador para a escolha de cor e reflete corretamente a remocao
+  de uma cor ativa.
+
+### Regras preservadas
+
+- Raca e classe continuam bloqueadas no slot.
+- Divindade continua desbloqueada.
+- O contrato de divindade permanece largura 2, altura 3 e origem 390 x 395.
+- Substituicoes continuam devolvendo o ocupante anterior a origem.
+- `Devolver origem` continua no painel e nao altera devolucao para pilha.
+- Chaves publicas de metadata, APIs, IDs de comandos e atalhos `V`, `C`, `E` e
+  `R` nao foram alterados.
+- Compra, devolucao, embaralhamento, pilha de missao, bibliotecas e restauracao
+  de mapas nao foram modificados.
+
+### Arquivos modificados
+
+- `src/selection-board.js`
+- `src/background.js`
+- `manifest.json`
+- `index.html`
+- `background.html`
+- `README.md`
+- `docs/AI_CONTEXT.md`
+- `docs/IMPLEMENTATION_PLAN.md`
+- `docs/CHANGELOG_AI.md`
+- `dist/app.js`, regenerado pelo build
+- `dist/background.js`, regenerado pelo build
+
+### Simulacoes e validacoes
+
+- Cor livre, repeticao da propria cor, troca de cor e cor ocupada.
+- Duas solicitacoes locais da mesma cor e liberacao apos saida de jogador.
+- Identificador antigo inequivoco e identificador com metadata parcial.
+- Marcacoes locais validas e invalidas, preservando campos desconhecidos.
+- Slot livre, carta em slot alheio e multiselecao.
+- Troca de raca e classe, incluindo origem e bloqueio.
+- Divindade desbloqueada, escala preservada e origem 390 x 395.
+- Duas cartas disputando o mesmo slot na mesma instancia.
+- `Devolver origem` normal, repetido, com falha de item, falha inicial de
+  metadata e item ausente com mais de uma referencia exata.
+- Callbacks de itens simulados com drafts do Immer e verificacao de
+  serializacao posterior.
+- `node --check`, `npm.cmd run build`, `git diff --check` e buscas obrigatorias.
+
+### Riscos e limitacoes
+
+- As filas protegem apenas a instancia JavaScript atual. Painel e background,
+  assim como duas contas, possuem instancias separadas.
+- Releituras e verificacoes posteriores reduzem a janela de corrida, mas nao
+  tornam item, metadata da cena e metadata de jogador atomicamente consistentes.
+- Duas contas exatamente simultaneas podem detectar conflito depois da escrita.
+  Sem prioridade documentada, a extensao nao escolhe arbitrariamente um
+  vencedor; preserva o estado anterior do proprio jogador quando o conflito e
+  observado.
+- Uma alteracao externa exatamente entre a ultima releitura e a gravacao ainda
+  e risco residual do contrato do SDK.
+
+### Testes manuais pendentes
+
+- Teste minimo com duas contas: mesma cor, cor alternativa, carta alheia e
+  `Devolver origem`.
+- Vermelho, branco, verde e azul; troca, F5, saida da sala e clique simultaneo.
+- Raca, classe e divindade: posicionamento, substituicao, disputa e bloqueio.
+- Falhas e repeticoes rapidas de `Devolver origem`.
+- Marcacoes administrativas na versao local e cenas antigas.
+- Mobile e regressao de `V`, `C`, `E`, `R`, pilhas, bibliotecas e mapas.
+
+### Observacoes
+
+- A Etapa 6 foi marcada como `Em teste`.
+- As Etapas 7 e 8 nao foram iniciadas.
+- S-09, S-10 e S-20 nao foram implementados.
+- A versao publica foi atualizada de `0.2.66` para `0.2.67`.
+- O cache de `index.html`, `background.html`, `dist/app.js` e
+  `dist/background.js` foi atualizado para `v=67`. Assets, estilos e SDK
+  inalterados permaneceram em `v=65`.
+
 ## 2026-07-17 - Etapa 5: pilha de missao robusta
 
 ### Sessao

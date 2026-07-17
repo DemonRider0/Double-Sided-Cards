@@ -11,8 +11,17 @@ Este documento e a fonte principal de contexto tecnico do projeto. Uma IA nova o
 | Autor | DemonRider |
 | Plataforma alvo | Owlbear Rodeo |
 | Hospedagem publica | GitHub Pages |
-| Manifesto publico | `https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=66` |
+| Manifesto publico | `https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=67` |
 | Foco principal | Desktop e mobile, com prioridade pratica para jogadores em celular |
+
+## Estado atual das correcoes
+
+- Etapas 1 a 5 concluidas e aprovadas manualmente no Owlbear.
+- Etapa 6 implementada e em teste, cobrindo S-11, S-12, S-13 e S-14.
+- Versao publica atual: `0.2.67`; cache dos HTMLs e bundles alterados: `v=67`.
+- Contencoes de cor e slot sao locais a cada instancia. Releituras e
+  reconciliacoes reduzem corridas entre contas, mas o SDK nao oferece transacao
+  distribuida completa entre metadata de jogador, metadata de cena e itens.
 
 ## Objetivo
 

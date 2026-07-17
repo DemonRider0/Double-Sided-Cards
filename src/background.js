@@ -26,6 +26,7 @@ import {
   detectCardCategoryFromItem,
   detectPlayerColorFromItem,
   getColorLabel,
+  normalizePlayerColor,
   placeSelectedCardInCategory,
   setActivePlayerColor,
 } from "./selection-board.js";
@@ -393,6 +394,7 @@ async function setupContextMenu() {
 
   async function rememberSelection(selection) {
     if (!selection?.length) {
+      lastImageSelection = [];
       return;
     }
 
@@ -432,7 +434,9 @@ async function setupContextMenu() {
 
     if (color && color !== activePlayerColor) {
       try {
-        await setActivePlayerColor(OBR, color);
+        await setActivePlayerColor(OBR, color, {
+          selectedTokenId: singleImageItem.id,
+        });
         activePlayerColor = color;
         await OBR.notification.show(`Cor ativa: ${getColorLabel(color)}.`, "SUCCESS");
       } catch (error) {
@@ -518,7 +522,9 @@ async function setupContextMenu() {
     });
 
   OBR.player.onChange((player) => {
-    activePlayerColor = player.metadata?.[ACTIVE_COLOR_KEY]?.color || activePlayerColor;
+    activePlayerColor = normalizePlayerColor(
+      player.metadata?.[ACTIVE_COLOR_KEY]?.color,
+    );
     rememberSelection(player.selection).catch((error) => {
       console.warn("Nao consegui atualizar a selecao", error);
     });

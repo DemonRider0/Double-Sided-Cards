@@ -122,7 +122,7 @@ Este plano transforma a auditoria especializada em etapas pequenas e testaveis. 
 | Problemas contemplados | S-07, S-08 |
 | Arquivos envolvidos | `src/app.js`, `src/deck.js`, `src/card-data.js` |
 | Dependencias | Etapas 3 e 4 recomendadas. |
-| Status | Em teste |
+| Status | Concluido |
 
 ### Checklist de implementacao
 
@@ -147,7 +147,7 @@ Este plano transforma a auditoria especializada em etapas pequenas e testaveis. 
 | Problemas contemplados | S-11, S-12, S-13, S-14 |
 | Arquivos envolvidos | `src/selection-board.js`, `src/background.js`, `src/app.js` |
 | Dependencias | Etapa 1. |
-| Status | Pendente |
+| Status | Em teste |
 
 ### Checklist de implementacao
 
