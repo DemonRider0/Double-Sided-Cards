@@ -11,14 +11,15 @@ Este documento e a fonte principal de contexto tecnico do projeto. Uma IA nova o
 | Autor | DemonRider |
 | Plataforma alvo | Owlbear Rodeo |
 | Hospedagem publica | GitHub Pages |
-| Manifesto publico | `https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=67` |
+| Manifesto publico | `https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=68` |
 | Foco principal | Desktop e mobile, com prioridade pratica para jogadores em celular |
 
 ## Estado atual das correcoes
 
-- Etapas 1 a 5 concluidas e aprovadas manualmente no Owlbear.
-- Etapa 6 implementada e em teste, cobrindo S-11, S-12, S-13 e S-14.
-- Versao publica atual: `0.2.67`; cache dos HTMLs e bundles alterados: `v=67`.
+- Etapas 1 a 6 concluidas e aprovadas manualmente no Owlbear.
+- Etapa 7 implementada e em teste, cobrindo S-09 e S-10.
+- Versao publica atual: `0.2.68`; cache do painel alterado: `v=68`.
+- O background permaneceu inalterado nesta etapa e continua em `v=67`.
 - Contencoes de cor e slot sao locais a cada instancia. Releituras e
   reconciliacoes reduzem corridas entre contas, mas o SDK nao oferece transacao
   distribuida completa entre metadata de jogador, metadata de cena e itens.
@@ -226,6 +227,13 @@ Mapas atuais:
 - `missao-0-5.json`.
 
 Na versao publica, a restauracao deve reconstruir a cena sem exigir que usuarios finais importem imagens ou criem backups.
+
+A restauracao valida integralmente o preset antes de alterar a cena, usa um
+marcador interno por operacao, adiciona itens ausentes antes de excluir itens
+extras, verifica o estado final e executa rollback somente sobre mudancas que
+ainda possam ser atribuidas com seguranca a propria operacao. O marcador reduz
+conflitos entre contas, mas nao oferece atomicidade distribuida: o SDK nao
+possui compare-and-swap para metadata da cena.
 
 ## Decisoes tecnicas que nunca devem ser quebradas
 

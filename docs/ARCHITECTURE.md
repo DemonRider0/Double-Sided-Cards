@@ -156,14 +156,26 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-  A["Usuario clica restaurar mapa"] --> B["loadScenePreset"]
-  B --> C["restoreDefaultBoardPreset"]
-  C --> D["Ler itens atuais"]
-  D --> E["Atualizar itens existentes que pertencem ao preset"]
-  E --> F["Apagar itens fora do preset"]
-  F --> G["Adicionar itens ausentes"]
-  G --> H["Gravar metadata de cena do preset"]
+  A["Usuario confirma restauracao"] --> B["Carregar e validar preset completo"]
+  B --> C["Inspecionar marcador de restauracao"]
+  C --> D["Adquirir marcador distribuido da cena"]
+  D --> E["Reler cena e calcular plano"]
+  E --> F["Adicionar itens ausentes"]
+  F --> G["Atualizar ou substituir itens do preset"]
+  G --> H["Aplicar metadata gerenciada do preset"]
+  H --> I["Apagar itens extras por ultimo"]
+  I --> J["Verificar estado final"]
+  J --> K["Liberar marcador"]
+  F -. "Falha parcial" .-> L["Rollback condicional pelo diario"]
+  G -. "Falha parcial" .-> L
+  H -. "Falha parcial" .-> L
+  I -. "Falha parcial" .-> L
 ```
+
+A restauracao usa um marcador versionado na metadata da cena para coordenacao
+entre contas. O marcador e consultivo porque o SDK nao fornece compare-and-swap;
+por isso cada fase relê a posse, operacoes concorrentes sao interrompidas e a
+recuperacao de marcador orfao exige confirmacao explicita.
 
 ## Persistencia dos metadados
 
@@ -176,6 +188,7 @@ A extensao nao usa banco externo. O estado de jogo fica distribuido assim:
 | Contagem visual da pilha | Texto do item da pilha |
 | Cor ativa do jogador | Metadata do jogador |
 | Ocupacao dos slots | Metadata da cena |
+| Coordenacao temporaria de restauracao | Metadata interna versionada da cena |
 | Mapas salvos publicos | JSON em `assets/scene-presets/` |
 | Bibliotecas de pilhas/cartas | JSON e imagens em `assets/preset-*` |
 

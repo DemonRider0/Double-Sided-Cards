@@ -1582,6 +1582,7 @@ async function returnSelectedCardsToDeck(
   return returnCardsToDeck(OBR, cards, fallbackDeckSelection);
 }
 
+const COLOR_TOKEN_KEY = `${EXTENSION_ID}/color-token`;
 const CARD_CATEGORY_KEY = `${EXTENSION_ID}/card-category`;
 const ACTIVE_COLOR_KEY = `${EXTENSION_ID}/active-color`;
 const SELECTION_BOARD_KEY = `${EXTENSION_ID}/selection-board`;
@@ -1604,12 +1605,12 @@ const CATEGORY_IDS = new Set(CARD_CATEGORIES.map((category) => category.id));
 const selectionOperationTails = new Map();
 Promise.resolve();
 
-function isRecord(value) {
+function isRecord$1(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 function copyDefinedRecord(value) {
-  if (!isRecord(value)) {
+  if (!isRecord$1(value)) {
     return {};
   }
 
@@ -1678,7 +1679,7 @@ function createEmptyState() {
 function normalizeState(value) {
   const emptyState = createEmptyState();
 
-  if (!isRecord(value)) {
+  if (!isRecord$1(value)) {
     return emptyState;
   }
 
@@ -2459,6 +2460,8 @@ async function buildPresetCardData(group, card) {
 
 const PRESET_VERSION = 1;
 const ITEM_CHUNK_SIZE = 80;
+const RESTORE_MARKER_VERSION = 1;
+const SCENE_RESTORE_MARKER_KEY = `${EXTENSION_ID}/scene-restore`;
 const SCENE_PRESETS = [
   {
     id: "tutorial",
@@ -2480,6 +2483,25 @@ const READONLY_UPDATE_KEYS = new Set([
   "lastModified",
   "lastModifiedUserId",
 ]);
+let activeRestorePromise = null;
+
+class SceneRestoreError extends Error {
+  constructor(
+    message,
+    { code = "RESTORE_FAILED", stage = "unknown", partial = false, cause } = {},
+  ) {
+    super(message);
+    this.name = "SceneRestoreError";
+    this.code = code;
+    this.stage = stage;
+    this.partial = partial;
+    this.cause = cause;
+  }
+}
+
+function isRecord(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -2495,15 +2517,279 @@ function chunk(values, size = ITEM_CHUNK_SIZE) {
   return chunks;
 }
 
-function isDefaultBoardPreset(value) {
-  return Boolean(
-    value &&
-      typeof value === "object" &&
-      value.version === PRESET_VERSION &&
-      Array.isArray(value.items) &&
-      value.metadata &&
-      typeof value.metadata === "object",
+function valuesEqual(left, right) {
+  if (Object.is(left, right)) {
+    return true;
+  }
+
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => valuesEqual(value, right[index]))
+    );
+  }
+
+  if (!isRecord(left) || !isRecord(right)) {
+    return false;
+  }
+
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key, index) => key === rightKeys[index] && valuesEqual(left[key], right[key]),
+    )
   );
+}
+
+function getRestorableItemState(item) {
+  return Object.fromEntries(
+    Object.entries(item).filter(([key]) => !READONLY_UPDATE_KEYS.has(key)),
+  );
+}
+
+function itemMatchesTarget(item, target) {
+  return Boolean(
+    item &&
+      target &&
+      item.id === target.id &&
+      item.type === target.type &&
+      valuesEqual(getRestorableItemState(item), getRestorableItemState(target)),
+  );
+}
+
+function assertSerializable(value, path = "preset", ancestors = new Set()) {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean"
+  ) {
+    return;
+  }
+
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new Error(`${path} possui um numero nao finito.`);
+    }
+    return;
+  }
+
+  if (typeof value !== "object") {
+    throw new Error(`${path} possui um valor nao serializavel.`);
+  }
+
+  if (ancestors.has(value)) {
+    throw new Error(`${path} possui uma referencia circular.`);
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+  if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) {
+    throw new Error(`${path} precisa usar apenas objetos comuns.`);
+  }
+
+  if (Object.getOwnPropertySymbols(value).length) {
+    throw new Error(`${path} possui chaves nao serializaveis.`);
+  }
+
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      for (let index = 0; index < value.length; index += 1) {
+        if (!(index in value)) {
+          throw new Error(`${path}[${index}] esta ausente.`);
+        }
+        assertSerializable(value[index], `${path}[${index}]`, ancestors);
+      }
+      return;
+    }
+
+    for (const [key, entry] of Object.entries(value)) {
+      assertSerializable(entry, `${path}.${key}`, ancestors);
+    }
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
+function isPublicRuntime() {
+  const hostname = globalThis.location?.hostname;
+  return hostname !== "localhost" && hostname !== "127.0.0.1";
+}
+
+function isForbiddenLocalReference(value) {
+  const text = String(value || "").trim();
+  if (/^[a-z]:[\\/]/i.test(text) || /^file:/i.test(text)) {
+    return true;
+  }
+
+  try {
+    const url = new URL(text);
+    return url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
+
+function validatePublicReferences(value, path = "preset", key = "") {
+  if (typeof value === "string") {
+    if (isForbiddenLocalReference(value)) {
+      throw new Error(`${path} aponta para um endereco local.`);
+    }
+
+    if (key.toLowerCase() === "url" && !/^https?:\/\//i.test(value)) {
+      throw new Error(`${path} nao possui uma URL publica valida.`);
+    }
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => validatePublicReferences(entry, `${path}[${index}]`));
+    return;
+  }
+
+  if (isRecord(value)) {
+    for (const [entryKey, entryValue] of Object.entries(value)) {
+      validatePublicReferences(entryValue, `${path}.${entryKey}`, entryKey);
+    }
+  }
+}
+
+function validatePresetBoardIntegrity(preset, itemIds) {
+  const board = preset.metadata[SELECTION_BOARD_KEY];
+  if (!board) {
+    return;
+  }
+
+  if (!isRecord(board)) {
+    throw new Error("A metadata de selecao do mapa e invalida.");
+  }
+
+  for (const categories of Object.values(board.assigned || {})) {
+    if (!isRecord(categories)) {
+      continue;
+    }
+
+    for (const itemId of Object.values(categories)) {
+      if (itemId && !itemIds.has(itemId)) {
+        throw new Error(`O slot do mapa aponta para um item ausente: ${itemId}.`);
+      }
+    }
+  }
+
+  const explicitColors = new Set();
+  for (const item of preset.items) {
+    const colorMetadata = item.metadata?.[COLOR_TOKEN_KEY];
+    if (isRecord(colorMetadata) && typeof colorMetadata.color === "string") {
+      explicitColors.add(colorMetadata.color);
+    }
+  }
+
+  for (const color of PLAYER_COLORS) {
+    if (!explicitColors.has(color.id)) {
+      throw new Error(`O mapa nao possui identificador explicito para ${color.label}.`);
+    }
+  }
+}
+
+function validateCardAndDeckMetadata(item) {
+  for (const [key, value] of Object.entries(item.metadata || {})) {
+    const isCardOrDeck =
+      key === METADATA_KEY ||
+      key === DECK_METADATA_KEY ||
+      key.endsWith("/card") ||
+      key.endsWith("/deck");
+    if (isCardOrDeck && !isRecord(value)) {
+      throw new Error(`O item ${item.id} possui metadata de carta ou pilha invalida.`);
+    }
+  }
+}
+
+function validateScenePreset(
+  value,
+  { publicMode = isPublicRuntime() } = {},
+) {
+  try {
+    assertSerializable(value);
+  } catch (error) {
+    throw new SceneRestoreError("O mapa salvo possui dados nao serializaveis.", {
+      code: "INVALID_PRESET",
+      stage: "validation",
+      cause: error,
+    });
+  }
+
+  if (
+    !isRecord(value) ||
+    value.version !== PRESET_VERSION ||
+    !Array.isArray(value.items) ||
+    !value.items.length ||
+    !isRecord(value.metadata)
+  ) {
+    throw new SceneRestoreError("O mapa salvo possui uma estrutura invalida.", {
+      code: "INVALID_PRESET",
+      stage: "validation",
+    });
+  }
+
+  if (Object.prototype.hasOwnProperty.call(value.metadata, SCENE_RESTORE_MARKER_KEY)) {
+    throw new SceneRestoreError("O mapa salvo contem metadata interna de restauracao.", {
+      code: "INVALID_PRESET",
+      stage: "validation",
+    });
+  }
+
+  if (
+    value.itemCount !== undefined &&
+    (!Number.isInteger(value.itemCount) || value.itemCount !== value.items.length)
+  ) {
+    throw new SceneRestoreError("A contagem do mapa salvo nao corresponde aos itens.", {
+      code: "INVALID_PRESET",
+      stage: "validation",
+    });
+  }
+
+  const ids = new Set();
+  for (const [index, item] of value.items.entries()) {
+    if (!isRecord(item) || typeof item.id !== "string" || !item.id.trim()) {
+      throw new SceneRestoreError(`O item ${index + 1} do mapa nao possui ID valido.`, {
+        code: "INVALID_PRESET",
+        stage: "validation",
+      });
+    }
+    if (ids.has(item.id)) {
+      throw new SceneRestoreError(`O mapa salvo possui ID duplicado: ${item.id}.`, {
+        code: "DUPLICATE_PRESET_ID",
+        stage: "validation",
+      });
+    }
+    if (typeof item.type !== "string" || !item.type.trim() || !isRecord(item.metadata)) {
+      throw new SceneRestoreError(`O item ${item.id} possui estrutura invalida.`, {
+        code: "INVALID_PRESET",
+        stage: "validation",
+      });
+    }
+
+    ids.add(item.id);
+    validateCardAndDeckMetadata(item);
+  }
+
+  try {
+    validatePresetBoardIntegrity(value, ids);
+    if (publicMode) {
+      validatePublicReferences(value);
+    }
+  } catch (error) {
+    throw new SceneRestoreError(error.message || "O mapa salvo nao passou pela validacao.", {
+      code: "INVALID_PRESET",
+      stage: "validation",
+      cause: error,
+    });
+  }
+
+  return clone(value);
 }
 
 function getScenePresetDefinition(presetId) {
@@ -2517,6 +2803,9 @@ function getScenePresetDefinition(presetId) {
 }
 
 function createDefaultBoardPreset(items, metadata, definition = SCENE_PRESETS[0]) {
+  const presetMetadata = clone(metadata || {});
+  delete presetMetadata[SCENE_RESTORE_MARKER_KEY];
+
   return {
     version: PRESET_VERSION,
     id: definition.id,
@@ -2524,7 +2813,7 @@ function createDefaultBoardPreset(items, metadata, definition = SCENE_PRESETS[0]
     savedAt: new Date().toISOString(),
     itemCount: items.length,
     items: clone(items),
-    metadata: clone(metadata || {}),
+    metadata: presetMetadata,
   };
 }
 
@@ -2543,22 +2832,42 @@ function restoreItemState(item, presetItem) {
 }
 
 async function loadScenePreset(definition) {
-  const response = await fetch(`${definition.url}?v=${Date.now()}`, {
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
+  let response;
+  try {
+    response = await fetch(`${definition.url}?v=${Date.now()}`, {
+      cache: "no-store",
+    });
+  } catch (error) {
+    console.error(`[scene-preset] Falha ao carregar ${definition.id}.`, error);
     return null;
   }
 
-  const preset = await response.json();
-  return isDefaultBoardPreset(preset)
-    ? {
-        ...preset,
-        id: preset.id || definition.id,
-        name: preset.name || definition.name,
-      }
-    : null;
+  if (!response.ok) {
+    console.error(
+      `[scene-preset] Resposta HTTP invalida ao carregar ${definition.id}: ${response.status}.`,
+    );
+    return null;
+  }
+
+  let preset;
+  try {
+    preset = await response.json();
+  } catch (error) {
+    console.error(`[scene-preset] JSON invalido em ${definition.id}.`, error);
+    return null;
+  }
+
+  try {
+    const normalized = {
+      ...preset,
+      id: preset.id || definition.id,
+      name: preset.name || definition.name,
+    };
+    return validateScenePreset(normalized);
+  } catch (error) {
+    console.error(`[scene-preset] Preset invalido em ${definition.id}.`, error);
+    return null;
+  }
 }
 
 async function loadScenePresetEntries() {
@@ -2594,48 +2903,1124 @@ async function saveScenePreset(OBR, presetId) {
   return response.json();
 }
 
-async function restoreDefaultBoardPreset(OBR, preset) {
-  if (!isDefaultBoardPreset(preset)) {
-    throw new Error("Nenhum mapa salvo foi cadastrado na extensao.");
+function createOperationToken() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
   }
 
-  const presetItems = clone(preset.items);
-  const currentItems = await OBR.scene.items.getItems();
-  const presetById = new Map(presetItems.map((item) => [item.id, item]));
-  const currentById = new Map(currentItems.map((item) => [item.id, item]));
-  const itemsToUpdate = currentItems.filter(
-    (item) => presetById.has(item.id) && presetById.get(item.id).type === item.type,
-  );
-  const idsToDelete = currentItems
-    .filter((item) => !presetById.has(item.id) || presetById.get(item.id).type !== item.type)
-    .map((item) => item.id);
-  const itemsToAdd = presetItems.filter(
-    (item) => !currentById.has(item.id) || currentById.get(item.id).type !== item.type,
-  );
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
-  for (const items of chunk(itemsToUpdate)) {
-    await OBR.scene.items.updateItems(items, (draftItems) => {
-      for (const item of draftItems) {
-        restoreItemState(item, presetById.get(item.id));
-      }
+function isRestoreMarker(value) {
+  return Boolean(
+    isRecord(value) &&
+      value.version === RESTORE_MARKER_VERSION &&
+      typeof value.token === "string" &&
+      value.token &&
+      typeof value.playerId === "string" &&
+      value.playerId &&
+      typeof value.presetId === "string" &&
+      value.presetId &&
+      typeof value.startedAt === "string" &&
+      value.startedAt,
+  );
+}
+
+async function getRestoreIdentity(OBR) {
+  const [playerId, connectionId] = await Promise.all([
+    OBR.player.getId(),
+    OBR.player.getConnectionId().catch(() => ""),
+  ]);
+
+  if (!playerId) {
+    throw new SceneRestoreError("Nao consegui identificar o jogador atual.", {
+      code: "PLAYER_UNAVAILABLE",
+      stage: "marker",
     });
   }
 
-  for (const ids of chunk(idsToDelete)) {
-    await OBR.scene.items.deleteItems(ids);
+  return { playerId, connectionId: connectionId || "" };
+}
+
+async function classifyExistingMarker(OBR, marker, { includeLocalLock = true } = {}) {
+  if (!marker) {
+    return includeLocalLock && activeRestorePromise
+      ? { state: "local", marker: null }
+      : { state: "free", marker: null };
   }
 
-  for (const items of chunk(itemsToAdd)) {
-    await OBR.scene.items.addItems(items);
+  if (!isRestoreMarker(marker)) {
+    return { state: "orphan", marker };
   }
 
-  await OBR.scene.setMetadata(clone(preset.metadata || {}));
+  const identity = await getRestoreIdentity(OBR);
+  if (
+    marker.playerId === identity.playerId &&
+    marker.connectionId === identity.connectionId
+  ) {
+    return includeLocalLock && activeRestorePromise
+      ? { state: "active", marker, owner: "current" }
+      : { state: "orphan", marker, owner: "current" };
+  }
 
-  return {
-    added: itemsToAdd.length,
-    deleted: idsToDelete.length,
-    updated: itemsToUpdate.length,
+  let players;
+  try {
+    players = await OBR.party.getPlayers();
+  } catch (error) {
+    console.error("[scene-preset] Falha ao verificar o proprietario do marcador.", error);
+    return { state: "active", marker, owner: "unknown" };
+  }
+
+  const ownerIsConnected = players.some(
+    (player) =>
+      player.id === marker.playerId &&
+      (!marker.connectionId || player.connectionId === marker.connectionId),
+  );
+  return ownerIsConnected
+    ? { state: "active", marker, owner: "party" }
+    : { state: "orphan", marker };
+}
+
+async function getSceneRestoreStatus(OBR) {
+  if (activeRestorePromise) {
+    return { state: "local", marker: null };
+  }
+
+  const metadata = await OBR.scene.getMetadata();
+  return classifyExistingMarker(OBR, metadata[SCENE_RESTORE_MARKER_KEY]);
+}
+
+async function acquireRestoreMarker(OBR, operation, allowOrphanRecovery) {
+  const metadata = await OBR.scene.getMetadata();
+  const existing = metadata[SCENE_RESTORE_MARKER_KEY];
+  const status = await classifyExistingMarker(OBR, existing, { includeLocalLock: false });
+
+  if (status.state === "active") {
+    throw new SceneRestoreError("Ja existe uma restauracao em andamento nesta cena.", {
+      code: "RESTORE_ACTIVE",
+      stage: "marker",
+    });
+  }
+  if (status.state === "orphan" && !allowOrphanRecovery) {
+    throw new SceneRestoreError(
+      "Existe uma restauracao interrompida. Confirme a recuperacao antes de continuar.",
+      {
+        code: "ORPHAN_RESTORE",
+        stage: "marker",
+      },
+    );
+  }
+
+  const marker = {
+    version: RESTORE_MARKER_VERSION,
+    token: operation.token,
+    playerId: operation.playerId,
+    connectionId: operation.connectionId,
+    presetId: operation.presetId,
+    startedAt: operation.startedAt,
+    phase: "preparing",
   };
+
+  await OBR.scene.setMetadata({
+    [SCENE_RESTORE_MARKER_KEY]: marker,
+  });
+  const observed = (await OBR.scene.getMetadata())[SCENE_RESTORE_MARKER_KEY];
+  if (!isRestoreMarker(observed) || observed.token !== operation.token) {
+    throw new SceneRestoreError("Outra restauracao assumiu a cena.", {
+      code: "RESTORE_CONFLICT",
+      stage: "marker",
+    });
+  }
+
+  operation.phase = marker.phase;
+}
+
+async function requireRestoreOwnership(OBR, operation) {
+  const marker = (await OBR.scene.getMetadata())[SCENE_RESTORE_MARKER_KEY];
+  if (!isRestoreMarker(marker) || marker.token !== operation.token) {
+    throw new SceneRestoreError("A restauracao perdeu o controle da cena.", {
+      code: "RESTORE_MARKER_LOST",
+      stage: operation.phase,
+      partial: true,
+    });
+  }
+  return marker;
+}
+
+async function setRestorePhase(OBR, operation, phase) {
+  const marker = await requireRestoreOwnership(OBR, operation);
+  await OBR.scene.setMetadata({
+    [SCENE_RESTORE_MARKER_KEY]: {
+      ...marker,
+      phase,
+    },
+  });
+  operation.phase = phase;
+  const observed = await requireRestoreOwnership(OBR, operation);
+  if (observed.phase !== phase) {
+    throw new SceneRestoreError("Nao consegui confirmar a fase da restauracao.", {
+      code: "RESTORE_MARKER_UPDATE_FAILED",
+      stage: phase,
+      partial: true,
+    });
+  }
+}
+
+async function releaseRestoreMarker(OBR, operation) {
+  const marker = (await OBR.scene.getMetadata())[SCENE_RESTORE_MARKER_KEY];
+  if (!isRestoreMarker(marker) || marker.token !== operation.token) {
+    return false;
+  }
+
+  await OBR.scene.setMetadata({
+    [SCENE_RESTORE_MARKER_KEY]: null,
+  });
+  const observed = (await OBR.scene.getMetadata())[SCENE_RESTORE_MARKER_KEY];
+  return !observed;
+}
+
+function createRestorationPlan(preset, currentItems, currentMetadata) {
+  try {
+    assertSerializable(currentItems, "itens atuais");
+    assertSerializable(currentMetadata, "metadata atual");
+  } catch (error) {
+    throw stageError(
+      "A cena atual possui dados que nao podem ser restaurados com seguranca.",
+      "INVALID_CURRENT_SCENE",
+      "planning",
+      error,
+      false,
+    );
+  }
+
+  const targetItems = clone(preset.items);
+  const currentItemCopies = clone(currentItems);
+  const currentIds = new Set();
+  for (const item of currentItemCopies) {
+    if (!item?.id || currentIds.has(item.id)) {
+      throw stageError(
+        "A cena atual possui IDs ausentes ou duplicados.",
+        "INVALID_CURRENT_SCENE",
+        "planning",
+        null,
+        false,
+      );
+    }
+    currentIds.add(item.id);
+  }
+
+  const targetById = new Map(targetItems.map((item) => [item.id, item]));
+  const currentById = new Map(currentItemCopies.map((item) => [item.id, item]));
+  const updates = [];
+  const additions = [];
+  const replacements = [];
+  const deletions = [];
+
+  for (const target of targetItems) {
+    const current = currentById.get(target.id);
+    if (!current) {
+      additions.push(target);
+    } else if (current.type !== target.type) {
+      replacements.push({ before: current, target });
+    } else if (!itemMatchesTarget(current, target)) {
+      updates.push({ before: current, target });
+    }
+  }
+
+  for (const current of currentItemCopies) {
+    if (!targetById.has(current.id)) {
+      deletions.push(current);
+    }
+  }
+
+  const targetMetadata = clone(preset.metadata);
+  const metadataBefore = {};
+  for (const key of Object.keys(targetMetadata)) {
+    metadataBefore[key] = {
+      exists: Object.prototype.hasOwnProperty.call(currentMetadata, key),
+      value: Object.prototype.hasOwnProperty.call(currentMetadata, key)
+        ? clone(currentMetadata[key])
+        : null,
+    };
+  }
+
+  const plan = {
+    presetId: preset.id,
+    targetItems,
+    targetMetadata,
+    updates,
+    additions,
+    replacements,
+    deletions,
+    metadataBefore,
+  };
+  assertSerializable(plan, "plano");
+  return plan;
+}
+
+function createJournal(plan) {
+  return {
+    added: [],
+    updated: [],
+    replacements: plan.replacements.map((entry) => ({
+      before: entry.before,
+      target: entry.target,
+      deleted: false,
+      added: false,
+    })),
+    deleted: [],
+    metadataKeys: [],
+  };
+}
+
+function journalHasMutations(journal) {
+  return Boolean(
+    journal.added.length ||
+      journal.updated.length ||
+      journal.replacements.some((entry) => entry.deleted || entry.added) ||
+      journal.deleted.length ||
+      journal.metadataKeys.length,
+  );
+}
+
+function recordById(values, value) {
+  const valueId = value.id || value.target?.id;
+  if (!valueId || !values.some((entry) => (entry.id || entry.target?.id) === valueId)) {
+    values.push(value);
+  }
+}
+
+async function getItemsByIds(OBR, ids) {
+  return ids.length ? OBR.scene.items.getItems(ids) : [];
+}
+
+function mapItems(items) {
+  return new Map(items.map((item) => [item.id, item]));
+}
+
+function stageError(message, code, stage, cause, partial = true) {
+  return new SceneRestoreError(message, {
+    code,
+    stage,
+    cause,
+    partial,
+  });
+}
+
+async function applyAdditions(OBR, operation, entries, journal) {
+  if (!entries.length) {
+    return;
+  }
+
+  await setRestorePhase(OBR, operation, "adding");
+  for (const targets of chunk(entries)) {
+    await requireRestoreOwnership(OBR, operation);
+    const before = mapItems(await getItemsByIds(OBR, targets.map((item) => item.id)));
+    const missing = [];
+
+    for (const target of targets) {
+      const current = before.get(target.id);
+      if (!current) {
+        missing.push(target);
+      } else if (!itemMatchesTarget(current, target)) {
+        throw stageError(
+          `O item ${target.id} apareceu com outro estado durante a restauracao.`,
+          "ADD_CONFLICT",
+          "adding",
+          null,
+          journalHasMutations(journal),
+        );
+      }
+    }
+
+    if (!missing.length) {
+      continue;
+    }
+
+    let addError = null;
+    try {
+      await OBR.scene.items.addItems(clone(missing));
+    } catch (error) {
+      addError = error;
+      console.error("[scene-preset] Falha ao adicionar itens do mapa.", error);
+    }
+
+    let after;
+    try {
+      after = mapItems(await getItemsByIds(OBR, missing.map((item) => item.id)));
+    } catch (error) {
+      for (const target of missing) {
+        recordById(journal.added, target);
+      }
+      console.error("[scene-preset] Falha ao confirmar itens adicionados.", error);
+      throw stageError(
+        "Falha ao confirmar os itens adicionados.",
+        "ADD_OBSERVE_FAILED",
+        "adding",
+        error,
+      );
+    }
+    for (const target of missing) {
+      if (itemMatchesTarget(after.get(target.id), target)) {
+        recordById(journal.added, target);
+      }
+    }
+
+    if (addError) {
+      throw stageError(
+        "Falha ao adicionar itens do mapa.",
+        "ADD_FAILED",
+        "adding",
+        addError,
+      );
+    }
+    if (missing.some((target) => !itemMatchesTarget(after.get(target.id), target))) {
+      throw stageError(
+        "Nem todos os itens adicionados foram confirmados.",
+        "ADD_VERIFY_FAILED",
+        "adding",
+      );
+    }
+  }
+}
+
+async function applyUpdates(OBR, operation, entries, journal) {
+  if (!entries.length) {
+    return;
+  }
+
+  await setRestorePhase(OBR, operation, "updating");
+  for (const group of chunk(entries)) {
+    await requireRestoreOwnership(OBR, operation);
+    const ids = group.map((entry) => entry.target.id);
+    const currentItems = await getItemsByIds(OBR, ids);
+    const currentById = mapItems(currentItems);
+
+    for (const entry of group) {
+      if (!valuesEqual(currentById.get(entry.before.id), entry.before)) {
+        throw stageError(
+          `O item ${entry.before.id} mudou durante a restauracao.`,
+          "UPDATE_CONFLICT",
+          "updating",
+          null,
+          journalHasMutations(journal),
+        );
+      }
+    }
+
+    let updateError = null;
+    try {
+      await OBR.scene.items.updateItems(currentItems, (draftItems) => {
+        for (const item of draftItems) {
+          const target = group.find((entry) => entry.target.id === item.id)?.target;
+          if (target) {
+            restoreItemState(item, target);
+          }
+        }
+      });
+    } catch (error) {
+      updateError = error;
+      console.error("[scene-preset] Falha ao atualizar itens do mapa.", error);
+    }
+
+    let after;
+    try {
+      after = mapItems(await getItemsByIds(OBR, ids));
+    } catch (error) {
+      for (const entry of group) {
+        recordById(journal.updated, entry);
+      }
+      console.error("[scene-preset] Falha ao confirmar itens atualizados.", error);
+      throw stageError(
+        "Falha ao confirmar os itens atualizados.",
+        "UPDATE_OBSERVE_FAILED",
+        "updating",
+        error,
+      );
+    }
+    for (const entry of group) {
+      if (itemMatchesTarget(after.get(entry.target.id), entry.target)) {
+        recordById(journal.updated, entry);
+      }
+    }
+
+    if (updateError) {
+      throw stageError(
+        "Falha ao atualizar itens do mapa.",
+        "UPDATE_FAILED",
+        "updating",
+        updateError,
+      );
+    }
+    if (group.some((entry) => !itemMatchesTarget(after.get(entry.target.id), entry.target))) {
+      throw stageError(
+        "Nem todos os itens atualizados foram confirmados.",
+        "UPDATE_VERIFY_FAILED",
+        "updating",
+      );
+    }
+  }
+}
+
+async function applyReplacements(OBR, operation, entries, journal) {
+  if (!entries.length) {
+    return;
+  }
+
+  await setRestorePhase(OBR, operation, "replacing");
+  for (const group of chunk(entries)) {
+    await requireRestoreOwnership(OBR, operation);
+    const ids = group.map((entry) => entry.target.id);
+    const currentById = mapItems(await getItemsByIds(OBR, ids));
+
+    for (const entry of group) {
+      if (!valuesEqual(currentById.get(entry.before.id), entry.before)) {
+        throw stageError(
+          `O item ${entry.before.id} mudou antes de ser substituido.`,
+          "REPLACE_CONFLICT",
+          "replacing",
+          null,
+          journalHasMutations(journal),
+        );
+      }
+    }
+
+    let deleteError = null;
+    try {
+      await OBR.scene.items.deleteItems(ids);
+    } catch (error) {
+      deleteError = error;
+      console.error("[scene-preset] Falha ao remover itens incompativeis.", error);
+    }
+
+    let afterDelete;
+    try {
+      afterDelete = mapItems(await getItemsByIds(OBR, ids));
+    } catch (error) {
+      for (const entry of group) {
+        const journalEntry = journal.replacements.find(
+          (candidate) => candidate.target.id === entry.target.id,
+        );
+        journalEntry.deleted = true;
+      }
+      console.error("[scene-preset] Falha ao confirmar itens removidos.", error);
+      throw stageError(
+        "Falha ao confirmar os itens removidos.",
+        "REPLACE_DELETE_OBSERVE_FAILED",
+        "replacing",
+        error,
+      );
+    }
+    for (const entry of group) {
+      if (!afterDelete.has(entry.before.id)) {
+        const journalEntry = journal.replacements.find(
+          (candidate) => candidate.target.id === entry.target.id,
+        );
+        journalEntry.deleted = true;
+      }
+    }
+
+    if (deleteError) {
+      throw stageError(
+        "Falha ao remover itens incompativeis.",
+        "REPLACE_DELETE_FAILED",
+        "replacing",
+        deleteError,
+      );
+    }
+    if (afterDelete.size) {
+      throw stageError(
+        "Nem todos os itens incompativeis foram removidos.",
+        "REPLACE_DELETE_VERIFY_FAILED",
+        "replacing",
+      );
+    }
+
+    await requireRestoreOwnership(OBR, operation);
+    let addError = null;
+    try {
+      await OBR.scene.items.addItems(clone(group.map((entry) => entry.target)));
+    } catch (error) {
+      addError = error;
+      console.error("[scene-preset] Falha ao recriar itens incompativeis.", error);
+    }
+
+    let afterAdd;
+    try {
+      afterAdd = mapItems(await getItemsByIds(OBR, ids));
+    } catch (error) {
+      for (const entry of group) {
+        const journalEntry = journal.replacements.find(
+          (candidate) => candidate.target.id === entry.target.id,
+        );
+        journalEntry.added = true;
+      }
+      console.error("[scene-preset] Falha ao confirmar itens recriados.", error);
+      throw stageError(
+        "Falha ao confirmar os itens recriados.",
+        "REPLACE_ADD_OBSERVE_FAILED",
+        "replacing",
+        error,
+      );
+    }
+    for (const entry of group) {
+      if (itemMatchesTarget(afterAdd.get(entry.target.id), entry.target)) {
+        const journalEntry = journal.replacements.find(
+          (candidate) => candidate.target.id === entry.target.id,
+        );
+        journalEntry.added = true;
+      }
+    }
+
+    if (addError) {
+      throw stageError(
+        "Falha ao recriar itens incompativeis.",
+        "REPLACE_ADD_FAILED",
+        "replacing",
+        addError,
+      );
+    }
+    if (group.some((entry) => !itemMatchesTarget(afterAdd.get(entry.target.id), entry.target))) {
+      throw stageError(
+        "Nem todos os itens recriados foram confirmados.",
+        "REPLACE_ADD_VERIFY_FAILED",
+        "replacing",
+      );
+    }
+  }
+}
+
+async function applyTargetMetadata(OBR, operation, plan, journal) {
+  const targetEntries = Object.entries(plan.targetMetadata);
+  if (!targetEntries.length) {
+    return;
+  }
+
+  await setRestorePhase(OBR, operation, "metadata");
+  await requireRestoreOwnership(OBR, operation);
+  let metadataError = null;
+  try {
+    await OBR.scene.setMetadata(clone(plan.targetMetadata));
+  } catch (error) {
+    metadataError = error;
+    console.error("[scene-preset] Falha ao atualizar metadata da cena.", error);
+  }
+
+  let after;
+  try {
+    after = await OBR.scene.getMetadata();
+  } catch (error) {
+    journal.metadataKeys.push(
+      ...Object.keys(plan.targetMetadata).filter(
+        (key) => !journal.metadataKeys.includes(key),
+      ),
+    );
+    console.error("[scene-preset] Falha ao confirmar metadata da cena.", error);
+    throw stageError(
+      "Falha ao confirmar a metadata da cena.",
+      "METADATA_OBSERVE_FAILED",
+      "metadata",
+      error,
+    );
+  }
+  for (const [key, target] of targetEntries) {
+    if (valuesEqual(after[key], target)) {
+      journal.metadataKeys.push(key);
+    }
+  }
+
+  if (metadataError) {
+    throw stageError(
+      "Falha ao atualizar metadata da cena.",
+      "METADATA_FAILED",
+      "metadata",
+      metadataError,
+    );
+  }
+  if (targetEntries.some(([key, target]) => !valuesEqual(after[key], target))) {
+    throw stageError(
+      "A metadata da cena nao foi confirmada.",
+      "METADATA_VERIFY_FAILED",
+      "metadata",
+    );
+  }
+}
+
+async function applyDeletions(OBR, operation, entries, journal) {
+  if (!entries.length) {
+    return;
+  }
+
+  await setRestorePhase(OBR, operation, "deleting");
+  for (const targets of chunk(entries)) {
+    await requireRestoreOwnership(OBR, operation);
+    const ids = targets.map((item) => item.id);
+    const currentById = mapItems(await getItemsByIds(OBR, ids));
+    const existing = [];
+
+    for (const target of targets) {
+      const current = currentById.get(target.id);
+      if (!current) {
+        continue;
+      }
+      if (!valuesEqual(current, target)) {
+        throw stageError(
+          `O item extra ${target.id} mudou durante a restauracao.`,
+          "DELETE_CONFLICT",
+          "deleting",
+          null,
+          journalHasMutations(journal),
+        );
+      }
+      existing.push(target);
+    }
+
+    if (!existing.length) {
+      continue;
+    }
+
+    let deleteError = null;
+    try {
+      await OBR.scene.items.deleteItems(existing.map((item) => item.id));
+    } catch (error) {
+      deleteError = error;
+      console.error("[scene-preset] Falha ao remover itens extras.", error);
+    }
+
+    let after;
+    try {
+      after = mapItems(
+        await getItemsByIds(OBR, existing.map((item) => item.id)),
+      );
+    } catch (error) {
+      for (const target of existing) {
+        recordById(journal.deleted, target);
+      }
+      console.error("[scene-preset] Falha ao confirmar itens extras removidos.", error);
+      throw stageError(
+        "Falha ao confirmar os itens extras removidos.",
+        "DELETE_OBSERVE_FAILED",
+        "deleting",
+        error,
+      );
+    }
+    for (const target of existing) {
+      if (!after.has(target.id)) {
+        recordById(journal.deleted, target);
+      }
+    }
+
+    if (deleteError) {
+      throw stageError(
+        "Falha ao remover itens extras.",
+        "DELETE_FAILED",
+        "deleting",
+        deleteError,
+      );
+    }
+    if (after.size) {
+      throw stageError(
+        "Nem todos os itens extras foram removidos.",
+        "DELETE_VERIFY_FAILED",
+        "deleting",
+      );
+    }
+  }
+}
+
+function verifySelectionBoardResult(metadata, items) {
+  const board = metadata[SELECTION_BOARD_KEY];
+  if (!isRecord(board)) {
+    return;
+  }
+
+  const ids = new Set(items.map((item) => item.id));
+  for (const categories of Object.values(board.assigned || {})) {
+    if (!isRecord(categories)) {
+      continue;
+    }
+    for (const itemId of Object.values(categories)) {
+      if (itemId && !ids.has(itemId)) {
+        throw new Error(`Um slot aponta para o item ausente ${itemId}.`);
+      }
+    }
+  }
+
+  const colors = new Set(
+    items
+      .map((item) => item.metadata?.[COLOR_TOKEN_KEY]?.color)
+      .filter((color) => typeof color === "string"),
+  );
+  for (const color of PLAYER_COLORS) {
+    if (!colors.has(color.id)) {
+      throw new Error(`O identificador ${color.label} nao foi restaurado.`);
+    }
+  }
+}
+
+async function verifyRestoration(OBR, operation, plan) {
+  await setRestorePhase(OBR, operation, "verifying");
+  const [items, metadata] = await Promise.all([
+    OBR.scene.items.getItems(),
+    OBR.scene.getMetadata(),
+  ]);
+  const ids = items.map((item) => item.id);
+  if (new Set(ids).size !== ids.length) {
+    throw stageError(
+      "A cena restaurada possui IDs duplicados.",
+      "FINAL_VERIFY_FAILED",
+      "verifying",
+    );
+  }
+  if (items.length !== plan.targetItems.length) {
+    throw stageError(
+      "A quantidade final de itens nao corresponde ao mapa salvo.",
+      "FINAL_VERIFY_FAILED",
+      "verifying",
+    );
+  }
+
+  const currentById = mapItems(items);
+  for (const target of plan.targetItems) {
+    if (!itemMatchesTarget(currentById.get(target.id), target)) {
+      throw stageError(
+        `O item ${target.id} nao corresponde ao mapa salvo.`,
+        "FINAL_VERIFY_FAILED",
+        "verifying",
+      );
+    }
+  }
+
+  for (const [key, target] of Object.entries(plan.targetMetadata)) {
+    if (!valuesEqual(metadata[key], target)) {
+      throw stageError(
+        `A metadata ${key} nao corresponde ao mapa salvo.`,
+        "FINAL_VERIFY_FAILED",
+        "verifying",
+      );
+    }
+  }
+
+  try {
+    verifySelectionBoardResult(metadata, items);
+  } catch (error) {
+    throw stageError(
+      error.message,
+      "FINAL_VERIFY_FAILED",
+      "verifying",
+      error,
+    );
+  }
+
+  await requireRestoreOwnership(OBR, operation);
+}
+
+async function rollbackRestoration(OBR, operation, plan, journal) {
+  const errors = [];
+  const fail = (label, error) => {
+    errors.push({ label, error });
+    console.error(`[scene-preset] Rollback: ${label}.`, error);
+  };
+
+  try {
+    await setRestorePhase(OBR, operation, "rolling-back");
+  } catch (error) {
+    fail("marcador indisponivel; rollback recusado", error);
+    return { complete: false, refused: true, errors };
+  }
+
+  const addedTargets = [
+    ...journal.added,
+    ...journal.replacements.filter((entry) => entry.added).map((entry) => entry.target),
+  ];
+  for (const targets of chunk(addedTargets)) {
+    try {
+      await requireRestoreOwnership(OBR, operation);
+      const currentById = mapItems(await getItemsByIds(OBR, targets.map((item) => item.id)));
+      const safeIds = [];
+      for (const target of targets) {
+        const current = currentById.get(target.id);
+        if (!current) {
+          continue;
+        }
+        if (!itemMatchesTarget(current, target)) {
+          throw new Error(`O item ${target.id} foi alterado depois da restauracao.`);
+        }
+        safeIds.push(target.id);
+      }
+      if (safeIds.length) {
+        await OBR.scene.items.deleteItems(safeIds);
+        const remaining = await getItemsByIds(OBR, safeIds);
+        if (remaining.length) {
+          throw new Error("Alguns itens adicionados permaneceram na cena.");
+        }
+      }
+    } catch (error) {
+      fail("nao foi possivel remover itens adicionados", error);
+    }
+  }
+
+  const deletedOriginals = [
+    ...journal.deleted,
+    ...journal.replacements.filter((entry) => entry.deleted).map((entry) => entry.before),
+  ];
+  for (const targets of chunk(deletedOriginals)) {
+    try {
+      await requireRestoreOwnership(OBR, operation);
+      const currentById = mapItems(await getItemsByIds(OBR, targets.map((item) => item.id)));
+      const missing = [];
+      for (const target of targets) {
+        const current = currentById.get(target.id);
+        if (!current) {
+          missing.push(target);
+        } else if (!valuesEqual(current, target)) {
+          throw new Error(`O ID ${target.id} agora pertence a outro estado.`);
+        }
+      }
+      if (missing.length) {
+        await OBR.scene.items.addItems(clone(missing));
+        const restored = mapItems(await getItemsByIds(OBR, missing.map((item) => item.id)));
+        if (missing.some((item) => !itemMatchesTarget(restored.get(item.id), item))) {
+          throw new Error("Alguns itens apagados nao foram restaurados.");
+        }
+      }
+    } catch (error) {
+      fail("nao foi possivel readicionar itens apagados", error);
+    }
+  }
+
+  for (const entries of chunk(journal.updated)) {
+    try {
+      await requireRestoreOwnership(OBR, operation);
+      const ids = entries.map((entry) => entry.target.id);
+      const currentItems = await getItemsByIds(OBR, ids);
+      const currentById = mapItems(currentItems);
+      const toRestore = [];
+      for (const entry of entries) {
+        const current = currentById.get(entry.target.id);
+        if (valuesEqual(current, entry.before)) {
+          continue;
+        }
+        if (!itemMatchesTarget(current, entry.target)) {
+          throw new Error(`O item ${entry.target.id} mudou depois da atualizacao.`);
+        }
+        toRestore.push(current);
+      }
+      if (toRestore.length) {
+        await OBR.scene.items.updateItems(toRestore, (draftItems) => {
+          for (const item of draftItems) {
+            const before = entries.find((entry) => entry.before.id === item.id)?.before;
+            if (before) {
+              restoreItemState(item, before);
+            }
+          }
+        });
+        const restored = mapItems(await getItemsByIds(OBR, ids));
+        if (
+          entries.some(
+            (entry) => !itemMatchesTarget(restored.get(entry.before.id), entry.before),
+          )
+        ) {
+          throw new Error("Alguns itens atualizados nao voltaram ao estado anterior.");
+        }
+      }
+    } catch (error) {
+      fail("nao foi possivel restaurar itens atualizados", error);
+    }
+  }
+
+  if (journal.metadataKeys.length) {
+    try {
+      await requireRestoreOwnership(OBR, operation);
+      const currentMetadata = await OBR.scene.getMetadata();
+      const patch = {};
+      for (const key of journal.metadataKeys) {
+        const target = plan.targetMetadata[key];
+        const previous = plan.metadataBefore[key];
+        if (valuesEqual(currentMetadata[key], previous.exists ? previous.value : undefined)) {
+          continue;
+        }
+        if (!valuesEqual(currentMetadata[key], target)) {
+          throw new Error(`A metadata ${key} mudou depois da restauracao.`);
+        }
+        patch[key] = previous.exists ? clone(previous.value) : null;
+      }
+      if (Object.keys(patch).length) {
+        await OBR.scene.setMetadata(patch);
+        const restoredMetadata = await OBR.scene.getMetadata();
+        for (const [key, value] of Object.entries(patch)) {
+          const previous = plan.metadataBefore[key];
+          const restored = previous.exists
+            ? valuesEqual(restoredMetadata[key], value)
+            : !Object.prototype.hasOwnProperty.call(restoredMetadata, key) ||
+              restoredMetadata[key] === null;
+          if (!restored) {
+            throw new Error(`A metadata ${key} nao voltou ao estado anterior.`);
+          }
+        }
+      }
+    } catch (error) {
+      fail("nao foi possivel restaurar metadata", error);
+    }
+  }
+
+  if (errors.length) {
+    try {
+      await setRestorePhase(OBR, operation, "recovery-required");
+    } catch (error) {
+      fail("nao foi possivel manter o marcador de recuperacao", error);
+    }
+    return { complete: false, refused: false, errors };
+  }
+
+  try {
+    const released = await releaseRestoreMarker(OBR, operation);
+    if (!released) {
+      throw new Error("O marcador nao pertence mais a esta operacao.");
+    }
+  } catch (error) {
+    fail("nao foi possivel limpar o marcador", error);
+    return { complete: false, refused: false, errors };
+  }
+
+  console.info("[scene-preset] Rollback concluido.");
+  return { complete: true, refused: false, errors: [] };
+}
+
+async function performRestore(OBR, preset, options, operation) {
+  const validatedPreset = validateScenePreset(preset, {
+    publicMode: options.publicMode ?? isPublicRuntime(),
+  });
+  let markerAcquired = false;
+  let plan = null;
+  let journal = null;
+  let verified = false;
+
+  try {
+    await acquireRestoreMarker(OBR, operation, Boolean(options.allowOrphanRecovery));
+    markerAcquired = true;
+
+    const [currentItems, currentMetadata] = await Promise.all([
+      OBR.scene.items.getItems(),
+      OBR.scene.getMetadata(),
+    ]);
+    plan = createRestorationPlan(validatedPreset, currentItems, currentMetadata);
+    journal = createJournal(plan);
+
+    await applyAdditions(OBR, operation, plan.additions, journal);
+    await applyUpdates(OBR, operation, plan.updates, journal);
+    await applyReplacements(OBR, operation, plan.replacements, journal);
+    await applyTargetMetadata(OBR, operation, plan, journal);
+    await applyDeletions(OBR, operation, plan.deletions, journal);
+    await verifyRestoration(OBR, operation, plan);
+    verified = true;
+
+    const released = await releaseRestoreMarker(OBR, operation);
+    if (!released) {
+      throw stageError(
+        "O mapa foi restaurado, mas o controle da operacao mudou antes da limpeza.",
+        "MARKER_RELEASE_FAILED",
+        "completed",
+        null,
+        true,
+      );
+    }
+
+    return {
+      added: plan.additions.length + plan.replacements.length,
+      deleted: plan.deletions.length + plan.replacements.length,
+      updated: plan.updates.length,
+    };
+  } catch (error) {
+    console.error(
+      `[scene-preset] Restauracao falhou na fase ${error.stage || operation.phase}.`,
+      error,
+    );
+
+    if (verified) {
+      throw error;
+    }
+
+    if (!markerAcquired) {
+      throw error;
+    }
+
+    if (!journal || !journalHasMutations(journal)) {
+      try {
+        await releaseRestoreMarker(OBR, operation);
+      } catch (releaseError) {
+        console.error("[scene-preset] Falha ao limpar marcador sem mutacoes.", releaseError);
+      }
+      throw error;
+    }
+
+    if (error.code === "RESTORE_MARKER_LOST") {
+      throw new SceneRestoreError(
+        "A restauracao foi interrompida por outra operacao. Confira a cena antes de tentar novamente.",
+        {
+          code: error.code,
+          stage: error.stage,
+          partial: true,
+          cause: error,
+        },
+      );
+    }
+
+    console.warn("[scene-preset] Iniciando rollback condicional.");
+    const rollback = await rollbackRestoration(OBR, operation, plan, journal);
+    if (rollback.complete) {
+      throw new SceneRestoreError(
+        "Nao consegui restaurar o mapa; as mudancas seguras foram desfeitas.",
+        {
+          code: error.code,
+          stage: error.stage,
+          partial: false,
+          cause: error,
+        },
+      );
+    }
+
+    throw new SceneRestoreError(
+      "A restauracao falhou parcialmente. Confira a cena antes de tentar novamente.",
+      {
+        code: error.code,
+        stage: error.stage,
+        partial: true,
+        cause: error,
+      },
+    );
+  }
+}
+
+async function restoreDefaultBoardPreset(OBR, preset, options = {}) {
+  if (activeRestorePromise) {
+    throw new SceneRestoreError("Uma restauracao ja esta em andamento neste painel.", {
+      code: "LOCAL_RESTORE_ACTIVE",
+      stage: "local-lock",
+    });
+  }
+
+  const operationPromise = (async () => {
+    const identity = await getRestoreIdentity(OBR);
+    const operation = {
+      token: createOperationToken(),
+      playerId: identity.playerId,
+      connectionId: identity.connectionId,
+      presetId: preset?.id || "unknown",
+      startedAt: new Date().toISOString(),
+      phase: "preparing",
+    };
+    return performRestore(OBR, preset, options, operation);
+  })();
+
+  activeRestorePromise = operationPromise;
+  try {
+    return await operationPromise;
+  } finally {
+    if (activeRestorePromise === operationPromise) {
+      activeRestorePromise = null;
+    }
+  }
 }
 
 const elements = {
@@ -2702,6 +4087,7 @@ let lastFlipSelection = [];
 let presetDecks = [];
 let presetCardGroups = [];
 let scenePresetEntries = [];
+let sceneRestoreRunning = false;
 let colorAssignmentsRefreshTimer = null;
 const customSelects = new Map();
 const selectedAssets = {
@@ -2928,7 +4314,7 @@ function updateDefaultBoardControls(isConnected = Boolean(obr)) {
 
   for (const button of elements.restoreScenePresetButtons) {
     const entry = entriesById.get(button.dataset.restoreScenePreset);
-    button.disabled = !isConnected || !entry?.preset;
+    button.disabled = sceneRestoreRunning || !isConnected || !entry?.preset;
   }
 
   if (!scenePresetEntries.length) {
@@ -3871,20 +5257,41 @@ async function restoreDefaultBoard(presetId) {
     return;
   }
 
+  const restoreStatus = await getSceneRestoreStatus(obr);
+  if (restoreStatus.state === "local" || restoreStatus.state === "active") {
+    const message = "Ja existe uma restauracao em andamento nesta cena.";
+    setMessage(message, "warning");
+    await obr.notification.show(message, "WARNING");
+    return;
+  }
+
+  const recoveringOrphan = restoreStatus.state === "orphan";
+  const recoveryWarning = recoveringOrphan
+    ? "\n\nFoi encontrada uma restauracao interrompida. Continuar assumira o controle dela."
+    : "";
   const confirmed = window.confirm(
-    `${entry.definition.restoreLabel} vai substituir a cena atual. Continuar?`,
+    `${entry.definition.restoreLabel} vai substituir a cena atual. Nao inicie outra restauracao em outra conta durante o processo.${recoveryWarning}\n\nContinuar?`,
   );
 
   if (!confirmed) {
     return;
   }
 
-  const result = await restoreDefaultBoardPreset(obr, entry.preset);
+  sceneRestoreRunning = true;
   updateDefaultBoardControls(true);
+  setMessage("Restaurando...", "warning");
 
-  const message = `Cena restaurada: ${result.updated} atualizados, ${result.added} recriados, ${result.deleted} removidos.`;
-  setMessage(message, "success");
-  await obr.notification.show(`${entry.definition.name} restaurado.`, "SUCCESS");
+  try {
+    const result = await restoreDefaultBoardPreset(obr, entry.preset, {
+      allowOrphanRecovery: recoveringOrphan,
+    });
+    const message = `Cena restaurada: ${result.updated} atualizados, ${result.added} recriados, ${result.deleted} removidos.`;
+    setMessage(message, "success");
+    await obr.notification.show(`${entry.definition.name} restaurado.`, "SUCCESS");
+  } finally {
+    sceneRestoreRunning = false;
+    updateDefaultBoardControls(Boolean(obr));
+  }
 }
 
 async function loadImageInfo(rawUrl) {

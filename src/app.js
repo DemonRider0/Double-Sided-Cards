@@ -37,6 +37,7 @@ import {
   loadPresetCardGroups,
 } from "./preset-cards.js";
 import {
+  getSceneRestoreStatus,
   loadScenePresetEntries,
   restoreDefaultBoardPreset,
   saveScenePreset,
@@ -113,6 +114,7 @@ let lastFlipSelection = [];
 let presetDecks = [];
 let presetCardGroups = [];
 let scenePresetEntries = [];
+let sceneRestoreRunning = false;
 let colorAssignmentsRefreshTimer = null;
 const customSelects = new Map();
 const selectedAssets = {
@@ -343,7 +345,7 @@ function updateDefaultBoardControls(isConnected = Boolean(obr)) {
 
   for (const button of elements.restoreScenePresetButtons) {
     const entry = entriesById.get(button.dataset.restoreScenePreset);
-    button.disabled = !isConnected || !entry?.preset;
+    button.disabled = sceneRestoreRunning || !isConnected || !entry?.preset;
   }
 
   if (!scenePresetEntries.length) {
@@ -1286,20 +1288,41 @@ async function restoreDefaultBoard(presetId) {
     return;
   }
 
+  const restoreStatus = await getSceneRestoreStatus(obr);
+  if (restoreStatus.state === "local" || restoreStatus.state === "active") {
+    const message = "Ja existe uma restauracao em andamento nesta cena.";
+    setMessage(message, "warning");
+    await obr.notification.show(message, "WARNING");
+    return;
+  }
+
+  const recoveringOrphan = restoreStatus.state === "orphan";
+  const recoveryWarning = recoveringOrphan
+    ? "\n\nFoi encontrada uma restauracao interrompida. Continuar assumira o controle dela."
+    : "";
   const confirmed = window.confirm(
-    `${entry.definition.restoreLabel} vai substituir a cena atual. Continuar?`,
+    `${entry.definition.restoreLabel} vai substituir a cena atual. Nao inicie outra restauracao em outra conta durante o processo.${recoveryWarning}\n\nContinuar?`,
   );
 
   if (!confirmed) {
     return;
   }
 
-  const result = await restoreDefaultBoardPreset(obr, entry.preset);
+  sceneRestoreRunning = true;
   updateDefaultBoardControls(true);
+  setMessage("Restaurando...", "warning");
 
-  const message = `Cena restaurada: ${result.updated} atualizados, ${result.added} recriados, ${result.deleted} removidos.`;
-  setMessage(message, "success");
-  await obr.notification.show(`${entry.definition.name} restaurado.`, "SUCCESS");
+  try {
+    const result = await restoreDefaultBoardPreset(obr, entry.preset, {
+      allowOrphanRecovery: recoveringOrphan,
+    });
+    const message = `Cena restaurada: ${result.updated} atualizados, ${result.added} recriados, ${result.deleted} removidos.`;
+    setMessage(message, "success");
+    await obr.notification.show(`${entry.definition.name} restaurado.`, "SUCCESS");
+  } finally {
+    sceneRestoreRunning = false;
+    updateDefaultBoardControls(Boolean(obr));
+  }
 }
 
 async function loadImageInfo(rawUrl) {

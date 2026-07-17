@@ -2,6 +2,146 @@
 
 Este changelog registra alteracoes realizadas com auxilio de IA. Ele deve ser atualizado em futuras implementacoes, auditorias ou documentacoes.
 
+## 2026-07-17 - Etapa 7: restauracao robusta de mapas
+
+### Sessao
+
+Implementacao da Etapa 7 do plano oficial de correcoes, limitada a S-09 e
+S-10.
+
+O mantenedor informou que todos os testes manuais da Etapa 6 foram aprovados no
+Owlbear Rodeo, incluindo cores, slots, `Devolver origem`, duas contas, F5 e
+mobile. A Etapa 6 foi marcada como `Concluido`.
+
+### Diagnostico
+
+- S-09: o fluxo anterior atualizava itens, apagava todos os extras, adicionava
+  ausentes e gravava metadata sem verificacao final. Qualquer rejeicao podia
+  deixar a cena parcialmente restaurada.
+- S-09: `addItems`, `updateItems` e `deleteItems` retornam `Promise<void>`.
+  Uma rejeicao nao informa se houve aplicacao parcial, exigindo releitura.
+- S-09: o preset tinha apenas validacao estrutural minima. IDs duplicados,
+  valores nao serializaveis, metadata invalida e URLs locais podiam chegar ao
+  fluxo mutavel.
+- S-09: nao havia rollback nem reconciliacao condicional.
+- S-10: duas contas podiam restaurar o mesmo preset ou presets diferentes sem
+  coordenacao, misturando itens e metadata.
+- O SDK 3.1.0 nao oferece transacao distribuida ou compare-and-swap para a
+  metadata da cena.
+
+### Presets verificados
+
+- `tutorial.json`: 221 itens, 623482 bytes, 187 imagens, 31 textos e 3 curvas.
+- `missao-0-5.json`: 214 itens, 603468 bytes, 180 imagens, 31 textos e 3 curvas.
+- Ambos possuem IDs unicos, metadata serializavel e apenas URLs HTTPS publicas.
+- Os presets preservam origens historicas de cartas ausentes e uma referencia
+  antiga do identificador branco. A verificacao exige os quatro identificadores
+  explicitos presentes e referencias de slots ocupados, sem invalidar essas
+  referencias historicas.
+
+### Solucao aplicada
+
+- Todo preset e validado antes de qualquer mutacao de itens: estrutura, contagem,
+  IDs, serializacao, metadata de cartas/pilhas, slots ocupados, identificadores
+  de cor e URLs publicas.
+- A versao local continua podendo preparar mapas com referencias locais; a
+  versao publica recusa `localhost`, `127.0.0.1`, `file:` e caminhos absolutos
+  do Windows.
+- Um plano serializavel separa itens a adicionar, atualizar, substituir e
+  excluir, alem das chaves de metadata gerenciadas pelo preset.
+- A ordem agora e: adquirir marcador, criar plano recente, adicionar ausentes,
+  atualizar coincidentes, substituir tipos incompativeis, gravar metadata,
+  excluir extras por ultimo e verificar novamente a cena completa.
+- Itens extras sao relidos antes da exclusao e so sao apagados quando ainda
+  correspondem ao snapshot recente da operacao.
+- Cada falha posterior a uma chamada do SDK rele os IDs afetados para descobrir
+  aplicacao total, parcial ou ausente.
+- O rollback registra apenas itens e chaves tocados pela operacao. Ele desfaz
+  adicoes, readiciona exclusoes, restaura atualizacoes e metadata somente quando
+  o estado atual ainda corresponde ao alvo escrito pela propria operacao.
+- Se o marcador for perdido, o rollback e recusado para nao alterar o trabalho
+  da operacao que assumiu a cena.
+- Um lock local impede duplo acionamento na mesma instancia. Os dois botoes de
+  restauracao ficam desabilitados e o painel mostra `Restaurando...` ate o
+  `finally`.
+
+### Marcador de restauracao
+
+- Chave interna: `br.demonrider.double-sided-cards/scene-restore`.
+- Campos: versao, token unico, ID do jogador, ID da conexao, ID do preset,
+  horario de inicio e fase.
+- O marcador e gravado antes da primeira mutacao, relido apos a escrita e
+  revalidado antes de cada fase e de cada lote.
+- Somente a operacao que ainda observa o proprio token tenta limpar o marcador.
+- Marcadores orfaos nao sao removidos por idade. A interface exige confirmacao
+  explicita antes de assumir uma restauracao interrompida.
+- O marcador e removido dos backups criados pelo servidor local.
+
+### Simulacoes e validacoes
+
+- Validacao dos dois presets publicos.
+- Preset vazio, IDs duplicados, `undefined`, referencia circular, proxy revogado,
+  URL local e caminho absoluto do Windows sem mutacao da cena.
+- Restauracao em cena vazia, repeticao idempotente e troca entre Tutorial e
+  Missao 0.5.
+- Preservacao de metadata desconhecida da cena.
+- Substituicao de item com o mesmo ID e tipo diferente.
+- Rejeicao parcial de `addItems`, `updateItems`, `deleteItems` e `setMetadata`,
+  com releitura e rollback condicional.
+- Duplo acionamento local.
+- Marcador orfao bloqueado sem confirmacao e recuperado com confirmacao.
+- Duas instancias simulando contas diferentes, tanto no mesmo preset quanto em
+  presets diferentes. Somente a instancia que manteve o token concluiu.
+- Perda forcada do marcador entre lotes sem apagar itens ou marcador da outra
+  operacao.
+- `node --check`, `npm.cmd run build`, `git diff --check` e buscas obrigatorias.
+
+### Riscos e limitacoes
+
+- A contencao local protege somente a instancia atual.
+- O marcador reduz conflitos entre contas, mas duas escritas simultaneas ainda
+  possuem uma janela residual porque o SDK nao oferece compare-and-swap.
+- Se uma operacao perde o marcador depois de alterar itens, ela interrompe sem
+  rollback para nao tocar no estado da vencedora. A operacao vencedora deve
+  concluir a reconciliacao da cena.
+- Um rollback parcial mantem o marcador com fase `recovery-required`; nova
+  tentativa exige confirmacao explicita.
+- A restauracao faz mais releituras do SDK que o fluxo antigo. O custo e
+  intencional e restrito a uma acao rara e destrutiva.
+
+### Arquivos modificados
+
+- `src/scene-preset.js`
+- `src/app.js`
+- `manifest.json`
+- `index.html`
+- `README.md`
+- `docs/AI_CONTEXT.md`
+- `docs/ARCHITECTURE.md`
+- `docs/IMPLEMENTATION_PLAN.md`
+- `docs/CHANGELOG_AI.md`
+- `dist/app.js`, regenerado pelo build
+
+### Testes manuais pendentes
+
+- Restaurar Tutorial e Missao 0.5 em cena vazia e populada.
+- Repetir a restauracao do mesmo mapa e alternar entre os dois mapas.
+- Confirmar IDs, contagens, imagens, slots, cartas, pilhas e metadata.
+- Dar duplo clique e alternar rapidamente os dois botoes.
+- Testar duas contas no mesmo preset e em presets diferentes.
+- Interromper rede ou fechar o painel apenas em cena descartavel e confirmar a
+  recuperacao explicita do marcador orfao.
+- Repetir em mobile e confirmar que os controles voltam em sucesso e falha.
+- Revalidar `V`, `C`, `E`, `R`, bibliotecas, pilha de missao, cores e slots.
+
+### Observacoes
+
+- A Etapa 7 foi marcada como `Em teste`.
+- A Etapa 8 nao foi iniciada; S-20 permanece pendente.
+- A versao publica foi atualizada de `0.2.67` para `0.2.68`.
+- O cache do painel e de `dist/app.js` foi atualizado para `v=68`.
+- O background nao mudou e permaneceu em `v=67`.
+
 ## 2026-07-17 - Etapa 6: cores, slots e multiplayer
 
 ### Sessao

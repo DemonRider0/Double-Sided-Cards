@@ -147,7 +147,7 @@ Este plano transforma a auditoria especializada em etapas pequenas e testaveis. 
 | Problemas contemplados | S-11, S-12, S-13, S-14 |
 | Arquivos envolvidos | `src/selection-board.js`, `src/background.js`, `src/app.js` |
 | Dependencias | Etapa 1. |
-| Status | Em teste |
+| Status | Concluido |
 
 ### Checklist de implementacao
 
@@ -173,7 +173,7 @@ Este plano transforma a auditoria especializada em etapas pequenas e testaveis. 
 | Problemas contemplados | S-09, S-10 |
 | Arquivos envolvidos | `src/scene-preset.js`, `src/app.js` |
 | Dependencias | Nenhuma, mas exige bateria de teste forte. |
-| Status | Pendente |
+| Status | Em teste |
 
 ### Checklist de implementacao
 
