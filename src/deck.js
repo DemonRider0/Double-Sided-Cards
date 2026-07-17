@@ -1,5 +1,6 @@
 import {
   applyCardFaceTransform,
+  cloneMetadataValue,
   createCardMetadata,
   createCardMetadataMap,
   createDeckMetadata,
@@ -12,7 +13,9 @@ import {
   getDeckMetadata,
   isCardMetadata,
   isDeckMetadata,
-  setCardMetadata,
+  metadataValuesEqual,
+  normalizeCardMetadata,
+  normalizeDeckMetadata,
   setDeckMetadata,
   shouldMirrorCardBack,
 } from "./card-data.js";
@@ -29,21 +32,93 @@ const deckOperationQueues = new Map();
 const activeDeckOperationIds = new Set();
 const cardReturnQueues = new Map();
 const activeMissionDeckCreations = new Set();
+const CARD_METADATA_FIELDS = new Set([
+  "version",
+  "name",
+  "currentFace",
+  "gridWidth",
+  "mirrorBack",
+  "faces",
+  "origin",
+  "sourceDeckId",
+  "sourceDeckName",
+]);
+const DECK_CARD_FIELDS = new Set([
+  "name",
+  "front",
+  "back",
+  "gridWidth",
+  "origin",
+  "mirrorBack",
+  "description",
+]);
 
 function cloneSerializable(value) {
-  return value == null ? value : JSON.parse(JSON.stringify(value));
+  return cloneMetadataValue(value);
 }
 
 function cloneDeckCard(card) {
   return cloneSerializable(card);
 }
 
+function cloneUnknownFields(value, knownFields) {
+  const unknownFields = {};
+
+  for (const [key, entry] of Object.entries(value || {})) {
+    if (!knownFields.has(key)) {
+      unknownFields[key] = cloneSerializable(entry);
+    }
+  }
+
+  return unknownFields;
+}
+
 function cardsMatch(leftCards, rightCards) {
-  return JSON.stringify(leftCards) === JSON.stringify(rightCards);
+  return metadataValuesEqual(leftCards, rightCards);
 }
 
 function currentDeckFace(metadata) {
   return metadata.currentFace === "front" ? "front" : "back";
+}
+
+function summarizeMetadataFailure(item, result) {
+  return {
+    itemId: item?.id,
+    itemName: item?.name,
+    code: result?.code,
+    cardIndex: result?.cardIndex,
+    cause: result?.cause,
+  };
+}
+
+function getNormalizedCard(item, operation = "", logFailure = false) {
+  const result = normalizeCardMetadata(getCardMetadata(item), { item });
+
+  if (!result.ok && logFailure) {
+    console.warn(`Carta incompativel durante ${operation}`, summarizeMetadataFailure(item, result));
+  }
+
+  return result.ok ? result.value : null;
+}
+
+function getNormalizedDeck(item, operation = "", logFailure = false) {
+  const result = normalizeDeckMetadata(getDeckMetadata(item), { item });
+
+  if (!result.ok && logFailure) {
+    console.warn(`Pilha incompativel durante ${operation}`, summarizeMetadataFailure(item, result));
+  }
+
+  return result.ok ? result.value : null;
+}
+
+function requireNormalizedDeck(item, operation) {
+  const metadata = getNormalizedDeck(item, operation, true);
+
+  if (!metadata) {
+    throw new Error(`Esta pilha possui dados incompletos e nao pode ser ${operation}.`);
+  }
+
+  return metadata;
 }
 
 function positiveGridWidth(value, fallback) {
@@ -147,47 +222,61 @@ export function applyDeckDisplay(item, metadata) {
 function isDeckDisplayCurrent(item, metadata) {
   const count = metadata.cards.length;
   const face = getDeckFace(metadata);
+  const grid = createGridData(face, metadata.gridWidth);
 
   return (
     item.name === `${metadata.name} (${count})` &&
     item.description === deckDescription(count) &&
     item.text?.plainText === String(count) &&
-    item.image?.url === face.url
+    item.image?.url === face.url &&
+    item.grid?.dpi === grid.dpi &&
+    item.grid?.offset?.x === grid.offset.x &&
+    item.grid?.offset?.y === grid.offset.y
   );
 }
 
 export async function syncDeckDisplays(OBR, items) {
   const deckItems = getDeckItems(items);
+  const normalizedDeckItems = deckItems
+    .map((item) => ({
+      item,
+      metadata: getNormalizedDeck(item),
+    }))
+    .filter((entry) => entry.metadata);
   const emptyTransientDeckIds = new Set(
-    deckItems
-      .filter((item) => {
-        const metadata = getDeckMetadata(item);
+    normalizedDeckItems
+      .filter(({ item, metadata }) => {
         return Boolean(
           metadata?.deleteWhenEmpty &&
             metadata.cards.length === 0 &&
             !activeDeckOperationIds.has(item.id),
         );
       })
-      .map((item) => item.id),
+      .map(({ item }) => item.id),
   );
 
   if (emptyTransientDeckIds.size) {
     await OBR.scene.items.deleteItems([...emptyTransientDeckIds]).catch(() => {});
   }
 
-  const decks = deckItems.filter(
-    (item) => !emptyTransientDeckIds.has(item.id) && !isDeckDisplayCurrent(item, getDeckMetadata(item)),
+  const decks = normalizedDeckItems.filter(
+    ({ item, metadata }) =>
+      !emptyTransientDeckIds.has(item.id) && !isDeckDisplayCurrent(item, metadata),
   );
 
   if (!decks.length) {
     return 0;
   }
 
-  await OBR.scene.items.updateItems(decks, (draftItems) => {
+  await OBR.scene.items.updateItems(decks.map(({ item }) => item), (draftItems) => {
     for (const item of draftItems) {
-      const metadata = getDeckMetadata(item);
+      const metadata = getNormalizedDeck(item);
+
+      if (!metadata) {
+        continue;
+      }
+
       applyDeckDisplay(item, metadata);
-      setDeckMetadata(item, metadata);
     }
   });
 
@@ -238,13 +327,14 @@ function getAverageItemPosition(items) {
 }
 
 function createMissionDeckEntry(item) {
-  const metadata = getCardMetadata(item);
+  const metadata = getNormalizedCard(item, "criacao da pilha de missao", true);
 
   if (!metadata) {
     return null;
   }
 
   const entry = {
+    ...cloneUnknownFields(metadata, CARD_METADATA_FIELDS),
     name: metadata.name || item.name || "Carta",
     front: cloneSerializable(metadata.faces.front),
     back: cloneSerializable(metadata.faces.back),
@@ -267,7 +357,16 @@ function createMissionDeckEntry(item) {
 }
 
 function createMissionDeckItem(buildImage, selectedCards, shuffledRecords) {
-  const firstMetadata = getCardMetadata(selectedCards[0]);
+  const firstMetadata = getNormalizedCard(
+    selectedCards[0],
+    "criacao da pilha de missao",
+    true,
+  );
+
+  if (!firstMetadata) {
+    throw new Error("A primeira carta da pilha de missao possui dados incompletos.");
+  }
+
   const cards = shuffledRecords.map((record) => cloneDeckCard(record.entry));
   const back = cloneSerializable(firstMetadata.faces.back);
   const gridWidth = positiveGridWidth(firstMetadata.gridWidth, 1.5);
@@ -301,11 +400,11 @@ function createMissionDeckItem(buildImage, selectedCards, shuffledRecords) {
 }
 
 function missionDeckMatchesInitial(item, operation) {
-  const metadata = item ? getDeckMetadata(item) : null;
+  const metadata = item ? getNormalizedDeck(item) : null;
 
   return Boolean(
     metadata &&
-      JSON.stringify(metadata) === JSON.stringify(operation.initialMetadata) &&
+      metadataValuesEqual(metadata, operation.initialMetadata) &&
       item.name === operation.deckName &&
       item.layer === operation.layer &&
       item.position?.x === operation.position.x &&
@@ -356,7 +455,12 @@ function validateMissionCards(items, itemIds) {
   const orderedItems = orderMissionCards(items, itemIds);
   const cards = getCardItems(orderedItems);
 
-  if (items.length !== 5 || orderedItems.length !== 5 || cards.length !== 5) {
+  if (
+    items.length !== 5 ||
+    orderedItems.length !== 5 ||
+    cards.length !== 5 ||
+    cards.some((item) => !getNormalizedCard(item))
+  ) {
     throw new Error("Selecione exatamente 5 cartas duplas sacadas.");
   }
 
@@ -421,7 +525,12 @@ async function reconcilePartiallyDeletedMissionCards(
       return;
     }
 
-    const metadata = getDeckMetadata(deck);
+    const metadata = getNormalizedDeck(deck, "reconciliacao da pilha de missao", true);
+
+    if (!metadata) {
+      return;
+    }
+
     const nextMetadata = {
       ...metadata,
       cards: retainedCards.map(cloneDeckCard),
@@ -442,7 +551,7 @@ async function reconcilePartiallyDeletedMissionCards(
     operation,
     "confirmacao da reconciliacao parcial",
   );
-  const currentMetadata = currentDeck ? getDeckMetadata(currentDeck) : null;
+  const currentMetadata = currentDeck ? getNormalizedDeck(currentDeck) : null;
 
   return Boolean(currentMetadata && cardsMatch(currentMetadata.cards, retainedCards));
 }
@@ -630,7 +739,7 @@ export async function createMissionDeckFromSelection(OBR, buildImage) {
 
         return {
           sourceId: item.id,
-          entry: JSON.parse(JSON.stringify(entry)),
+          entry: cloneDeckCard(entry),
         };
       });
       const shuffledRecords = shuffleCards(records);
@@ -692,17 +801,20 @@ function getDrawPosition(deck, drawOffset, options) {
 
 function createDrawnCardItem(buildImage, operation) {
   const face = operation.drawnFace === "front" ? operation.drawnCard.front : operation.back;
-  const cardMetadata = createCardMetadata({
-    name: operation.drawnCard.name,
-    front: operation.drawnCard.front,
-    back: operation.back,
-    gridWidth: operation.gridWidth,
-    origin: operation.origin,
-    currentFace: operation.drawnFace,
-    mirrorBack: operation.mirrorBack,
-    sourceDeckId: operation.deckId,
-    sourceDeckName: operation.deckName,
-  });
+  const cardMetadata = {
+    ...cloneUnknownFields(operation.drawnCard, DECK_CARD_FIELDS),
+    ...createCardMetadata({
+      name: operation.drawnCard.name,
+      front: operation.drawnCard.front,
+      back: operation.back,
+      gridWidth: operation.gridWidth,
+      origin: operation.origin,
+      currentFace: operation.drawnFace,
+      mirrorBack: operation.mirrorBack,
+      sourceDeckId: operation.deckId,
+      sourceDeckName: operation.deckName,
+    }),
+  };
   const item = buildImage(
     createImageData(face),
     createGridData(face, operation.gridWidth, operation.origin),
@@ -761,9 +873,9 @@ function logDrawFailure(stage, error, operation, item) {
 }
 
 function applyDrawToDeckDraft(deck, drawOffset, options) {
-  const metadata = getDeckMetadata(deck);
+  const metadata = requireNormalizedDeck(deck, "comprada");
 
-  if (!metadata?.cards.length) {
+  if (!metadata.cards.length) {
     return null;
   }
 
@@ -814,7 +926,7 @@ async function rollbackDrawnCard(OBR, operation) {
 
   await OBR.scene.items.updateItems([operation.deckId], (draftItems) => {
     const deck = draftItems[0];
-    const metadata = deck ? getDeckMetadata(deck) : null;
+    const metadata = deck ? getNormalizedDeck(deck, "rollback de compra", true) : null;
 
     if (!metadata || !cardsMatch(metadata.cards, operation.remainingCards)) {
       return;
@@ -838,15 +950,20 @@ async function drawSingleDeck(OBR, buildImage, deckId, drawOffset, options) {
   let operation = null;
   let drawnItem = null;
 
-  await OBR.scene.items.updateItems([deckId], (draftItems) => {
-    const deck = draftItems[0];
+  try {
+    await OBR.scene.items.updateItems([deckId], (draftItems) => {
+      const deck = draftItems[0];
 
-    if (!deck) {
-      return;
-    }
+      if (!deck) {
+        return;
+      }
 
-    operation = applyDrawToDeckDraft(deck, drawOffset, options);
-  });
+      operation = applyDrawToDeckDraft(deck, drawOffset, options);
+    });
+  } catch (error) {
+    logDrawFailure("validacao ou atualizacao da pilha", error, { deckId }, null);
+    throw error;
+  }
 
   if (!operation) {
     return { count: 0, deckId, deckDeleted: false };
@@ -981,9 +1098,14 @@ export async function shuffleDecks(OBR, items) {
 
         await OBR.scene.items.updateItems([deckId], (draftItems) => {
           const item = draftItems[0];
-          const metadata = item ? getDeckMetadata(item) : null;
 
-          if (!metadata || metadata.cards.length <= 1) {
+          if (!item) {
+            return;
+          }
+
+          const metadata = requireNormalizedDeck(item, "embaralhada");
+
+          if (metadata.cards.length <= 1) {
             return;
           }
 
@@ -1006,9 +1128,10 @@ export async function shuffleDecks(OBR, items) {
 }
 
 export async function flipDeckItems(OBR, items) {
-  const decks = getDeckItems(items).filter(
-    (item) => getDeckMetadata(item).cards.length > 0,
-  );
+  const decks = getDeckItems(items).filter((item) => {
+    const metadata = requireNormalizedDeck(item, "virada");
+    return metadata.cards.length > 0;
+  });
 
   if (!decks.length) {
     return 0;
@@ -1016,7 +1139,7 @@ export async function flipDeckItems(OBR, items) {
 
   await OBR.scene.items.updateItems(decks, (draftItems) => {
     for (const item of draftItems) {
-      const metadata = getDeckMetadata(item);
+      const metadata = requireNormalizedDeck(item, "virada");
       const nextMetadata = {
         ...metadata,
         currentFace: metadata.currentFace === "front" ? "back" : "front",
@@ -1052,6 +1175,7 @@ async function getSelectedCardItems(OBR, fallbackSelection = []) {
 
 function createReturnedDeckCard(card, metadata) {
   const returnedCard = {
+    ...cloneUnknownFields(metadata, CARD_METADATA_FIELDS),
     name: metadata.name || card.name || "Carta",
     front: cloneSerializable(metadata.faces.front),
     back: cloneSerializable(metadata.faces.back),
@@ -1114,7 +1238,7 @@ async function readDeckById(OBR, deckId, stage) {
 }
 
 function getReturnSourceDeckId(card) {
-  const metadata = getCardMetadata(card);
+  const metadata = getNormalizedCard(card);
   const deckId = metadata?.sourceDeckId;
 
   return typeof deckId === "string" && deckId.length ? deckId : "";
@@ -1139,7 +1263,7 @@ async function rollbackReturnedCard(OBR, operation) {
 
   await OBR.scene.items.updateItems([operation.deckId], (draftItems) => {
     const deck = draftItems[0];
-    const metadata = deck ? getDeckMetadata(deck) : null;
+    const metadata = deck ? getNormalizedDeck(deck, "rollback de devolucao", true) : null;
 
     if (!metadata || !cardsMatch(metadata.cards, operation.postReturnCards)) {
       return;
@@ -1162,7 +1286,7 @@ async function rollbackReturnedCard(OBR, operation) {
 async function applyReturnToDeck(OBR, cardSnapshot, deckId) {
   let operation = null;
   const cardId = cardSnapshot.id;
-  const cardMetadata = getCardMetadata(cardSnapshot);
+  const cardMetadata = getNormalizedCard(cardSnapshot, "devolucao", true);
 
   if (!cardMetadata) {
     return null;
@@ -1170,7 +1294,7 @@ async function applyReturnToDeck(OBR, cardSnapshot, deckId) {
 
   await OBR.scene.items.updateItems([deckId], (draftItems) => {
     const deck = draftItems[0];
-    const metadata = deck ? getDeckMetadata(deck) : null;
+    const metadata = deck ? getNormalizedDeck(deck, "devolucao", true) : null;
 
     if (!metadata) {
       return;
@@ -1250,9 +1374,8 @@ async function returnSingleCardToDeck(OBR, cardId) {
     return { count: 0, deckId: null };
   }
 
-  if (!getCardMetadata(initialCard)) {
-    console.warn("A carta selecionada nao tem metadata valida para devolucao", { cardId });
-    return { count: 0, deckId: null };
+  if (!getNormalizedCard(initialCard, "devolucao", true)) {
+    throw new Error("Esta carta possui dados incompletos e nao pode ser devolvida.");
   }
 
   const sourceDeckId = getReturnSourceDeckId(initialCard);
@@ -1273,14 +1396,10 @@ async function returnSingleCardToDeck(OBR, cardId) {
       return { count: 0, deckId: null };
     }
 
-    const cardMetadata = getCardMetadata(currentCard);
+    const cardMetadata = getNormalizedCard(currentCard, "devolucao", true);
 
     if (!cardMetadata) {
-      console.warn("A carta deixou de ser devolvivel antes da devolucao", {
-        cardId,
-        deckId: sourceDeckId,
-      });
-      return { count: 0, deckId: null };
+      throw new Error("Esta carta possui dados incompletos e nao pode ser devolvida.");
     }
 
     const currentSourceDeckId = getReturnSourceDeckId(currentCard);
@@ -1296,12 +1415,16 @@ async function returnSingleCardToDeck(OBR, cardId) {
 
     const sourceDeck = await readDeckById(OBR, sourceDeckId, "antes da devolucao");
 
-    if (!sourceDeck || !getDeckMetadata(sourceDeck)) {
+    if (!sourceDeck) {
       console.warn("A pilha de origem nao existe ou nao e mais uma pilha", {
         cardId,
         deckId: sourceDeckId,
       });
       return { count: 0, deckId: null };
+    }
+
+    if (!getNormalizedDeck(sourceDeck, "devolucao", true)) {
+      throw new Error("A pilha de origem possui dados incompletos e nao aceita devolucao.");
     }
 
     let operation = null;

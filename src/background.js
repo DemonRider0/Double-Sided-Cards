@@ -5,6 +5,8 @@ import {
   REGISTRATION_ID,
   getCardMetadata,
   getDeckMetadata,
+  normalizeCardMetadata,
+  normalizeDeckMetadata,
   setCardMetadata,
   setDeckMetadata,
 } from "./card-data.js";
@@ -223,12 +225,14 @@ function repairDeckMetadata(deckMetadata) {
   let cardsChanged = false;
   const cards = deckMetadata.cards.map((card) => {
     const front = repairImageData(card.front);
-    cardsChanged ||= front.changed;
+    const cardBack = card.back ? repairImageData(card.back) : null;
+    cardsChanged ||= front.changed || Boolean(cardBack?.changed);
 
-    return front.changed
+    return front.changed || cardBack?.changed
       ? {
           ...card,
-          front: front.value,
+          ...(front.changed ? { front: front.value } : {}),
+          ...(cardBack?.changed ? { back: cardBack.value } : {}),
         }
       : card;
   });
@@ -264,7 +268,7 @@ function getSceneAssetUrlRepair(item) {
 
   const cardMetadata = getCardMetadata(item);
 
-  if (cardMetadata) {
+  if (normalizeCardMetadata(cardMetadata, { item }).ok) {
     const cardRepair = repairCardMetadata(cardMetadata);
 
     if (cardRepair.changed) {
@@ -275,7 +279,7 @@ function getSceneAssetUrlRepair(item) {
 
   const deckMetadata = getDeckMetadata(item);
 
-  if (deckMetadata) {
+  if (normalizeDeckMetadata(deckMetadata, { item }).ok) {
     const deckRepair = repairDeckMetadata(deckMetadata);
 
     if (deckRepair.changed) {

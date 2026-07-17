@@ -2,6 +2,135 @@
 
 Este changelog registra alteracoes realizadas com auxilio de IA. Ele deve ser atualizado em futuras implementacoes, auditorias ou documentacoes.
 
+## 2026-07-17 - Etapa 8: compatibilidade e validadores
+
+### Sessao
+
+Implementacao da Etapa 8 do plano oficial de correcoes, limitada a S-20.
+
+O mantenedor informou que todos os testes manuais da Etapa 7 foram aprovados no
+Owlbear Rodeo. A Etapa 7 foi marcada como `Concluido`.
+
+### Diagnostico
+
+- O reconhecimento de cartas e pilhas exigia campos operacionais completos.
+  Metadata versionada, mas antiga ou parcial, deixava de ser reconhecida antes
+  que um fallback seguro pudesse ser aplicado.
+- Cartas historicas podem nao possuir `mirrorBack` ou `origin`. Pilhas
+  historicas podem nao possuir `currentFace` ou `deleteWhenEmpty`, e suas
+  entradas podem conter apenas `name` e `front`.
+- Os dois presets atuais possuem uma pilha sem `currentFace`; todas as entradas
+  historicas usam `front` e `name`. Nenhum snapshot versionado analisado usa
+  `gridWidth` textual.
+- Copias com `JSON.parse(JSON.stringify(...))` perdiam a causa de falhas de
+  serializacao e comparacoes por `JSON.stringify` dependiam da ordem das chaves.
+- Operacoes destrutivas podiam consumir diretamente metadata sem validar
+  dimensoes, grid, face atual ou cada entrada de `cards`.
+
+### Solucao aplicada
+
+- O reconhecimento foi separado da normalizacao operacional. A chave publica e
+  `version: 1` identificam o tipo; cada operacao exige depois uma copia
+  normalizada e utilizavel.
+- Os normalizadores de carta, pilha, entrada, imagem, grid e origem sao puros,
+  nao alteram a entrada e devolvem objetos serializaveis sem referencias
+  compartilhadas com proxies do SDK.
+- `gridWidth` prioriza numero positivo explicito, depois o grid visual exato,
+  defaults de categoria e, por ultimo, o default do criador. Strings nao sao
+  convertidas em numeros.
+- `currentFace` prioriza valor explicito, URL atual exatamente correspondente,
+  sinais visuais historicos inequivocos e o default historico do criador.
+- `origin` ausente continua ausente. Origem invalida nao e inventada.
+- `cards` ausente ou invalido e recusado. Ordem e duplicatas sao preservadas;
+  uma entrada invalida nao e pulada durante compra ou embaralhamento.
+- Campos desconhecidos de metadata e de entradas sao preservados. Campos
+  especificos de verso, grid, origem, espelhamento e descricao sobrevivem ao
+  ciclo comprar e devolver.
+- Compra, devolucao, embaralhamento, virada, pilha temporaria e pilha de missao
+  usam a metadata normalizada sem remover filas, locks ou rollbacks.
+- A sincronizacao automatica pode reparar a aparencia da pilha, mas nao grava
+  defaults na metadata apenas porque a cena foi aberta.
+- Migracao e reparo de URLs passaram a validar a metadata e tambem preservam
+  versos individuais das entradas.
+- A validacao de divindades impede calculos com dimensoes nao finitas e mantem
+  o tamanho 2 x 3 e a origem 390, 395.
+
+### Evidencias historicas
+
+- Snapshots dos commits `f6a4623`, `88fa3e6`, `0d041af` e `66b649d` foram
+  processados sem falhas: 280, 280, 279 e 320 metadados reconhecidos,
+  respectivamente.
+- Os presets atuais passaram integralmente: 302 cartas e 18 pilhas.
+- Chaves historicas duplicadas existentes nos presets sempre possuem a chave
+  publica atual equivalente; nenhuma chave antiga foi reintroduzida ou migrada.
+
+### Simulacoes e validacoes
+
+- Metadata atual, antiga, incompleta, invalida e nao serializavel.
+- Idempotencia, preservacao de campos desconhecidos, ordem e duplicatas.
+- Dimensoes e grid inferidos apenas da imagem visual com URL exata.
+- `currentFace` explicita, inferida por URL e inferida para verso espelhado.
+- Proxy Immer revogado depois da callback, com copia normalizada ainda valida.
+- Compra em frente e verso, devolucao ao fundo, embaralhamento e carta invalida
+  no topo sem remocao ou salto.
+- Rollback de compra e rollback de devolucao.
+- Pilha temporaria apagada somente depois da compra e pilha de missao com cinco
+  cartas historicas.
+- Virada de carta e pilha antigas e dimensionamento de divindade.
+- Sincronizacao visual sem migracao automatica da metadata.
+- `node --check`, `npm.cmd run build`, `git diff --check`, validacao dos presets
+  e buscas obrigatorias.
+
+### Arquivos modificados
+
+- `src/card-data.js`
+- `src/deck.js`
+- `src/flip.js`
+- `src/divinity-sizing.js`
+- `src/app.js`
+- `src/background.js`
+- `manifest.json`
+- `index.html`
+- `background.html`
+- `README.md`
+- `docs/AI_CONTEXT.md`
+- `docs/IMPLEMENTATION_PLAN.md`
+- `docs/CHANGELOG_AI.md`
+- `dist/app.js` e `dist/background.js`, regenerados pelo build
+
+### Riscos e limitacoes
+
+- Metadata sem dimensoes em uma face que nao corresponde a imagem atual e
+  recusada, pois nao existe evidencia segura para inventar largura ou altura.
+- Pilha com qualquer entrada insegura e recusada por operacoes que regravam
+  `cards`; a extensao nao remove nem pula silenciosamente a entrada.
+- A normalizacao ocorre em memoria. Defaults so podem ser persistidos quando uma
+  operacao ja precisa escrever a metadata ou quando o mantenedor usa uma acao
+  explicita de sincronizacao/migracao.
+- Cenas antigas externas aos snapshots do repositorio ainda exigem teste manual
+  no Owlbear.
+
+### Testes manuais pendentes
+
+- Abrir uma copia descartavel de cena antiga e confirmar contadores e imagens.
+- Virar carta e pilha antigas pelo painel, menu e `V`.
+- Comprar por botao e `C`, embaralhar por botao e `E`, e devolver por `R`.
+- Confirmar frente/verso, devolucao ao fundo e pilha temporaria vazia.
+- Executar `Sincronizar cena` e `Migrar links locais da cena` em copia segura.
+- Restaurar Tutorial e Missao 0.5 e repetir os fluxos principais.
+- Repetir com duas contas, desktop e mobile.
+- Confirmar que uma metadata propositalmente invalida e recusada sem perder
+  carta, pilha ou campos desconhecidos.
+
+### Observacoes
+
+- A Etapa 8 foi marcada como `Em teste`.
+- Nenhuma etapa posterior foi iniciada.
+- A versao publica foi atualizada de `0.2.68` para `0.2.69`.
+- Os caches do painel, de `dist/app.js`, do background e de
+  `dist/background.js` foram atualizados para `v=69`.
+- Assets, estilos, icones e SDK inalterados permaneceram em `v=65`.
+
 ## 2026-07-17 - Etapa 7: restauracao robusta de mapas
 
 ### Sessao

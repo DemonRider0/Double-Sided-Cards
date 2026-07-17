@@ -11,15 +11,14 @@ Este documento e a fonte principal de contexto tecnico do projeto. Uma IA nova o
 | Autor | DemonRider |
 | Plataforma alvo | Owlbear Rodeo |
 | Hospedagem publica | GitHub Pages |
-| Manifesto publico | `https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=68` |
+| Manifesto publico | `https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=69` |
 | Foco principal | Desktop e mobile, com prioridade pratica para jogadores em celular |
 
 ## Estado atual das correcoes
 
-- Etapas 1 a 6 concluidas e aprovadas manualmente no Owlbear.
-- Etapa 7 implementada e em teste, cobrindo S-09 e S-10.
-- Versao publica atual: `0.2.68`; cache do painel alterado: `v=68`.
-- O background permaneceu inalterado nesta etapa e continua em `v=67`.
+- Etapas 1 a 7 concluidas e aprovadas manualmente no Owlbear.
+- Etapa 8 implementada e em teste, cobrindo S-20.
+- Versao publica atual: `0.2.69`; caches do painel e do background: `v=69`.
 - Contencoes de cor e slot sao locais a cada instancia. Releituras e
   reconciliacoes reduzem corridas entre contas, mas o SDK nao oferece transacao
   distribuida completa entre metadata de jogador, metadata de cena e itens.
@@ -271,6 +270,13 @@ Alteracoes futuras devem considerar:
 - jogadores mobile sem teclado;
 - cache agressivo do navegador e do GitHub Pages;
 - diferencas entre extensao local e publica.
+
+O reconhecimento de metadata versionada e separado de sua usabilidade. Antes de
+virar, comprar, embaralhar, devolver ou reconstruir a aparencia, a extensao cria
+uma copia normalizada e conservadora. Campos desconhecidos, ordem e duplicatas
+sao preservados; dados essenciais sem fallback seguro fazem a operacao ser
+recusada sem remover cartas. A leitura normal da cena nao grava defaults
+automaticamente.
 
 ## Ordem de leitura para manutencao
 

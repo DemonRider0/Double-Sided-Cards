@@ -173,7 +173,7 @@ Este plano transforma a auditoria especializada em etapas pequenas e testaveis. 
 | Problemas contemplados | S-09, S-10 |
 | Arquivos envolvidos | `src/scene-preset.js`, `src/app.js` |
 | Dependencias | Nenhuma, mas exige bateria de teste forte. |
-| Status | Em teste |
+| Status | Concluido |
 
 ### Checklist de implementacao
 
@@ -198,7 +198,7 @@ Este plano transforma a auditoria especializada em etapas pequenas e testaveis. 
 | Problemas contemplados | S-20 |
 | Arquivos envolvidos | `src/card-data.js`, `src/deck.js`, `src/flip.js`, `src/divinity-sizing.js` |
 | Dependencias | Idealmente apos etapas 3 a 5. |
-| Status | Pendente |
+| Status | Em teste |
 
 ### Checklist de implementacao
 

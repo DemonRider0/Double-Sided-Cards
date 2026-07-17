@@ -8,11 +8,24 @@ const DIVINITY_ORIGIN = {
 };
 const EPSILON = 0.0001;
 
+function hasValidDimensions(face) {
+  return (
+    Number.isFinite(face?.width) &&
+    face.width > 0 &&
+    Number.isFinite(face?.height) &&
+    face.height > 0
+  );
+}
+
 export function isDivinityCategoryItem(item) {
   return item?.metadata?.[CARD_CATEGORY_KEY]?.category === "divinity";
 }
 
 export function getDivinityGridData(face) {
+  if (!hasValidDimensions(face)) {
+    throw new TypeError("Nao foi possivel dimensionar a divindade sem imagem valida.");
+  }
+
   const dpi = Math.max(1, face.width / DIVINITY_GRID_WIDTH);
 
   return {
@@ -22,6 +35,10 @@ export function getDivinityGridData(face) {
 }
 
 export function getDivinityScale(face) {
+  if (!hasValidDimensions(face)) {
+    throw new TypeError("Nao foi possivel dimensionar a divindade sem imagem valida.");
+  }
+
   const dpi = Math.max(1, face.width / DIVINITY_GRID_WIDTH);
 
   return {
@@ -35,7 +52,7 @@ function almostEqual(left, right) {
 }
 
 export function needsDivinitySizing(item, face = item?.image) {
-  if (!isDivinityCategoryItem(item) || !face?.width || !face?.height) {
+  if (!isDivinityCategoryItem(item) || !hasValidDimensions(face)) {
     return false;
   }
 
@@ -52,7 +69,7 @@ export function needsDivinitySizing(item, face = item?.image) {
 }
 
 export function applyDivinitySizing(item, face = item?.image) {
-  if (!isDivinityCategoryItem(item) || !face?.width || !face?.height) {
+  if (!isDivinityCategoryItem(item) || !hasValidDimensions(face)) {
     return false;
   }
 

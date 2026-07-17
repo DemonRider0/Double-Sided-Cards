@@ -6,29 +6,176 @@ const METADATA_KEY = `${EXTENSION_ID}/card`;
 const DECK_METADATA_KEY = `${EXTENSION_ID}/deck`;
 const COMMANDS_CHANNEL = `${REGISTRATION_ID}/commands`;
 
-function isCardMetadata(value) {
-  return Boolean(
-    value &&
-      typeof value === "object" &&
-      value.version === 1 &&
-      value.faces &&
-      value.faces.front &&
-      value.faces.back &&
-      typeof value.faces.front.url === "string" &&
-      typeof value.faces.back.url === "string",
+const CARD_CATEGORY_METADATA_KEY = `${EXTENSION_ID}/card-category`;
+const CARD_CATEGORY_GRID_WIDTHS = new Map([
+  ["class", 3],
+  ["race", 3],
+  ["divinity", 2],
+]);
+const VALID_FACES = new Set(["front", "back"]);
+
+function isObject(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function validationFailure(code, message, details = {}) {
+  return {
+    ok: false,
+    code,
+    message,
+    ...details,
+  };
+}
+
+function validationSuccess(value, details = {}) {
+  return {
+    ok: true,
+    value,
+    ...details,
+  };
+}
+
+function cloneSerializableValue(value, seen) {
+  if (
+    value == null ||
+    typeof value === "string" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new TypeError("Metadata contem um numero nao finito.");
+    }
+
+    return value;
+  }
+
+  if (typeof value === "undefined") {
+    return undefined;
+  }
+
+  if (typeof value !== "object") {
+    throw new TypeError("Metadata contem um valor nao serializavel.");
+  }
+
+  if (seen.has(value)) {
+    throw new TypeError("Metadata contem uma referencia circular.");
+  }
+
+  seen.add(value);
+
+  try {
+    if (Array.isArray(value)) {
+      return value.map((entry) => {
+        const clonedEntry = cloneSerializableValue(entry, seen);
+
+        if (typeof clonedEntry === "undefined") {
+          throw new TypeError("Metadata contem uma entrada de array indefinida.");
+        }
+
+        return clonedEntry;
+      });
+    }
+
+    const prototype = Object.getPrototypeOf(value);
+
+    if (
+      (prototype !== Object.prototype && prototype !== null) ||
+      Object.getOwnPropertySymbols(value).length
+    ) {
+      throw new TypeError("Metadata contem um objeto nao serializavel.");
+    }
+
+    const clone = {};
+
+    for (const [key, entry] of Object.entries(value)) {
+      const clonedEntry = cloneSerializableValue(entry, seen);
+
+      if (typeof clonedEntry !== "undefined") {
+        clone[key] = clonedEntry;
+      }
+    }
+
+    return clone;
+  } finally {
+    seen.delete(value);
+  }
+}
+
+function cloneMetadataValue(value) {
+  return cloneSerializableValue(value, new WeakSet());
+}
+
+function metadataValuesEqual(left, right) {
+  if (Object.is(left, right)) {
+    return true;
+  }
+
+  if (
+    left == null ||
+    right == null ||
+    typeof left !== "object" ||
+    typeof right !== "object"
+  ) {
+    return false;
+  }
+
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((entry, index) => metadataValuesEqual(entry, right[index]))
+    );
+  }
+
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key) =>
+        Object.prototype.hasOwnProperty.call(right, key) &&
+        metadataValuesEqual(left[key], right[key]),
+    )
   );
 }
 
+function comparableUrl(value) {
+  const rawValue = typeof value === "string" ? value.trim() : "";
+
+  if (!rawValue) {
+    return "";
+  }
+
+  try {
+    const url = new URL(rawValue, "https://comparison.invalid/");
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return rawValue.replace(/#.*$/, "");
+  }
+}
+
+function imageUrlsMatch(left, right) {
+  const leftUrl = comparableUrl(left);
+  const rightUrl = comparableUrl(right);
+  return Boolean(leftUrl && rightUrl && leftUrl === rightUrl);
+}
+
+function positiveFinite(value) {
+  return Number.isFinite(value) && value > 0;
+}
+
+function isCardMetadata(value) {
+  return Boolean(isObject(value) && value.version === 1);
+}
+
 function isDeckMetadata(value) {
-  return Boolean(
-    value &&
-      typeof value === "object" &&
-      value.version === 1 &&
-      Array.isArray(value.cards) &&
-      value.back &&
-      typeof value.back.url === "string" &&
-      typeof value.gridWidth === "number",
-  );
+  return Boolean(isObject(value) && value.version === 1);
 }
 
 function getCardMetadata(item) {
@@ -39,6 +186,417 @@ function getCardMetadata(item) {
 function getDeckMetadata(item) {
   const metadata = item.metadata?.[DECK_METADATA_KEY];
   return isDeckMetadata(metadata) ? metadata : null;
+}
+
+function normalizeImageData(value, options = {}) {
+  if (!isObject(value) || typeof value.url !== "string" || !value.url.trim()) {
+    return validationFailure("invalid-image-url", "A imagem nao possui uma URL valida.");
+  }
+
+  let image;
+
+  try {
+    image = cloneMetadataValue(value);
+  } catch (error) {
+    return validationFailure("invalid-image-data", error.message);
+  }
+
+  const fallbackImage =
+    isObject(options.fallbackImage) &&
+    imageUrlsMatch(image.url, options.fallbackImage.url)
+      ? options.fallbackImage
+      : null;
+  const width = positiveFinite(image.width)
+    ? image.width
+    : positiveFinite(fallbackImage?.width)
+      ? fallbackImage.width
+      : null;
+  const height = positiveFinite(image.height)
+    ? image.height
+    : positiveFinite(fallbackImage?.height)
+      ? fallbackImage.height
+      : null;
+
+  if (!width || !height) {
+    return validationFailure(
+      "invalid-image-dimensions",
+      "A imagem nao possui dimensoes positivas e confiaveis.",
+    );
+  }
+
+  image.width = width;
+  image.height = height;
+  image.mime =
+    typeof image.mime === "string" && image.mime.trim()
+      ? image.mime
+      : getMimeFromUrl(image.url);
+
+  return validationSuccess(image, {
+    usedVisualFallback:
+      width !== value.width || height !== value.height,
+  });
+}
+
+function getCategoryGridWidth(item) {
+  const category = item?.metadata?.[CARD_CATEGORY_METADATA_KEY]?.category;
+  return CARD_CATEGORY_GRID_WIDTHS.get(category) || null;
+}
+
+function resolveGridWidth(value, options = {}) {
+  if (positiveFinite(value)) {
+    return validationSuccess(value, { source: "metadata" });
+  }
+
+  const face = options.face;
+  const item = options.item;
+
+  if (
+    positiveFinite(face?.width) &&
+    positiveFinite(item?.grid?.dpi) &&
+    imageUrlsMatch(face.url, item?.image?.url)
+  ) {
+    const visualGridWidth = face.width / item.grid.dpi;
+
+    if (positiveFinite(visualGridWidth)) {
+      return validationSuccess(visualGridWidth, { source: "item-visual" });
+    }
+  }
+
+  const categoryGridWidth = getCategoryGridWidth(item);
+
+  if (positiveFinite(categoryGridWidth)) {
+    return validationSuccess(categoryGridWidth, { source: "category-default" });
+  }
+
+  if (positiveFinite(options.creatorDefault)) {
+    return validationSuccess(options.creatorDefault, { source: "creator-default" });
+  }
+
+  return validationFailure(
+    "invalid-grid-width",
+    "Nao foi possivel determinar uma largura de grid segura.",
+  );
+}
+
+function normalizeOrigin(value) {
+  if (value == null) {
+    return validationSuccess(null, { present: false });
+  }
+
+  if (!isObject(value) || !Number.isFinite(value.x) || !Number.isFinite(value.y)) {
+    return validationFailure("invalid-origin", "A origem da carta nao e valida.");
+  }
+
+  return validationSuccess(
+    {
+      x: value.x,
+      y: value.y,
+    },
+    { present: true },
+  );
+}
+
+function faceFromExactImageMatch(faces, item) {
+  const frontMatches = imageUrlsMatch(item?.image?.url, faces.front.url);
+  const backMatches = imageUrlsMatch(item?.image?.url, faces.back.url);
+
+  if (frontMatches !== backMatches) {
+    return frontMatches ? "front" : "back";
+  }
+
+  return null;
+}
+
+function historicalCardFace(faces, item) {
+  if (
+    imageUrlsMatch(faces.front.url, faces.back.url) &&
+    Number.isFinite(item?.scale?.x) &&
+    item.scale.x < 0
+  ) {
+    return "back";
+  }
+
+  const description = typeof item?.description === "string" ? item.description.trim() : "";
+
+  if (/^Carta dupla:\s*verso$/i.test(description)) {
+    return "back";
+  }
+
+  if (/^Carta dupla:\s*frente$/i.test(description)) {
+    return "front";
+  }
+
+  return null;
+}
+
+function resolveCardCurrentFace(value, faces, item) {
+  if (VALID_FACES.has(value)) {
+    return validationSuccess(value, { source: "metadata" });
+  }
+
+  const exactMatch = faceFromExactImageMatch(faces, item);
+
+  if (exactMatch) {
+    return validationSuccess(exactMatch, { source: "item-image" });
+  }
+
+  const historicalFace = historicalCardFace(faces, item);
+
+  return validationSuccess(historicalFace || "front", {
+    source: historicalFace ? "historical-visual" : "creator-default",
+  });
+}
+
+function resolveDeckCurrentFace(value, back, cards, item) {
+  if (VALID_FACES.has(value)) {
+    return validationSuccess(value, { source: "metadata" });
+  }
+
+  const topFront = cards[0]?.front;
+  const frontMatches = imageUrlsMatch(item?.image?.url, topFront?.url);
+  const backMatches = imageUrlsMatch(item?.image?.url, back.url);
+
+  if (frontMatches !== backMatches) {
+    return validationSuccess(frontMatches ? "front" : "back", {
+      source: "item-image",
+    });
+  }
+
+  // Pilhas criadas antes de currentFace sempre eram exibidas pelo verso.
+  return validationSuccess("back", { source: "historical-default" });
+}
+
+function getFallbackName(value, itemName, fallback) {
+  if (typeof value === "string" && value.trim()) {
+    return value;
+  }
+
+  if (typeof itemName === "string" && itemName.trim()) {
+    return itemName.replace(/\s+\(\d+\)\s*$/, "").trim() || fallback;
+  }
+
+  return fallback;
+}
+
+function normalizeCardMetadata(value, options = {}) {
+  if (!isCardMetadata(value)) {
+    return validationFailure(
+      "unrecognized-card-metadata",
+      "A metadata da carta nao possui uma versao reconhecida.",
+    );
+  }
+
+  let metadata;
+
+  try {
+    metadata = cloneMetadataValue(value);
+  } catch (error) {
+    return validationFailure("invalid-card-metadata", error.message);
+  }
+
+  const front = normalizeImageData(metadata.faces?.front, {
+    fallbackImage: options.item?.image,
+  });
+  const back = normalizeImageData(metadata.faces?.back, {
+    fallbackImage: options.item?.image,
+  });
+
+  if (!front.ok || !back.ok) {
+    return validationFailure(
+      "invalid-card-faces",
+      !front.ok ? front.message : back.message,
+      { face: !front.ok ? "front" : "back" },
+    );
+  }
+
+  const currentFace = resolveCardCurrentFace(
+    metadata.currentFace,
+    {
+      front: front.value,
+      back: back.value,
+    },
+    options.item,
+  );
+  const currentImage = currentFace.value === "back" ? back.value : front.value;
+  const gridWidth = resolveGridWidth(metadata.gridWidth, {
+    item: options.item,
+    face: currentImage,
+    creatorDefault: 2,
+  });
+
+  if (!gridWidth.ok) {
+    return gridWidth;
+  }
+
+  const origin = normalizeOrigin(metadata.origin);
+
+  metadata.name = getFallbackName(metadata.name, options.item?.name, "Carta");
+  metadata.currentFace = currentFace.value;
+  metadata.gridWidth = gridWidth.value;
+  metadata.faces = {
+    ...metadata.faces,
+    front: front.value,
+    back: back.value,
+  };
+  metadata.mirrorBack =
+    typeof metadata.mirrorBack === "boolean"
+      ? metadata.mirrorBack
+      : shouldMirrorBackFace(front.value, back.value);
+
+  if (origin.ok && origin.present) {
+    metadata.origin = origin.value;
+  } else if (!origin.ok) {
+    delete metadata.origin;
+  }
+
+  return validationSuccess(metadata, {
+    fallbacks: {
+      currentFace: currentFace.source,
+      gridWidth: gridWidth.source,
+      origin: origin.ok ? (origin.present ? "metadata" : "missing") : "invalid-ignored",
+    },
+  });
+}
+
+function normalizeDeckCardEntry(value, options = {}) {
+  if (!isObject(value)) {
+    return validationFailure("invalid-deck-card", "A entrada da pilha nao e um objeto.");
+  }
+
+  let card;
+
+  try {
+    card = cloneMetadataValue(value);
+  } catch (error) {
+    return validationFailure("invalid-deck-card", error.message);
+  }
+
+  const front = normalizeImageData(card.front, {
+    fallbackImage: options.fallbackImage,
+  });
+
+  if (!front.ok) {
+    return validationFailure("invalid-deck-card-front", front.message);
+  }
+
+  card.front = front.value;
+  card.name = getFallbackName(card.name, "", "Carta");
+
+  if (card.back != null) {
+    const back = normalizeImageData(card.back, {
+      fallbackImage: options.fallbackImage,
+    });
+
+    if (!back.ok) {
+      return validationFailure("invalid-deck-card-back", back.message);
+    }
+
+    card.back = back.value;
+  }
+
+  if (card.gridWidth != null && !positiveFinite(card.gridWidth)) {
+    delete card.gridWidth;
+  }
+
+  const origin = normalizeOrigin(card.origin);
+
+  if (origin.ok && origin.present) {
+    card.origin = origin.value;
+  } else if (!origin.ok) {
+    delete card.origin;
+  }
+
+  if (card.mirrorBack != null && typeof card.mirrorBack !== "boolean") {
+    delete card.mirrorBack;
+  }
+
+  return validationSuccess(card);
+}
+
+function normalizeDeckMetadata(value, options = {}) {
+  if (!isDeckMetadata(value)) {
+    return validationFailure(
+      "unrecognized-deck-metadata",
+      "A metadata da pilha nao possui uma versao reconhecida.",
+    );
+  }
+
+  let metadata;
+
+  try {
+    metadata = cloneMetadataValue(value);
+  } catch (error) {
+    return validationFailure("invalid-deck-metadata", error.message);
+  }
+
+  if (!Array.isArray(metadata.cards)) {
+    return validationFailure(
+      "invalid-deck-cards",
+      "A pilha nao possui uma lista de cartas valida.",
+    );
+  }
+
+  const back = normalizeImageData(metadata.back, {
+    fallbackImage: options.item?.image,
+  });
+
+  if (!back.ok) {
+    return validationFailure("invalid-deck-back", back.message);
+  }
+
+  const cards = [];
+
+  for (let index = 0; index < metadata.cards.length; index += 1) {
+    const card = normalizeDeckCardEntry(metadata.cards[index], {
+      fallbackImage: index === 0 ? options.item?.image : null,
+    });
+
+    if (!card.ok) {
+      return validationFailure(
+        "invalid-deck-card",
+        `A carta ${index + 1} da pilha possui dados incompletos.`,
+        {
+          cardIndex: index,
+          cause: card.code,
+        },
+      );
+    }
+
+    cards.push(card.value);
+  }
+
+  const currentFace = resolveDeckCurrentFace(
+    metadata.currentFace,
+    back.value,
+    cards,
+    options.item,
+  );
+  const displayedFace =
+    currentFace.value === "front" && cards[0]?.front
+      ? cards[0].front
+      : back.value;
+  const gridWidth = resolveGridWidth(metadata.gridWidth, {
+    item: options.item,
+    face: displayedFace,
+    creatorDefault: 2,
+  });
+
+  if (!gridWidth.ok) {
+    return gridWidth;
+  }
+
+  metadata.name = getFallbackName(metadata.name, options.item?.name, "Pilha");
+  metadata.currentFace = currentFace.value;
+  metadata.back = back.value;
+  metadata.cards = cards;
+  metadata.gridWidth = gridWidth.value;
+
+  return validationSuccess(metadata, {
+    fallbacks: {
+      currentFace: currentFace.source,
+      gridWidth: gridWidth.source,
+    },
+  });
 }
 
 function setCardMetadata(item, metadata) {
@@ -220,15 +778,36 @@ function deckDescription(count) {
 }
 
 function createImageData(face) {
+  if (
+    !face ||
+    typeof face.url !== "string" ||
+    !face.url.trim() ||
+    !positiveFinite(face.width) ||
+    !positiveFinite(face.height)
+  ) {
+    throw new TypeError("Nao foi possivel criar uma imagem com dados incompletos.");
+  }
+
   return {
     url: face.url,
     width: face.width,
     height: face.height,
-    mime: face.mime,
+    mime:
+      typeof face.mime === "string" && face.mime.trim()
+        ? face.mime
+        : getMimeFromUrl(face.url),
   };
 }
 
 function createGridData(face, gridWidth, origin) {
+  if (!positiveFinite(face?.width) || !positiveFinite(face?.height)) {
+    throw new TypeError("Nao foi possivel criar o grid sem dimensoes validas.");
+  }
+
+  if (!positiveFinite(gridWidth)) {
+    throw new TypeError("Nao foi possivel criar o grid sem uma largura valida.");
+  }
+
   const dpi = Math.max(1, face.width / gridWidth);
   const offset =
     Number.isFinite(origin?.x) && Number.isFinite(origin?.y)
@@ -244,6 +823,29 @@ function createGridData(face, gridWidth, origin) {
   };
 }
 
+function getMimeFromUrl(rawUrl) {
+  try {
+    const extension = new URL(rawUrl).pathname.split(".").pop().toLowerCase();
+
+    if (extension === "jpg" || extension === "jpeg") {
+      return "image/jpeg";
+    }
+    if (extension === "webp") {
+      return "image/webp";
+    }
+    if (extension === "gif") {
+      return "image/gif";
+    }
+    if (extension === "svg") {
+      return "image/svg+xml";
+    }
+  } catch {
+    return "image/png";
+  }
+
+  return "image/png";
+}
+
 function getDeckItems(items) {
   return items.filter((item) => isDeckMetadata(getDeckMetadata(item)));
 }
@@ -255,21 +857,93 @@ function getCardItems(items) {
 const deckOperationQueues = new Map();
 const activeDeckOperationIds = new Set();
 const cardReturnQueues = new Map();
+const CARD_METADATA_FIELDS = new Set([
+  "version",
+  "name",
+  "currentFace",
+  "gridWidth",
+  "mirrorBack",
+  "faces",
+  "origin",
+  "sourceDeckId",
+  "sourceDeckName",
+]);
+const DECK_CARD_FIELDS = new Set([
+  "name",
+  "front",
+  "back",
+  "gridWidth",
+  "origin",
+  "mirrorBack",
+  "description",
+]);
 
 function cloneSerializable(value) {
-  return value == null ? value : JSON.parse(JSON.stringify(value));
+  return cloneMetadataValue(value);
 }
 
 function cloneDeckCard(card) {
   return cloneSerializable(card);
 }
 
+function cloneUnknownFields(value, knownFields) {
+  const unknownFields = {};
+
+  for (const [key, entry] of Object.entries(value || {})) {
+    if (!knownFields.has(key)) {
+      unknownFields[key] = cloneSerializable(entry);
+    }
+  }
+
+  return unknownFields;
+}
+
 function cardsMatch(leftCards, rightCards) {
-  return JSON.stringify(leftCards) === JSON.stringify(rightCards);
+  return metadataValuesEqual(leftCards, rightCards);
 }
 
 function currentDeckFace(metadata) {
   return metadata.currentFace === "front" ? "front" : "back";
+}
+
+function summarizeMetadataFailure(item, result) {
+  return {
+    itemId: item?.id,
+    itemName: item?.name,
+    code: result?.code,
+    cardIndex: result?.cardIndex,
+    cause: result?.cause,
+  };
+}
+
+function getNormalizedCard(item, operation = "", logFailure = false) {
+  const result = normalizeCardMetadata(getCardMetadata(item), { item });
+
+  if (!result.ok && logFailure) {
+    console.warn(`Carta incompativel durante ${operation}`, summarizeMetadataFailure(item, result));
+  }
+
+  return result.ok ? result.value : null;
+}
+
+function getNormalizedDeck(item, operation = "", logFailure = false) {
+  const result = normalizeDeckMetadata(getDeckMetadata(item), { item });
+
+  if (!result.ok && logFailure) {
+    console.warn(`Pilha incompativel durante ${operation}`, summarizeMetadataFailure(item, result));
+  }
+
+  return result.ok ? result.value : null;
+}
+
+function requireNormalizedDeck(item, operation) {
+  const metadata = getNormalizedDeck(item, operation, true);
+
+  if (!metadata) {
+    throw new Error(`Esta pilha possui dados incompletos e nao pode ser ${operation}.`);
+  }
+
+  return metadata;
 }
 
 function positiveGridWidth(value, fallback) {
@@ -373,47 +1047,61 @@ function applyDeckDisplay(item, metadata) {
 function isDeckDisplayCurrent(item, metadata) {
   const count = metadata.cards.length;
   const face = getDeckFace(metadata);
+  const grid = createGridData(face, metadata.gridWidth);
 
   return (
     item.name === `${metadata.name} (${count})` &&
     item.description === deckDescription(count) &&
     item.text?.plainText === String(count) &&
-    item.image?.url === face.url
+    item.image?.url === face.url &&
+    item.grid?.dpi === grid.dpi &&
+    item.grid?.offset?.x === grid.offset.x &&
+    item.grid?.offset?.y === grid.offset.y
   );
 }
 
 async function syncDeckDisplays(OBR, items) {
   const deckItems = getDeckItems(items);
+  const normalizedDeckItems = deckItems
+    .map((item) => ({
+      item,
+      metadata: getNormalizedDeck(item),
+    }))
+    .filter((entry) => entry.metadata);
   const emptyTransientDeckIds = new Set(
-    deckItems
-      .filter((item) => {
-        const metadata = getDeckMetadata(item);
+    normalizedDeckItems
+      .filter(({ item, metadata }) => {
         return Boolean(
           metadata?.deleteWhenEmpty &&
             metadata.cards.length === 0 &&
             !activeDeckOperationIds.has(item.id),
         );
       })
-      .map((item) => item.id),
+      .map(({ item }) => item.id),
   );
 
   if (emptyTransientDeckIds.size) {
     await OBR.scene.items.deleteItems([...emptyTransientDeckIds]).catch(() => {});
   }
 
-  const decks = deckItems.filter(
-    (item) => !emptyTransientDeckIds.has(item.id) && !isDeckDisplayCurrent(item, getDeckMetadata(item)),
+  const decks = normalizedDeckItems.filter(
+    ({ item, metadata }) =>
+      !emptyTransientDeckIds.has(item.id) && !isDeckDisplayCurrent(item, metadata),
   );
 
   if (!decks.length) {
     return 0;
   }
 
-  await OBR.scene.items.updateItems(decks, (draftItems) => {
+  await OBR.scene.items.updateItems(decks.map(({ item }) => item), (draftItems) => {
     for (const item of draftItems) {
-      const metadata = getDeckMetadata(item);
+      const metadata = getNormalizedDeck(item);
+
+      if (!metadata) {
+        continue;
+      }
+
       applyDeckDisplay(item, metadata);
-      setDeckMetadata(item, metadata);
     }
   });
 
@@ -458,17 +1146,20 @@ function getDrawPosition(deck, drawOffset, options) {
 
 function createDrawnCardItem(buildImage, operation) {
   const face = operation.drawnFace === "front" ? operation.drawnCard.front : operation.back;
-  const cardMetadata = createCardMetadata({
-    name: operation.drawnCard.name,
-    front: operation.drawnCard.front,
-    back: operation.back,
-    gridWidth: operation.gridWidth,
-    origin: operation.origin,
-    currentFace: operation.drawnFace,
-    mirrorBack: operation.mirrorBack,
-    sourceDeckId: operation.deckId,
-    sourceDeckName: operation.deckName,
-  });
+  const cardMetadata = {
+    ...cloneUnknownFields(operation.drawnCard, DECK_CARD_FIELDS),
+    ...createCardMetadata({
+      name: operation.drawnCard.name,
+      front: operation.drawnCard.front,
+      back: operation.back,
+      gridWidth: operation.gridWidth,
+      origin: operation.origin,
+      currentFace: operation.drawnFace,
+      mirrorBack: operation.mirrorBack,
+      sourceDeckId: operation.deckId,
+      sourceDeckName: operation.deckName,
+    }),
+  };
   const item = buildImage(
     createImageData(face),
     createGridData(face, operation.gridWidth, operation.origin),
@@ -527,9 +1218,9 @@ function logDrawFailure(stage, error, operation, item) {
 }
 
 function applyDrawToDeckDraft(deck, drawOffset, options) {
-  const metadata = getDeckMetadata(deck);
+  const metadata = requireNormalizedDeck(deck, "comprada");
 
-  if (!metadata?.cards.length) {
+  if (!metadata.cards.length) {
     return null;
   }
 
@@ -580,7 +1271,7 @@ async function rollbackDrawnCard(OBR, operation) {
 
   await OBR.scene.items.updateItems([operation.deckId], (draftItems) => {
     const deck = draftItems[0];
-    const metadata = deck ? getDeckMetadata(deck) : null;
+    const metadata = deck ? getNormalizedDeck(deck, "rollback de compra", true) : null;
 
     if (!metadata || !cardsMatch(metadata.cards, operation.remainingCards)) {
       return;
@@ -604,15 +1295,20 @@ async function drawSingleDeck(OBR, buildImage, deckId, drawOffset, options) {
   let operation = null;
   let drawnItem = null;
 
-  await OBR.scene.items.updateItems([deckId], (draftItems) => {
-    const deck = draftItems[0];
+  try {
+    await OBR.scene.items.updateItems([deckId], (draftItems) => {
+      const deck = draftItems[0];
 
-    if (!deck) {
-      return;
-    }
+      if (!deck) {
+        return;
+      }
 
-    operation = applyDrawToDeckDraft(deck, drawOffset, options);
-  });
+      operation = applyDrawToDeckDraft(deck, drawOffset, options);
+    });
+  } catch (error) {
+    logDrawFailure("validacao ou atualizacao da pilha", error, { deckId }, null);
+    throw error;
+  }
 
   if (!operation) {
     return { count: 0, deckId, deckDeleted: false };
@@ -747,9 +1443,14 @@ async function shuffleDecks(OBR, items) {
 
         await OBR.scene.items.updateItems([deckId], (draftItems) => {
           const item = draftItems[0];
-          const metadata = item ? getDeckMetadata(item) : null;
 
-          if (!metadata || metadata.cards.length <= 1) {
+          if (!item) {
+            return;
+          }
+
+          const metadata = requireNormalizedDeck(item, "embaralhada");
+
+          if (metadata.cards.length <= 1) {
             return;
           }
 
@@ -772,9 +1473,10 @@ async function shuffleDecks(OBR, items) {
 }
 
 async function flipDeckItems(OBR, items) {
-  const decks = getDeckItems(items).filter(
-    (item) => getDeckMetadata(item).cards.length > 0,
-  );
+  const decks = getDeckItems(items).filter((item) => {
+    const metadata = requireNormalizedDeck(item, "virada");
+    return metadata.cards.length > 0;
+  });
 
   if (!decks.length) {
     return 0;
@@ -782,7 +1484,7 @@ async function flipDeckItems(OBR, items) {
 
   await OBR.scene.items.updateItems(decks, (draftItems) => {
     for (const item of draftItems) {
-      const metadata = getDeckMetadata(item);
+      const metadata = requireNormalizedDeck(item, "virada");
       const nextMetadata = {
         ...metadata,
         currentFace: metadata.currentFace === "front" ? "back" : "front",
@@ -818,6 +1520,7 @@ async function getSelectedCardItems(OBR, fallbackSelection = []) {
 
 function createReturnedDeckCard(card, metadata) {
   const returnedCard = {
+    ...cloneUnknownFields(metadata, CARD_METADATA_FIELDS),
     name: metadata.name || card.name || "Carta",
     front: cloneSerializable(metadata.faces.front),
     back: cloneSerializable(metadata.faces.back),
@@ -880,7 +1583,7 @@ async function readDeckById(OBR, deckId, stage) {
 }
 
 function getReturnSourceDeckId(card) {
-  const metadata = getCardMetadata(card);
+  const metadata = getNormalizedCard(card);
   const deckId = metadata?.sourceDeckId;
 
   return typeof deckId === "string" && deckId.length ? deckId : "";
@@ -905,7 +1608,7 @@ async function rollbackReturnedCard(OBR, operation) {
 
   await OBR.scene.items.updateItems([operation.deckId], (draftItems) => {
     const deck = draftItems[0];
-    const metadata = deck ? getDeckMetadata(deck) : null;
+    const metadata = deck ? getNormalizedDeck(deck, "rollback de devolucao", true) : null;
 
     if (!metadata || !cardsMatch(metadata.cards, operation.postReturnCards)) {
       return;
@@ -928,7 +1631,7 @@ async function rollbackReturnedCard(OBR, operation) {
 async function applyReturnToDeck(OBR, cardSnapshot, deckId) {
   let operation = null;
   const cardId = cardSnapshot.id;
-  const cardMetadata = getCardMetadata(cardSnapshot);
+  const cardMetadata = getNormalizedCard(cardSnapshot, "devolucao", true);
 
   if (!cardMetadata) {
     return null;
@@ -936,7 +1639,7 @@ async function applyReturnToDeck(OBR, cardSnapshot, deckId) {
 
   await OBR.scene.items.updateItems([deckId], (draftItems) => {
     const deck = draftItems[0];
-    const metadata = deck ? getDeckMetadata(deck) : null;
+    const metadata = deck ? getNormalizedDeck(deck, "devolucao", true) : null;
 
     if (!metadata) {
       return;
@@ -1016,9 +1719,8 @@ async function returnSingleCardToDeck(OBR, cardId) {
     return { count: 0, deckId: null };
   }
 
-  if (!getCardMetadata(initialCard)) {
-    console.warn("A carta selecionada nao tem metadata valida para devolucao", { cardId });
-    return { count: 0, deckId: null };
+  if (!getNormalizedCard(initialCard, "devolucao", true)) {
+    throw new Error("Esta carta possui dados incompletos e nao pode ser devolvida.");
   }
 
   const sourceDeckId = getReturnSourceDeckId(initialCard);
@@ -1039,14 +1741,10 @@ async function returnSingleCardToDeck(OBR, cardId) {
       return { count: 0, deckId: null };
     }
 
-    const cardMetadata = getCardMetadata(currentCard);
+    const cardMetadata = getNormalizedCard(currentCard, "devolucao", true);
 
     if (!cardMetadata) {
-      console.warn("A carta deixou de ser devolvivel antes da devolucao", {
-        cardId,
-        deckId: sourceDeckId,
-      });
-      return { count: 0, deckId: null };
+      throw new Error("Esta carta possui dados incompletos e nao pode ser devolvida.");
     }
 
     const currentSourceDeckId = getReturnSourceDeckId(currentCard);
@@ -1062,12 +1760,16 @@ async function returnSingleCardToDeck(OBR, cardId) {
 
     const sourceDeck = await readDeckById(OBR, sourceDeckId, "antes da devolucao");
 
-    if (!sourceDeck || !getDeckMetadata(sourceDeck)) {
+    if (!sourceDeck) {
       console.warn("A pilha de origem nao existe ou nao e mais uma pilha", {
         cardId,
         deckId: sourceDeckId,
       });
       return { count: 0, deckId: null };
+    }
+
+    if (!getNormalizedDeck(sourceDeck, "devolucao", true)) {
+      throw new Error("A pilha de origem possui dados incompletos e nao aceita devolucao.");
     }
 
     let operation = null;
@@ -2150,11 +2852,24 @@ const DIVINITY_ORIGIN = {
 };
 const EPSILON = 0.0001;
 
+function hasValidDimensions(face) {
+  return (
+    Number.isFinite(face?.width) &&
+    face.width > 0 &&
+    Number.isFinite(face?.height) &&
+    face.height > 0
+  );
+}
+
 function isDivinityCategoryItem(item) {
   return item?.metadata?.[CARD_CATEGORY_KEY]?.category === "divinity";
 }
 
 function getDivinityGridData(face) {
+  if (!hasValidDimensions(face)) {
+    throw new TypeError("Nao foi possivel dimensionar a divindade sem imagem valida.");
+  }
+
   const dpi = Math.max(1, face.width / DIVINITY_GRID_WIDTH);
 
   return {
@@ -2164,6 +2879,10 @@ function getDivinityGridData(face) {
 }
 
 function getDivinityScale(face) {
+  if (!hasValidDimensions(face)) {
+    throw new TypeError("Nao foi possivel dimensionar a divindade sem imagem valida.");
+  }
+
   const dpi = Math.max(1, face.width / DIVINITY_GRID_WIDTH);
 
   return {
@@ -2177,7 +2896,7 @@ function almostEqual(left, right) {
 }
 
 function needsDivinitySizing(item, face = item?.image) {
-  if (!isDivinityCategoryItem(item) || !face?.width || !face?.height) {
+  if (!isDivinityCategoryItem(item) || !hasValidDimensions(face)) {
     return false;
   }
 
@@ -2194,7 +2913,7 @@ function needsDivinitySizing(item, face = item?.image) {
 }
 
 function applyDivinitySizing(item, face = item?.image) {
-  if (!isDivinityCategoryItem(item) || !face?.width || !face?.height) {
+  if (!isDivinityCategoryItem(item) || !hasValidDimensions(face)) {
     return false;
   }
 
@@ -2209,13 +2928,29 @@ function getDoubleSidedCards(items) {
 }
 
 function getPreferredFlipItems(items) {
-  const decks = getDeckItems(items).filter((item) => getDeckMetadata(item).cards.length > 0);
+  const decks = getDeckItems(items);
 
   if (decks.length) {
     return decks;
   }
 
   return getDoubleSidedCards(items);
+}
+
+function requireNormalizedCard(item) {
+  const result = normalizeCardMetadata(getCardMetadata(item), { item });
+
+  if (!result.ok) {
+    console.warn("Carta incompativel durante a virada", {
+      itemId: item?.id,
+      itemName: item?.name,
+      code: result.code,
+      face: result.face,
+    });
+    throw new Error("Esta carta possui dados incompletos e nao pode ser virada.");
+  }
+
+  return result.value;
 }
 
 async function getItemsSafely(OBR, itemIds = []) {
@@ -2239,9 +2974,11 @@ async function flipItems(OBR, items) {
   }
 
   if (itemsToFlip.length) {
+    itemsToFlip.forEach(requireNormalizedCard);
+
     await OBR.scene.items.updateItems(itemsToFlip, (draftItems) => {
       for (const item of draftItems) {
-        const metadata = getCardMetadata(item);
+        const metadata = requireNormalizedCard(item);
         const targetFace = nextFace(metadata.currentFace);
         const nextMetadata = {
           ...metadata,
@@ -5779,12 +6516,14 @@ function repairDeckMetadata(deckMetadata) {
   let cardsChanged = false;
   const cards = deckMetadata.cards.map((card) => {
     const front = repairImageData(card.front);
-    cardsChanged ||= front.changed;
+    const cardBack = card.back ? repairImageData(card.back) : null;
+    cardsChanged ||= front.changed || Boolean(cardBack?.changed);
 
-    return front.changed
+    return front.changed || cardBack?.changed
       ? {
           ...card,
-          front: front.value,
+          ...(front.changed ? { front: front.value } : {}),
+          ...(cardBack?.changed ? { back: cardBack.value } : {}),
         }
       : card;
   });
@@ -5820,7 +6559,7 @@ function getSceneAssetUrlRepair(item) {
 
   const cardMetadata = getCardMetadata(item);
 
-  if (cardMetadata) {
+  if (normalizeCardMetadata(cardMetadata, { item }).ok) {
     const cardRepair = repairCardMetadata(cardMetadata);
 
     if (cardRepair.changed) {
@@ -5831,7 +6570,7 @@ function getSceneAssetUrlRepair(item) {
 
   const deckMetadata = getDeckMetadata(item);
 
-  if (deckMetadata) {
+  if (normalizeDeckMetadata(deckMetadata, { item }).ok) {
     const deckRepair = repairDeckMetadata(deckMetadata);
 
     if (deckRepair.changed) {

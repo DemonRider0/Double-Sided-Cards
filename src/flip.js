@@ -4,9 +4,9 @@ import {
   createImageData,
   faceLabel,
   getCardMetadata,
-  getDeckMetadata,
   isCardMetadata,
   nextFace,
+  normalizeCardMetadata,
   setCardMetadata,
   shouldMirrorBackFace,
 } from "./card-data.js";
@@ -18,13 +18,29 @@ export function getDoubleSidedCards(items) {
 }
 
 function getPreferredFlipItems(items) {
-  const decks = getDeckItems(items).filter((item) => getDeckMetadata(item).cards.length > 0);
+  const decks = getDeckItems(items);
 
   if (decks.length) {
     return decks;
   }
 
   return getDoubleSidedCards(items);
+}
+
+function requireNormalizedCard(item) {
+  const result = normalizeCardMetadata(getCardMetadata(item), { item });
+
+  if (!result.ok) {
+    console.warn("Carta incompativel durante a virada", {
+      itemId: item?.id,
+      itemName: item?.name,
+      code: result.code,
+      face: result.face,
+    });
+    throw new Error("Esta carta possui dados incompletos e nao pode ser virada.");
+  }
+
+  return result.value;
 }
 
 async function getItemsSafely(OBR, itemIds = []) {
@@ -48,9 +64,11 @@ export async function flipItems(OBR, items) {
   }
 
   if (itemsToFlip.length) {
+    itemsToFlip.forEach(requireNormalizedCard);
+
     await OBR.scene.items.updateItems(itemsToFlip, (draftItems) => {
       for (const item of draftItems) {
-        const metadata = getCardMetadata(item);
+        const metadata = requireNormalizedCard(item);
         const targetFace = nextFace(metadata.currentFace);
         const nextMetadata = {
           ...metadata,

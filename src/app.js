@@ -11,6 +11,8 @@ import {
   getCardMetadata,
   getDeckMetadata,
   getMimeFromUrl,
+  normalizeCardMetadata,
+  normalizeDeckMetadata,
   setCardMetadata,
   setDeckMetadata,
   shouldMirrorBackFace,
@@ -656,24 +658,31 @@ function imageLooksTransparent(image) {
 
 async function repairSceneMetadata() {
   const items = await obr.scene.items.getItems();
-  const repairableItems = items.filter((item) => getCardMetadata(item) || getDeckMetadata(item));
-  const stats = repairableItems.reduce(
-    (result, item) => {
-      if (getCardMetadata(item)) {
-        result.cards += 1;
-      } else if (getDeckMetadata(item)) {
-        result.decks += 1;
-      }
+  const repairableItems = [];
+  const stats = { cards: 0, decks: 0 };
 
-      return result;
-    },
-    { cards: 0, decks: 0 },
-  );
+  for (const item of items) {
+    const card = normalizeCardMetadata(getCardMetadata(item), { item });
+
+    if (card.ok) {
+      repairableItems.push(item);
+      stats.cards += 1;
+      continue;
+    }
+
+    const deck = normalizeDeckMetadata(getDeckMetadata(item), { item });
+
+    if (deck.ok) {
+      repairableItems.push(item);
+      stats.decks += 1;
+    }
+  }
 
   if (repairableItems.length) {
     await obr.scene.items.updateItems(repairableItems, (draftItems) => {
       for (const item of draftItems) {
-        const cardMetadata = getCardMetadata(item);
+        const cardResult = normalizeCardMetadata(getCardMetadata(item), { item });
+        const cardMetadata = cardResult.ok ? cardResult.value : null;
 
         if (cardMetadata) {
           const currentFace = cardMetadata.currentFace === "back" ? "back" : "front";
@@ -693,7 +702,8 @@ async function repairSceneMetadata() {
           continue;
         }
 
-        const deckMetadata = getDeckMetadata(item);
+        const deckResult = normalizeDeckMetadata(getDeckMetadata(item), { item });
+        const deckMetadata = deckResult.ok ? deckResult.value : null;
 
         if (deckMetadata) {
           applyDeckDisplay(item, deckMetadata);
@@ -1106,7 +1116,8 @@ function migrateImageItem(item, publicBaseUrl, stats, remoteCache) {
 }
 
 function migrateCardItem(item, publicBaseUrl, stats, remoteCache) {
-  const metadata = getCardMetadata(item);
+  const result = normalizeCardMetadata(getCardMetadata(item), { item });
+  const metadata = result.ok ? result.value : null;
 
   if (!metadata) {
     return false;
@@ -1149,7 +1160,8 @@ function migrateCardItem(item, publicBaseUrl, stats, remoteCache) {
 }
 
 function migrateDeckItem(item, publicBaseUrl, stats, remoteCache) {
-  const metadata = getDeckMetadata(item);
+  const result = normalizeDeckMetadata(getDeckMetadata(item), { item });
+  const metadata = result.ok ? result.value : null;
 
   if (!metadata) {
     return false;
@@ -1159,6 +1171,9 @@ function migrateDeckItem(item, publicBaseUrl, stats, remoteCache) {
   const nextCards = metadata.cards.map((card) => ({
     ...card,
     front: migrateFaceUrl(card.front, publicBaseUrl, stats, remoteCache),
+    ...(card.back
+      ? { back: migrateFaceUrl(card.back, publicBaseUrl, stats, remoteCache) }
+      : {}),
   }));
   const nextMetadata = {
     ...metadata,
