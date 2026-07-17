@@ -2,6 +2,70 @@
 
 Este changelog registra alteracoes realizadas com auxilio de IA. Ele deve ser atualizado em futuras implementacoes, auditorias ou documentacoes.
 
+## 2026-07-17 - Encerramento formal do plano S-01 a S-20
+
+### Sessao
+
+Fechamento documental das Etapas 1 a 8 depois da aprovacao manual da Etapa 8
+pelo mantenedor no Owlbear Rodeo.
+
+### Validacao manual confirmada
+
+- Carta e pilha antigas.
+- Virada pelo botao e por `V`.
+- Compra pelo botao e por `C`.
+- Devolucao ao fundo por `R`.
+- Embaralhamento pelo botao e por `E`.
+- Frente, verso, dimensoes, grids, cartas espelhadas e divindades.
+- Pilhas temporarias e pilha de missao.
+- Sincronizacao de cena e migracao de links locais.
+- Restauracao do Tutorial e da Missao 0.5.
+- Duas contas, desktop e mobile.
+- Recusa de metadata invalida sem perda de dados.
+- Regressao das Etapas 1 a 7.
+
+### Situacao final
+
+- S-20 foi validado no Owlbear.
+- A Etapa 8 passou de `Em teste` para `Concluido`.
+- As Etapas 1 a 8 estao concluidas.
+- O plano oficial S-01 a S-20 esta encerrado.
+- A versao final aprovada permanece `0.2.69`.
+- Painel e background permanecem em `v=69`.
+- Nenhuma alteracao funcional foi realizada nesta sessao.
+- Nenhum incremento de versao ou cache foi realizado.
+- Nenhuma nova etapa ou funcionalidade foi iniciada.
+
+### Riscos residuais
+
+- O Owlbear SDK nao oferece transacao distribuida completa.
+- Locks e filas em memoria atuam por instancia e nao eliminam toda janela de
+  corrida entre contas.
+- O marcador de restauracao e consultivo.
+- Rollbacks condicionais podem ser recusados para preservar mudancas
+  posteriores.
+- Metadata sem dados essenciais e sem fallback seguro e preservada, mas a
+  operacao e recusada.
+- Nao existe migracao automatica em massa.
+- Cache busting continua manual.
+- Testes integrados continuam dependendo do Owlbear, de duas contas e de
+  mobile.
+- Assets grandes continuam sendo uma area separada de performance.
+
+### Arquivos modificados
+
+- `docs/IMPLEMENTATION_PLAN.md`
+- `docs/CHANGELOG_AI.md`
+- `docs/AI_CONTEXT.md`
+- `docs/AUDIT_HISTORY.md`
+- `docs/DESIGN_DECISIONS.md`
+
+### Observacoes
+
+- A alteracao foi exclusivamente documental; nenhum build foi necessario.
+- O historico original das auditorias foi preservado e recebeu uma consolidacao
+  datada com a situacao final.
+
 ## 2026-07-17 - Etapa 8: compatibilidade e validadores
 
 ### Sessao

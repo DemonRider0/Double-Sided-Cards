@@ -16,9 +16,13 @@ Este documento e a fonte principal de contexto tecnico do projeto. Uma IA nova o
 
 ## Estado atual das correcoes
 
-- Etapas 1 a 7 concluidas e aprovadas manualmente no Owlbear.
-- Etapa 8 implementada e em teste, cobrindo S-20.
+- Etapas 1 a 8 concluidas e aprovadas manualmente no Owlbear.
+- O plano oficial de correcoes S-01 a S-20 esta encerrado.
 - Versao publica atual: `0.2.69`; caches do painel e do background: `v=69`.
+- Metadata antiga e incompleta e normalizada conservadoramente em memoria
+  durante a leitura, sem migracao automatica em massa.
+- Metadata ambigua ou irrecuperavel e preservada. Operacoes que dependeriam de
+  inventar um valor essencial sem evidencia segura sao recusadas.
 - Contencoes de cor e slot sao locais a cada instancia. Releituras e
   reconciliacoes reduzem corridas entre contas, mas o SDK nao oferece transacao
   distribuida completa entre metadata de jogador, metadata de cena e itens.
@@ -259,6 +263,22 @@ possui compare-and-swap para metadata da cena.
 - Cenas grandes e assets pesados impactam mobile.
 - GitHub Pages e estatico: nao grava arquivos novos em runtime.
 - O painel e o background rodam em contextos separados e se comunicam por SDK/broadcast.
+
+## Riscos residuais do plano encerrado
+
+O encerramento de S-01 a S-20 registra que as correcoes foram implementadas e
+validadas, nao que o ambiente distribuido se tornou infalivel:
+
+1. O Owlbear SDK nao oferece transacao distribuida completa.
+2. Duas contas exatamente simultaneas ainda podem encontrar pequenas janelas de corrida.
+3. Locks e filas em memoria atuam por instancia.
+4. O marcador de restauracao reduz conflitos, mas e consultivo.
+5. Rollbacks sao condicionais e podem ser recusados para preservar alteracoes posteriores.
+6. Metadata sem dados essenciais e sem fallback seguro e preservada, mas a operacao e recusada.
+7. Nao existe migracao automatica em massa.
+8. Cache busting continua manual.
+9. Testes integrados continuam dependendo do Owlbear, de duas contas e de mobile.
+10. Assets grandes continuam sendo uma area separada de performance.
 
 ## Compatibilidade
 

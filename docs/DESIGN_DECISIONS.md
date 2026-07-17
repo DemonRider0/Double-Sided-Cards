@@ -181,3 +181,15 @@ Este documento registra decisoes tecnicas importantes. Uma decisao so deve ser a
 | Vantagens | Facilita manutencao e auditoria. |
 | Desvantagens | Requer atualizacao constante. |
 | Nao alterar quando | A documentacao for usada como contexto oficial. |
+
+## 16. Normalizacao conservadora em leitura
+
+| Campo | Conteudo |
+| --- | --- |
+| Problema | Cenas antigas podem conter metadata incompleta, campos desconhecidos ou valores que nao permitem reconstruir com seguranca o estado operacional. |
+| Decisao | Normalizar copias em memoria durante a leitura, preservar campos desconhecidos e recusar operacoes quando um valor essencial nao puder ser inferido com seguranca. |
+| Justificativa tecnica | A extensao precisa aceitar dados historicos sem regravar toda a cena, inventar estado ou apagar informacoes que pertencam a versoes futuras ou outros fluxos. |
+| Alternativas consideradas | Migracao automatica em massa, defaults gravados ao abrir a cena, limpeza de campos desconhecidos e aceitacao permissiva de valores ambiguos. |
+| Vantagens | Preserva compatibilidade, evita mutacao silenciosa e reduz risco de perda de cartas, pilhas ou metadata. |
+| Desvantagens | Metadata irrecuperavel permanece armazenada e certas operacoes sao recusadas ate existir uma correcao explicita e segura. |
+| Nao alterar quando | Nao houver migracao versionada, testada e explicitamente autorizada por DemonRider. |

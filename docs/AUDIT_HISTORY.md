@@ -10,7 +10,7 @@ A auditoria geral avaliou performance, arquitetura, codigo, seguranca, boas prat
 
 ### Pontos gerais encontrados
 
-| ID | Descricao | Impacto | Prioridade | Situacao atual |
+| ID | Descricao | Impacto | Prioridade | Situacao em 2026-07-13 |
 | --- | --- | --- | --- | --- |
 | G-01 | `src/app.js` concentra muitas responsabilidades de UI, assets, presets e acoes. | Medio | Media | Pendente |
 | G-02 | `assets/local-assets/` contem muitas imagens pesadas e duplicadas. | Alto em mobile/Git | Alta | Parcialmente tratado em otimizacoes anteriores, ainda requer limpeza cuidadosa |
@@ -40,7 +40,7 @@ A auditoria especializada analisou bugs reais de uso no Owlbear:
 
 ### Problemas encontrados
 
-| ID | Descricao | Impacto | Prioridade | Situacao atual |
+| ID | Descricao | Impacto | Prioridade | Situacao em 2026-07-13 |
 | --- | --- | --- | --- | --- |
 | S-01 | Compra concorrente pode duplicar a carta do topo se dois fluxos usam metadata antiga. | Alto para jogadores; alto para mestre | Critica | Pendente |
 | S-02 | Compra pode remover carta da pilha e falhar ao adicionar a carta sacada. | Alto | Critica | Pendente |
@@ -63,16 +63,65 @@ A auditoria especializada analisou bugs reais de uso no Owlbear:
 | S-19 | Atualizacao frequente de `Jogadores e cores` pode pesar no mobile. | Baixo/medio | Media | Pendente |
 | S-20 | Validadores aceitam metadata antiga/incompleta, causando grid/dimensoes invalidas. | Medio | Alta | Pendente |
 
+## 2026-07-17 - Encerramento do plano de correcoes S-01 a S-20
+
+As situacoes `Pendente` acima registram o estado original da auditoria em 13 de
+julho de 2026. Depois da implementacao em oito etapas e da aprovacao dos testes
+manuais no Owlbear Rodeo, a situacao final e:
+
+| ID | Etapa responsavel | Situacao final | Observacao ou risco residual |
+| --- | --- | --- | --- |
+| S-01 | Etapa 3 | Concluido e validado manualmente | Filas e releituras mitigam compras concorrentes; nao existe atomicidade absoluta entre contas. |
+| S-02 | Etapa 3 | Concluido e validado manualmente | Criacao da carta e rollback condicional preservam a pilha; alteracoes posteriores nao sao sobrescritas. |
+| S-03 | Etapa 4 | Concluido e validado manualmente | Rollback condicional reduz duplicacao; falhas concorrentes respeitam o estado mais recente. |
+| S-04 | Etapa 4 | Concluido e validado manualmente | Trava por carta e releituras mitigam devolucao dupla; a trava atua por instancia. |
+| S-05 | Etapas 3 e 4 | Concluido e validado manualmente | Compra, devolucao e embaralhamento compartilham coordenacao local; nao ha transacao distribuida entre contas. |
+| S-06 | Etapa 1 | Concluido e validado manualmente | A selecao atual prevalece e fallback antigo nao age sobre selecao atual valida. |
+| S-07 | Etapa 5 | Concluido e validado manualmente | Criacao e reconciliacao preservam cada carta uma vez; simultaneidade entre contas mantem janela residual do SDK. |
+| S-08 | Etapa 5 | Concluido e validado manualmente | Versos e dados individuais das cartas sao preservados na pilha de missao. |
+| S-09 | Etapa 7 | Concluido e validado manualmente | Ordem segura, verificacao final e rollback condicional reduzem cenas parciais. |
+| S-10 | Etapa 7 | Concluido e validado manualmente | Marcador de restauracao coordena contas, mas e consultivo e nao oferece compare-and-swap. |
+| S-11 | Etapa 6 | Concluido e validado manualmente | Revalidacao reduz disputa de cor; locks locais nao garantem exclusao absoluta entre contas. |
+| S-12 | Etapa 6 | Concluido e validado manualmente | Reservas e releituras protegem slots; permanece uma pequena janela distribuida. |
+| S-13 | Etapa 6 | Concluido e validado manualmente | `Devolver origem` usa reconciliacao localizada e preserva mudancas posteriores. |
+| S-14 | Etapa 6 | Concluido e validado manualmente | Marcacoes validam valores e preservam campos desconhecidos de metadata. |
+| S-15 | Etapa 1 | Concluido e validado manualmente | Metadata explicita e sinais inequivocos substituem classificacao ambigua por substring. |
+| S-16 | Etapa 1 | Concluido e validado manualmente | Auto-place exige exatamente um item elegivel. |
+| S-17 | Etapa 2 | Concluido e validado manualmente | Inspecao de URL e pura; mutacao ocorre somente pelo fluxo oficial de atualizacao. |
+| S-18 | Etapa 2 | Concluido e validado manualmente | Solicitacoes de registro sao agrupadas sem bloquear recuperacao apos F5 ou falha. |
+| S-19 | Etapa 1 | Concluido e validado manualmente | Atualizacao por eventos com debounce substitui polling frequente. |
+| S-20 | Etapa 8 | Concluido e validado manualmente | Normalizacao conservadora preserva dados; metadata sem fallback seguro tem a operacao recusada. |
+
+### Consolidacao dos problemas gerais G-01 a G-10
+
+| ID | Situacao consolidada | Evidencia ou risco residual |
+| --- | --- | --- |
+| G-01 | Pendente | `src/app.js` ainda concentra UI, assets, presets e acoes. |
+| G-02 | Parcial | Otimizacoes anteriores reduziram parte do impacto, mas assets grandes continuam exigindo trabalho especifico. |
+| G-03 | Pendente | Cache busting continua manual. |
+| G-04 | Tratado | A Etapa 8 introduziu normalizacao conservadora de metadata em leitura. |
+| G-05 | Amplamente mitigado | Etapas 3, 4, 5, 6 e 7 adicionaram filas, releituras, verificacoes e rollbacks; o SDK continua sem transacoes distribuidas completas. |
+| G-06 | Concluido | A documentacao permanente em `docs/` e o guia de contribuicao registram arquitetura, regras e historico. |
+| G-07 | Mitigado | `PROJECT_RULES.md` e a documentacao preservam as diferencas entre as versoes publica e local. |
+| G-08 | Tratado | A Etapa 7 tornou a restauracao mais segura; o marcador permanece consultivo pelas limitacoes do SDK. |
+| G-09 | Tratado | A Etapa 2 agrupou registros e preservou a recuperacao de comandos. |
+| G-10 | Pendente/estrutural | Testes integrados ainda dependem principalmente do Owlbear real, de duas contas e de mobile. |
+
 ## Situacao consolidada
 
 | Categoria | Status geral |
 | --- | --- |
-| Funcionalidades principais | Operacionais, mas com riscos conhecidos em concorrencia. |
-| Mobile | Prioritario; ainda sensivel a peso de assets e chamadas repetidas. |
-| Multiplayer | Funcional em uso normal, mas falta protecao forte contra corridas simultaneas. |
+| Funcionalidades principais | S-01 a S-20 concluidos e validados manualmente; riscos residuais permanecem documentados. |
+| Mobile | Validado no fechamento do plano; ainda sensivel ao peso de assets grandes. |
+| Multiplayer | Validado em uso normal e com duas contas; sem atomicidade distribuida absoluta no SDK. |
 | Documentacao | Consolidada na pasta `docs/`; deve ser mantida junto com futuras mudancas. |
 | Build/publicacao | Funciona por GitHub Pages, com cache busting manual. |
 
 ## Observacao importante
 
-Nem todo item pendente deve ser corrigido imediatamente. Alteracoes em pilhas, restauracao de mapa e slots sao de alto risco e devem seguir `docs/IMPLEMENTATION_PLAN.md`.
+O encerramento de S-01 a S-20 nao torna o sistema infalivel. Locks e filas em
+memoria atuam por instancia; o marcador de restauracao e consultivo; rollbacks
+podem ser recusados para preservar mudancas posteriores; metadata sem fallback
+seguro nao e inventada; nao existe migracao automatica em massa; cache busting
+continua manual; testes integrados dependem do Owlbear; e assets grandes
+continuam sendo uma area separada de performance.
