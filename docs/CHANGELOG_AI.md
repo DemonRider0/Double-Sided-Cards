@@ -2,6 +2,91 @@
 
 Este changelog registra alteracoes realizadas com auxilio de IA. Ele deve ser atualizado em futuras implementacoes, auditorias ou documentacoes.
 
+## 2026-07-13 - Etapa 4: devolucao robusta
+
+### Sessao
+
+Implementacao da Etapa 4 do plano oficial de correcoes, limitada a S-03, S-04 e a parte de S-05 diretamente relacionada a coordenacao local entre devolucao, compra e embaralhamento da mesma pilha.
+
+O mantenedor informou que os testes manuais da Etapa 3 foram aprovados no Owlbear Rodeo apos a correcao da regressao de proxies revogados. Por isso, `docs/IMPLEMENTATION_PLAN.md` foi atualizado para marcar a Etapa 3 como `Concluido`.
+
+### Arquivos modificados
+
+- `src/deck.js`
+- `src/background.js`
+- `src/app.js`
+- `manifest.json`
+- `index.html`
+- `background.html`
+- `README.md`
+- `docs/AI_CONTEXT.md`
+- `docs/IMPLEMENTATION_PLAN.md`
+- `docs/CHANGELOG_AI.md`
+- `dist/app.js`
+- `dist/background.js`
+
+### Diagnostico
+
+- S-03: a devolucao atualizava a pilha e depois apagava a carta solta. Se `deleteItems` falhasse, a carta ficava duplicada: uma copia no fundo da pilha e outra ainda na cena.
+- S-04: chamadas repetidas da mesma carta podiam reutilizar snapshots antigos e adicionar a mesma carta mais de uma vez.
+- S-05 parcial: devolucao nao participava da fila local por pilha criada na Etapa 3, permitindo concorrencia local com compra e embaralhamento.
+
+### Solucao aplicada
+
+- A devolucao passou a usar uma trava local por ID de carta.
+- Depois da trava da carta, o fluxo rele a carta, valida a pilha de origem e entra na fila local da pilha.
+- Dentro da fila da pilha, a carta e a pilha sao relidas antes da mutacao.
+- A carta devolvida e convertida em uma entrada serializavel no formato atual da pilha e adicionada ao fundo.
+- Se `deleteItems` falhar, a extensao rele a carta e a pilha.
+- Se a carta ja nao existir, a devolucao e considerada funcionalmente concluida.
+- Se a carta ainda existir, o rollback remove a entrada adicionada somente quando a pilha continua exatamente no estado pos-devolucao esperado.
+- Se a pilha mudou depois da devolucao, o rollback e recusado para nao sobrescrever compra, embaralhamento ou outra devolucao posterior.
+
+### Ordem das travas
+
+1. Trava local por carta.
+2. Fila local por pilha de origem.
+
+Compra e embaralhamento continuam usando apenas a fila da pilha. A devolucao entra nessa mesma fila depois de identificar a origem da carta.
+
+### Riscos e limitacoes
+
+- A trava por carta e local ao contexto JavaScript. Ela reduz duplo clique e chamadas repetidas no mesmo bundle, mas nao cria uma transacao distribuida entre duas contas.
+- Painel e background rodam em contextos separados; sem lock persistente ou schema novo, nao ha garantia absoluta contra corridas entre contextos diferentes acionados no mesmo instante.
+- Cartas sem `sourceDeckId` nao sao devolvidas automaticamente para uma pilha selecionada. Isso evita devolver para pilha errada, mas exige que a carta tenha origem registrada.
+- Pilhas temporarias ja apagadas ao esvaziar continuam nao sendo recriadas nesta etapa.
+
+### Testes executados
+
+- Simulacao local com `produceWithPatches` para devolucao simples.
+- Simulacao de duplo acionamento local da mesma carta.
+- Simulacao de duas cartas diferentes para a mesma pilha.
+- Simulacao de falha em `updateItems`.
+- Simulacao de falha em `deleteItems` com carta ainda existente e rollback seguro.
+- Simulacao de falha em `deleteItems` com carta ja ausente.
+- Simulacao de pilha alterada antes do rollback, com rollback recusado.
+- Simulacao de pilha de origem ausente.
+- Simulacao de devolucao concorrendo localmente com compra e embaralhamento.
+- `node --check` em `src/deck.js`.
+
+### Testes manuais pendentes
+
+- Teste minimo: comprar uma carta, devolver pelo botao, confirmar que some da cena, contador aumenta em um, comprar ate reencontra-la no fundo e repetir usando `R`.
+- Devolver pelo botao, menu de contexto e atalho `R`.
+- Pressionar `R` varias vezes rapidamente.
+- Devolver varias cartas em sequencia e rapidamente.
+- Testar devolucao junto de compra e embaralhamento.
+- Testar duas contas.
+- Testar mobile.
+- Testar origem ausente com uma pilha temporaria ja apagada, se houver exemplo seguro.
+
+### Observacoes
+
+- A Etapa 4 foi marcada como `Em teste`, nao como concluida.
+- A Etapa 5 nao foi iniciada.
+- S-07 e S-08 nao foram implementados.
+- A versao/cache publico foi atualizado de `0.2.64`/`v=64` para `0.2.65`/`v=65`.
+
 ## 2026-07-13 - Correcao da regressao de compra da Etapa 3
 
 ### Sessao

@@ -2332,7 +2332,7 @@ async function init() {
           count,
           "",
           () => "",
-          "Selecione uma carta comprada e uma pilha alvo.",
+          "Selecione uma carta comprada com pilha de origem.",
         );
         return;
       }
@@ -2458,7 +2458,7 @@ async function init() {
   try {
     const loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=64").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=65").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
     obr = loaded.OBR;

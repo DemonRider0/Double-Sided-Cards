@@ -298,6 +298,7 @@ function getCardItems(items) {
 
 const deckOperationQueues = new Map();
 const activeDeckOperationIds = new Set();
+const cardReturnQueues = new Map();
 
 function cloneSerializable(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -319,6 +320,10 @@ function uniqueDeckIds(items) {
   return [...new Set(getDeckItems(items).map((item) => item.id))];
 }
 
+function uniqueCardIds(items) {
+  return [...new Set(getCardItems(items).map((item) => item.id))];
+}
+
 async function withDeckOperationLock(deckId, operation) {
   const previousOperation = deckOperationQueues.get(deckId) || Promise.resolve();
   const queuedOperation = previousOperation.catch(() => {}).then(async () => {
@@ -337,6 +342,20 @@ async function withDeckOperationLock(deckId, operation) {
   return queuedOperation.finally(() => {
     if (deckOperationQueues.get(deckId) === storedOperation) {
       deckOperationQueues.delete(deckId);
+    }
+  });
+}
+
+async function withCardReturnLock(cardId, operation) {
+  const previousOperation = cardReturnQueues.get(cardId) || Promise.resolve();
+  const queuedOperation = previousOperation.catch(() => {}).then(operation);
+  const storedOperation = queuedOperation.catch(() => {});
+
+  cardReturnQueues.set(cardId, storedOperation);
+
+  return queuedOperation.finally(() => {
+    if (cardReturnQueues.get(cardId) === storedOperation) {
+      cardReturnQueues.delete(cardId);
     }
   });
 }
@@ -773,78 +792,288 @@ async function getSelectedCardItems(OBR, fallbackSelection = []) {
   }
 }
 
-async function getTargetDeck(OBR, cards, fallbackDeckSelection = []) {
-  const sourceDeckIds = [
-    ...new Set(
-      cards
-        .map((item) => getCardMetadata(item)?.sourceDeckId)
-        .filter((deckId) => typeof deckId === "string" && deckId.length),
-    ),
-  ];
+function createReturnedDeckCard(card, metadata) {
+  return {
+    name: metadata.name || card.name || "Carta",
+    front: cloneSerializable(metadata.faces.front),
+  };
+}
 
-  if (sourceDeckIds.length) {
-    const sourceDecks = await OBR.scene.items
-      .getItems(sourceDeckIds)
-      .then(getDeckItems)
-      .catch(() => []);
-    if (sourceDecks.length) {
-      return sourceDecks[0];
+function summarizeReturnOperationForLog(operation) {
+  return {
+    cardId: operation?.cardId,
+    cardName: operation?.returnedCard?.name,
+    deckId: operation?.deckId,
+    deckName: operation?.deckName,
+    preCount: operation?.preReturnCards?.length,
+    postCount: operation?.postReturnCards?.length,
+  };
+}
+
+function logReturnFailure(stage, error, operation, extra = {}) {
+  console.warn(`Falha ao devolver carta durante ${stage}`, {
+    errorName: error?.name,
+    errorMessage: error?.message,
+    ...summarizeReturnOperationForLog(operation),
+    ...extra,
+  }, error);
+}
+
+async function readCardById(OBR, cardId, stage) {
+  try {
+    const [item] = await OBR.scene.items.getItems([cardId]);
+    return item || null;
+  } catch (error) {
+    logReturnFailure(`releitura da carta (${stage})`, error, { cardId });
+    throw new Error("Nao consegui reler a carta para devolver.");
+  }
+}
+
+async function readDeckById(OBR, deckId, stage) {
+  try {
+    const [item] = await OBR.scene.items.getItems([deckId]);
+    return item || null;
+  } catch (error) {
+    logReturnFailure(`releitura da pilha (${stage})`, error, { deckId });
+    throw new Error("Nao consegui reler a pilha de origem.");
+  }
+}
+
+function getReturnSourceDeckId(card) {
+  const metadata = getCardMetadata(card);
+  const deckId = metadata?.sourceDeckId;
+
+  return typeof deckId === "string" && deckId.length ? deckId : "";
+}
+
+function buildReturnOperation(card, deck, metadata, returnedCard) {
+  const preReturnCards = metadata.cards.map(cloneDeckCard);
+  const postReturnCards = [...preReturnCards, cloneDeckCard(returnedCard)];
+
+  return {
+    cardId: card.id,
+    deckId: deck.id,
+    deckName: metadata.name,
+    returnedCard: cloneDeckCard(returnedCard),
+    preReturnCards,
+    postReturnCards,
+  };
+}
+
+async function rollbackReturnedCard(OBR, operation) {
+  let restored = false;
+
+  await OBR.scene.items.updateItems([operation.deckId], (draftItems) => {
+    const deck = draftItems[0];
+    const metadata = deck ? getDeckMetadata(deck) : null;
+
+    if (!metadata || !cardsMatch(metadata.cards, operation.postReturnCards)) {
+      return;
     }
+
+    const nextMetadata = {
+      ...metadata,
+      cards: operation.preReturnCards.map(cloneDeckCard),
+      currentFace: currentDeckFace(metadata),
+    };
+
+    applyDeckDisplay(deck, nextMetadata);
+    setDeckMetadata(deck, nextMetadata);
+    restored = true;
+  });
+
+  return restored;
+}
+
+async function applyReturnToDeck(OBR, cardSnapshot, deckId) {
+  let operation = null;
+  const cardId = cardSnapshot.id;
+  const cardMetadata = getCardMetadata(cardSnapshot);
+
+  if (!cardMetadata) {
+    return null;
   }
 
-  if (fallbackDeckSelection.length) {
-    const fallbackDecks = await OBR.scene.items
-      .getItems(fallbackDeckSelection)
-      .then(getDeckItems)
-      .catch(() => []);
-    if (fallbackDecks.length) {
-      return fallbackDecks[0];
+  await OBR.scene.items.updateItems([deckId], (draftItems) => {
+    const deck = draftItems[0];
+    const metadata = deck ? getDeckMetadata(deck) : null;
+
+    if (!metadata) {
+      return;
     }
+
+    const returnedCard = createReturnedDeckCard(cardSnapshot, cardMetadata);
+    operation = buildReturnOperation(cardSnapshot, deck, metadata, returnedCard);
+    const nextMetadata = {
+      ...metadata,
+      cards: operation.postReturnCards.map(cloneDeckCard),
+      currentFace: currentDeckFace(metadata),
+    };
+
+    applyDeckDisplay(deck, nextMetadata);
+    setDeckMetadata(deck, nextMetadata);
+  });
+
+  if (!operation) {
+    console.warn("Nao encontrei a pilha de origem durante a devolucao", { cardId, deckId });
+    return null;
   }
 
-  return null;
+  return operation;
+}
+
+async function deleteReturnedCardOrReconcile(OBR, operation) {
+  try {
+    await OBR.scene.items.deleteItems([operation.cardId]);
+    return true;
+  } catch (error) {
+    logReturnFailure("deleteItems", error, operation);
+  }
+
+  const currentCard = await readCardById(OBR, operation.cardId, "apos falha de exclusao");
+
+  if (!currentCard) {
+    console.warn("deleteItems falhou, mas a carta ja nao existe na cena", {
+      cardId: operation.cardId,
+      deckId: operation.deckId,
+    });
+    return true;
+  }
+
+  let rollbackSucceeded = false;
+
+  try {
+    rollbackSucceeded = await rollbackReturnedCard(OBR, operation);
+  } catch (rollbackError) {
+    logReturnFailure("rollback", rollbackError, operation);
+    throw new Error(
+      "Nao consegui apagar a carta e tambem nao consegui restaurar a pilha automaticamente.",
+    );
+  }
+
+  if (rollbackSucceeded) {
+    console.warn("Rollback seguro realizado apos falha ao apagar carta devolvida", {
+      cardId: operation.cardId,
+      deckId: operation.deckId,
+    });
+    throw new Error("Nao consegui apagar a carta; a pilha foi restaurada.");
+  }
+
+  console.warn("Rollback recusado porque a pilha mudou apos a devolucao", {
+    cardId: operation.cardId,
+    deckId: operation.deckId,
+  });
+  throw new Error(
+    "Nao consegui apagar a carta; a pilha mudou depois da devolucao e nao foi alterada de novo.",
+  );
+}
+
+async function returnSingleCardToDeck(OBR, cardId) {
+  const initialCard = await readCardById(OBR, cardId, "inicial");
+
+  if (!initialCard) {
+    console.warn("A carta selecionada ja nao existe na cena", { cardId });
+    return { count: 0, deckId: null };
+  }
+
+  if (!getCardMetadata(initialCard)) {
+    console.warn("A carta selecionada nao tem metadata valida para devolucao", { cardId });
+    return { count: 0, deckId: null };
+  }
+
+  const sourceDeckId = getReturnSourceDeckId(initialCard);
+
+  if (!sourceDeckId) {
+    console.warn("A carta selecionada nao possui pilha de origem", { cardId });
+    return { count: 0, deckId: null };
+  }
+
+  return withDeckOperationLock(sourceDeckId, async () => {
+    const currentCard = await readCardById(OBR, cardId, "dentro da fila da pilha");
+
+    if (!currentCard) {
+      console.warn("A carta desapareceu antes da devolucao ser aplicada", {
+        cardId,
+        deckId: sourceDeckId,
+      });
+      return { count: 0, deckId: null };
+    }
+
+    const cardMetadata = getCardMetadata(currentCard);
+
+    if (!cardMetadata) {
+      console.warn("A carta deixou de ser devolvivel antes da devolucao", {
+        cardId,
+        deckId: sourceDeckId,
+      });
+      return { count: 0, deckId: null };
+    }
+
+    const currentSourceDeckId = getReturnSourceDeckId(currentCard);
+
+    if (currentSourceDeckId !== sourceDeckId) {
+      console.warn("A pilha de origem da carta mudou antes da devolucao", {
+        cardId,
+        originalDeckId: sourceDeckId,
+        currentDeckId: currentSourceDeckId,
+      });
+      return { count: 0, deckId: null };
+    }
+
+    const sourceDeck = await readDeckById(OBR, sourceDeckId, "antes da devolucao");
+
+    if (!sourceDeck || !getDeckMetadata(sourceDeck)) {
+      console.warn("A pilha de origem nao existe ou nao e mais uma pilha", {
+        cardId,
+        deckId: sourceDeckId,
+      });
+      return { count: 0, deckId: null };
+    }
+
+    let operation = null;
+
+    try {
+      operation = await applyReturnToDeck(OBR, currentCard, sourceDeckId);
+    } catch (error) {
+      logReturnFailure("updateItems", error, { cardId, deckId: sourceDeckId });
+      throw new Error("Nao consegui atualizar a pilha para devolver a carta.");
+    }
+
+    if (!operation) {
+      return { count: 0, deckId: null };
+    }
+
+    await deleteReturnedCardOrReconcile(OBR, operation);
+    return { count: 1, deckId: sourceDeckId };
+  });
 }
 
 async function returnCardsToDeck(OBR, cards, fallbackDeckSelection = []) {
-  const cardsToReturn = getCardItems(cards);
+  const cardIds = uniqueCardIds(cards);
 
-  if (!cardsToReturn.length) {
+  if (!cardIds.length) {
     return 0;
   }
 
-  const targetDeck = await getTargetDeck(OBR, cardsToReturn, fallbackDeckSelection);
+  let count = 0;
+  const returnedDeckIds = new Set();
 
-  if (!targetDeck) {
-    return 0;
+  for (const cardId of cardIds) {
+    const result = await withCardReturnLock(cardId, () =>
+      returnSingleCardToDeck(OBR, cardId),
+    );
+
+    count += result.count;
+    if (result.deckId) {
+      returnedDeckIds.add(result.deckId);
+    }
   }
 
-  const returnedCards = cardsToReturn.map((item) => {
-    const metadata = getCardMetadata(item);
+  if (returnedDeckIds.size) {
+    await selectDecks(OBR, [...returnedDeckIds]);
+  }
 
-    return {
-      name: metadata.name || item.name || "Carta",
-      front: metadata.faces.front,
-    };
-  });
-  const returnedCardIds = cardsToReturn.map((item) => item.id);
-
-  await OBR.scene.items.updateItems([targetDeck], (items) => {
-    const item = items[0];
-    const metadata = getDeckMetadata(item);
-    const nextMetadata = {
-      ...metadata,
-      cards: [...metadata.cards, ...returnedCards],
-      currentFace: metadata.currentFace === "front" ? "front" : "back",
-    };
-
-    applyDeckDisplay(item, nextMetadata);
-    setDeckMetadata(item, nextMetadata);
-  });
-
-  await OBR.scene.items.deleteItems(returnedCardIds);
-  await selectDecks(OBR, [targetDeck.id]);
-
-  return returnedCardIds.length;
+  return count;
 }
 
 async function returnSelectedCardsToDeck(
@@ -3993,7 +4222,7 @@ async function init() {
           count,
           "",
           () => "",
-          "Selecione uma carta comprada e uma pilha alvo.",
+          "Selecione uma carta comprada com pilha de origem.",
         );
         return;
       }
@@ -4119,7 +4348,7 @@ async function init() {
   try {
     const loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=64").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=65").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
     obr = loaded.OBR;

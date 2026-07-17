@@ -11,7 +11,7 @@ Este documento e a fonte principal de contexto tecnico do projeto. Uma IA nova o
 | Autor | DemonRider |
 | Plataforma alvo | Owlbear Rodeo |
 | Hospedagem publica | GitHub Pages |
-| Manifesto publico | `https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=64` |
+| Manifesto publico | `https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=65` |
 | Foco principal | Desktop e mobile, com prioridade pratica para jogadores em celular |
 
 ## Objetivo

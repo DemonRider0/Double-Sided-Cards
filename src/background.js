@@ -31,7 +31,7 @@ import {
 } from "./selection-board.js";
 
 function assetUrl(path) {
-  return `${new URL(`../${path}`, import.meta.url).toString()}?v=64`;
+  return `${new URL(`../${path}`, import.meta.url).toString()}?v=65`;
 }
 
 const COMMAND_REGISTRATION_DEBOUNCE_MS = 200;
@@ -662,16 +662,20 @@ async function setupContextMenu() {
         },
       ],
       async onClick(context) {
-        const count = await returnCardsToDeck(OBR, context.items, lastDeckSelection);
-        if (count) {
-          lastCardSelection = [];
-          lastFlipSelection = lastDeckSelection;
-        }
-        if (!count) {
-          await OBR.notification.show(
-            "Selecione uma carta e tenha uma pilha alvo selecionada recentemente.",
-            "WARNING",
-          );
+        try {
+          const count = await returnCardsToDeck(OBR, context.items, lastDeckSelection);
+          if (count) {
+            lastCardSelection = [];
+            lastFlipSelection = lastDeckSelection;
+          }
+          if (!count) {
+            await OBR.notification.show(
+              "Selecione uma carta comprada com pilha de origem.",
+              "WARNING",
+            );
+          }
+        } catch (error) {
+          await showCommandError(error);
         }
       },
     });
@@ -767,21 +771,25 @@ async function setupContextMenu() {
       ],
       shortcut: "R",
       async onClick() {
-        const anchors = await getAnchorItems(lastCardSelection);
-        const count = await returnSelectedCardsToDeck(
-          OBR,
-          lastCardSelection,
-          lastDeckSelection,
-        );
-        if (count) {
-          lastCardSelection = [];
-          lastFlipSelection = lastDeckSelection;
-        }
-        if (!count) {
-          await OBR.notification.show(
-            "Selecione uma carta comprada e uma pilha alvo.",
-            "WARNING",
+        try {
+          const anchors = await getAnchorItems(lastCardSelection);
+          const count = await returnSelectedCardsToDeck(
+            OBR,
+            lastCardSelection,
+            lastDeckSelection,
           );
+          if (count) {
+            lastCardSelection = [];
+            lastFlipSelection = lastDeckSelection;
+          }
+          if (!count) {
+            await OBR.notification.show(
+              "Selecione uma carta comprada com pilha de origem.",
+              "WARNING",
+            );
+          }
+        } catch (error) {
+          await showCommandError(error);
         }
       },
     });

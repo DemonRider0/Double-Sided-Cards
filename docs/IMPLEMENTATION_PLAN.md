@@ -70,7 +70,7 @@ Este plano transforma a auditoria especializada em etapas pequenas e testaveis. 
 | Problemas contemplados | S-01, S-02, parte de S-05 |
 | Arquivos envolvidos | `src/deck.js`, possivelmente `src/background.js`, `src/app.js` |
 | Dependencias | Etapa 2 recomendada. |
-| Status | Em teste |
+| Status | Concluido |
 
 ### Checklist de implementacao
 
@@ -97,7 +97,7 @@ Este plano transforma a auditoria especializada em etapas pequenas e testaveis. 
 | Problemas contemplados | S-03, S-04, parte de S-05 |
 | Arquivos envolvidos | `src/deck.js`, possivelmente `src/background.js`, `src/app.js` |
 | Dependencias | Etapa 3. |
-| Status | Pendente |
+| Status | Em teste |
 
 ### Checklist de implementacao
 
