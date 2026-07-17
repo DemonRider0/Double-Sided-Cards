@@ -180,6 +180,7 @@ function createCardMetadata({
   gridWidth,
   origin,
   currentFace = "front",
+  mirrorBack,
   sourceDeckId,
   sourceDeckName,
 }) {
@@ -188,7 +189,8 @@ function createCardMetadata({
     name,
     currentFace,
     gridWidth,
-    mirrorBack: shouldMirrorBackFace(front, back),
+    mirrorBack:
+      typeof mirrorBack === "boolean" ? mirrorBack : shouldMirrorBackFace(front, back),
     faces: {
       front,
       back,
@@ -268,6 +270,10 @@ function cardsMatch(leftCards, rightCards) {
 
 function currentDeckFace(metadata) {
   return metadata.currentFace === "front" ? "front" : "back";
+}
+
+function positiveGridWidth(value, fallback) {
+  return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 function uniqueDeckIds(items) {
@@ -457,16 +463,20 @@ function createDrawnCardItem(buildImage, operation) {
     front: operation.drawnCard.front,
     back: operation.back,
     gridWidth: operation.gridWidth,
+    origin: operation.origin,
     currentFace: operation.drawnFace,
+    mirrorBack: operation.mirrorBack,
     sourceDeckId: operation.deckId,
     sourceDeckName: operation.deckName,
   });
   const item = buildImage(
     createImageData(face),
-    createGridData(face, operation.gridWidth),
+    createGridData(face, operation.gridWidth, operation.origin),
   )
     .name(operation.drawnCard.name)
-    .description(`Carta dupla: ${faceLabel(operation.drawnFace)}`)
+    .description(
+      operation.description || `Carta dupla: ${faceLabel(operation.drawnFace)}`,
+    )
     .layer(operation.layer)
     .position(operation.position)
     .metadata(createCardMetadataMap(cardMetadata))
@@ -526,6 +536,8 @@ function applyDrawToDeckDraft(deck, drawOffset, options) {
   const drawnCard = cloneDeckCard(metadata.cards[0]);
   const remainingCards = metadata.cards.slice(1).map(cloneDeckCard);
   const drawnFace = currentDeckFace(metadata);
+  const back = cloneSerializable(drawnCard.back || metadata.back);
+  const gridWidth = positiveGridWidth(drawnCard.gridWidth, metadata.gridWidth);
   const drawnPosition = getDrawPosition(deck, drawOffset, options);
   const nextMetadata = {
     ...metadata,
@@ -546,8 +558,16 @@ function applyDrawToDeckDraft(deck, drawOffset, options) {
     deckName: metadata.name,
     layer: deck.layer,
     position: drawnPosition,
-    back: cloneSerializable(metadata.back),
-    gridWidth: metadata.gridWidth,
+    back,
+    gridWidth,
+    origin: cloneSerializable(drawnCard.origin),
+    mirrorBack:
+      typeof drawnCard.mirrorBack === "boolean" ? drawnCard.mirrorBack : undefined,
+    description:
+      typeof drawnCard.description === "string" &&
+      !/^Carta dupla:\s*(frente|verso)$/i.test(drawnCard.description.trim())
+        ? drawnCard.description
+        : "",
     drawnCard,
     drawnFace,
     remainingCards,
@@ -797,10 +817,26 @@ async function getSelectedCardItems(OBR, fallbackSelection = []) {
 }
 
 function createReturnedDeckCard(card, metadata) {
-  return {
+  const returnedCard = {
     name: metadata.name || card.name || "Carta",
     front: cloneSerializable(metadata.faces.front),
+    back: cloneSerializable(metadata.faces.back),
+    gridWidth: metadata.gridWidth,
+    mirrorBack: shouldMirrorCardBack(metadata),
   };
+
+  if (metadata.origin) {
+    returnedCard.origin = cloneSerializable(metadata.origin);
+  }
+
+  if (
+    typeof card.description === "string" &&
+    !/^Carta dupla:\s*(frente|verso)$/i.test(card.description.trim())
+  ) {
+    returnedCard.description = card.description;
+  }
+
+  return returnedCard;
 }
 
 function summarizeReturnOperationForLog(operation) {

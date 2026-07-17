@@ -184,6 +184,7 @@ export function createCardMetadata({
   gridWidth,
   origin,
   currentFace = "front",
+  mirrorBack,
   sourceDeckId,
   sourceDeckName,
 }) {
@@ -192,7 +193,8 @@ export function createCardMetadata({
     name,
     currentFace,
     gridWidth,
-    mirrorBack: shouldMirrorBackFace(front, back),
+    mirrorBack:
+      typeof mirrorBack === "boolean" ? mirrorBack : shouldMirrorBackFace(front, back),
     faces: {
       front,
       back,

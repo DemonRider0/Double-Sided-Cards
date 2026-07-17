@@ -186,6 +186,7 @@ function createCardMetadata({
   gridWidth,
   origin,
   currentFace = "front",
+  mirrorBack,
   sourceDeckId,
   sourceDeckName,
 }) {
@@ -194,7 +195,8 @@ function createCardMetadata({
     name,
     currentFace,
     gridWidth,
-    mirrorBack: shouldMirrorBackFace(front, back),
+    mirrorBack:
+      typeof mirrorBack === "boolean" ? mirrorBack : shouldMirrorBackFace(front, back),
     faces: {
       front,
       back,
@@ -299,6 +301,7 @@ function getCardItems(items) {
 const deckOperationQueues = new Map();
 const activeDeckOperationIds = new Set();
 const cardReturnQueues = new Map();
+const activeMissionDeckCreations = new Set();
 
 function cloneSerializable(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -314,6 +317,10 @@ function cardsMatch(leftCards, rightCards) {
 
 function currentDeckFace(metadata) {
   return metadata.currentFace === "front" ? "front" : "back";
+}
+
+function positiveGridWidth(value, fallback) {
+  return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 function uniqueDeckIds(items) {
@@ -421,6 +428,466 @@ function shuffleCards(cards) {
   return shuffled;
 }
 
+function sameItemIds(leftIds, rightIds) {
+  if (leftIds.length !== rightIds.length) {
+    return false;
+  }
+
+  const rightSet = new Set(rightIds);
+  return rightSet.size === rightIds.length && leftIds.every((id) => rightSet.has(id));
+}
+
+function missionCreationKey(itemIds) {
+  return [...itemIds].sort().join("|");
+}
+
+function getAverageItemPosition(items) {
+  const positionedItems = items.filter(
+    (item) => Number.isFinite(item.position?.x) && Number.isFinite(item.position?.y),
+  );
+
+  if (!positionedItems.length) {
+    return null;
+  }
+
+  return {
+    x:
+      positionedItems.reduce((sum, item) => sum + item.position.x, 0) /
+      positionedItems.length,
+    y:
+      positionedItems.reduce((sum, item) => sum + item.position.y, 0) /
+      positionedItems.length,
+  };
+}
+
+function createMissionDeckEntry(item) {
+  const metadata = getCardMetadata(item);
+
+  if (!metadata) {
+    return null;
+  }
+
+  const entry = {
+    name: metadata.name || item.name || "Carta",
+    front: cloneSerializable(metadata.faces.front),
+    back: cloneSerializable(metadata.faces.back),
+    gridWidth: metadata.gridWidth,
+    mirrorBack: shouldMirrorCardBack(metadata),
+  };
+
+  if (metadata.origin) {
+    entry.origin = cloneSerializable(metadata.origin);
+  }
+
+  if (
+    typeof item.description === "string" &&
+    !/^Carta dupla:\s*(frente|verso)$/i.test(item.description.trim())
+  ) {
+    entry.description = item.description;
+  }
+
+  return entry;
+}
+
+function createMissionDeckItem(buildImage, selectedCards, shuffledRecords) {
+  const firstMetadata = getCardMetadata(selectedCards[0]);
+  const cards = shuffledRecords.map((record) => cloneDeckCard(record.entry));
+  const back = cloneSerializable(firstMetadata.faces.back);
+  const gridWidth = positiveGridWidth(firstMetadata.gridWidth, 1.5);
+  const metadata = createDeckMetadata({
+    name: "Salas da Missao",
+    back,
+    cards,
+    gridWidth,
+    deleteWhenEmpty: true,
+  });
+  const position = getAverageItemPosition(selectedCards) || { x: 0, y: 0 };
+  const item = buildImage(createImageData(back), createGridData(back, gridWidth))
+    .name(`Salas da Missao (${cards.length})`)
+    .description(deckDescription(cards.length))
+    .text(createDeckText(cards.length))
+    .layer(selectedCards[0].layer || "PROP")
+    .position(position)
+    .metadata(createDeckMetadataMap(metadata))
+    .build();
+
+  return {
+    item,
+    initialMetadata: cloneSerializable(metadata),
+    position: cloneSerializable(position),
+    layer: item.layer,
+    records: shuffledRecords.map((record) => ({
+      sourceId: record.sourceId,
+      entry: cloneDeckCard(record.entry),
+    })),
+  };
+}
+
+function missionDeckMatchesInitial(item, operation) {
+  const metadata = item ? getDeckMetadata(item) : null;
+
+  return Boolean(
+    metadata &&
+      JSON.stringify(metadata) === JSON.stringify(operation.initialMetadata) &&
+      item.name === operation.deckName &&
+      item.layer === operation.layer &&
+      item.position?.x === operation.position.x &&
+      item.position?.y === operation.position.y,
+  );
+}
+
+function summarizeMissionOperation(operation, extra = {}) {
+  return {
+    deckId: operation?.deckId,
+    sourceIds: operation?.sourceIds,
+    remainingSourceIds: extra.remainingSourceIds,
+    remainingCount: extra.remainingSourceIds?.length,
+  };
+}
+
+function logMissionDeckFailure(stage, error, operation, extra = {}) {
+  console.warn(
+    `Falha ao criar pilha de missao durante ${stage}`,
+    {
+      errorName: error?.name,
+      errorMessage: error?.message,
+      ...summarizeMissionOperation(operation, extra),
+    },
+    error,
+  );
+}
+
+async function getItemsByIdsForMission(OBR, itemIds, stage, operation = null) {
+  try {
+    return await OBR.scene.items.getItems(itemIds);
+  } catch (error) {
+    logMissionDeckFailure(stage, error, operation);
+    throw new Error("Nao consegui reler as cartas da pilha de missao.");
+  }
+}
+
+function orderMissionCards(items, itemIds) {
+  const itemsById = new Map(items.map((item) => [item.id, item]));
+  return itemIds.map((id) => itemsById.get(id)).filter(Boolean);
+}
+
+function validateMissionCards(items, itemIds) {
+  if (itemIds.length !== 5 || new Set(itemIds).size !== 5) {
+    throw new Error("Selecione exatamente 5 cartas duplas sacadas.");
+  }
+
+  const orderedItems = orderMissionCards(items, itemIds);
+  const cards = getCardItems(orderedItems);
+
+  if (items.length !== 5 || orderedItems.length !== 5 || cards.length !== 5) {
+    throw new Error("Selecione exatamente 5 cartas duplas sacadas.");
+  }
+
+  return cards;
+}
+
+async function readMissionDeck(OBR, deckId, operation, stage) {
+  try {
+    const [deck] = await OBR.scene.items.getItems([deckId]);
+    return deck || null;
+  } catch (error) {
+    logMissionDeckFailure(stage, error, operation);
+    throw new Error("Nao consegui verificar a pilha de missao criada.");
+  }
+}
+
+async function removeIntactMissionDeck(OBR, operation, reason) {
+  const deck = await readMissionDeck(OBR, operation.deckId, operation, `${reason}: releitura`);
+
+  if (!deck) {
+    return true;
+  }
+
+  if (!missionDeckMatchesInitial(deck, operation)) {
+    console.warn("Rollback da pilha de missao recusado porque a pilha foi alterada", {
+      reason,
+      ...summarizeMissionOperation(operation),
+    });
+    return false;
+  }
+
+  try {
+    await OBR.scene.items.deleteItems([operation.deckId]);
+  } catch (error) {
+    logMissionDeckFailure(`${reason}: deleteItems da pilha`, error, operation);
+  }
+
+  return !(await readMissionDeck(
+    OBR,
+    operation.deckId,
+    operation,
+    `${reason}: confirmacao`,
+  ));
+}
+
+async function reconcilePartiallyDeletedMissionCards(
+  OBR,
+  operation,
+  remainingSourceIds,
+) {
+  const remainingSet = new Set(remainingSourceIds);
+  const retainedRecords = operation.records.filter(
+    (record) => !remainingSet.has(record.sourceId),
+  );
+  const retainedCards = retainedRecords.map((record) => cloneDeckCard(record.entry));
+  let reconciled = false;
+
+  await OBR.scene.items.updateItems([operation.deckId], (draftItems) => {
+    const deck = draftItems[0];
+
+    if (!missionDeckMatchesInitial(deck, operation)) {
+      return;
+    }
+
+    const metadata = getDeckMetadata(deck);
+    const nextMetadata = {
+      ...metadata,
+      cards: retainedCards.map(cloneDeckCard),
+    };
+
+    applyDeckDisplay(deck, nextMetadata);
+    setDeckMetadata(deck, nextMetadata);
+    reconciled = true;
+  });
+
+  if (!reconciled) {
+    return false;
+  }
+
+  const currentDeck = await readMissionDeck(
+    OBR,
+    operation.deckId,
+    operation,
+    "confirmacao da reconciliacao parcial",
+  );
+  const currentMetadata = currentDeck ? getDeckMetadata(currentDeck) : null;
+
+  return Boolean(currentMetadata && cardsMatch(currentMetadata.cards, retainedCards));
+}
+
+async function reconcileMissionSourceDeletion(OBR, operation, deleteError = null) {
+  const remainingItems = await getItemsByIdsForMission(
+    OBR,
+    operation.sourceIds,
+    "releitura apos deleteItems",
+    operation,
+  );
+  const remainingSourceIds = remainingItems
+    .map((item) => item.id)
+    .filter((id) => operation.sourceIds.includes(id));
+
+  if (!remainingSourceIds.length) {
+    if (deleteError) {
+      console.warn("deleteItems falhou, mas todas as cartas originais foram apagadas", {
+        ...summarizeMissionOperation(operation, { remainingSourceIds }),
+      });
+    }
+    return true;
+  }
+
+  const currentDeck = await readMissionDeck(
+    OBR,
+    operation.deckId,
+    operation,
+    "releitura antes da reconciliacao",
+  );
+
+  if (!currentDeck || !missionDeckMatchesInitial(currentDeck, operation)) {
+    console.warn("Reconciliacao da pilha de missao recusada porque a pilha mudou", {
+      ...summarizeMissionOperation(operation, { remainingSourceIds }),
+    });
+    throw new Error(
+      "Nao consegui apagar todas as cartas e a pilha ja foi alterada; preservei o estado mais recente.",
+    );
+  }
+
+  if (remainingSourceIds.length === operation.sourceIds.length) {
+    const rolledBack = await removeIntactMissionDeck(
+      OBR,
+      operation,
+      "rollback apos nenhuma carta original ser apagada",
+    );
+
+    if (rolledBack) {
+      throw new Error(
+        "Nao consegui apagar as cartas originais; a nova pilha foi removida com seguranca.",
+      );
+    }
+
+    throw new Error(
+      "Nao consegui apagar as cartas originais nem remover a nova pilha automaticamente.",
+    );
+  }
+
+  let reconciled = false;
+
+  try {
+    reconciled = await reconcilePartiallyDeletedMissionCards(
+      OBR,
+      operation,
+      remainingSourceIds,
+    );
+  } catch (error) {
+    logMissionDeckFailure("reconciliacao parcial", error, operation, {
+      remainingSourceIds,
+    });
+  }
+
+  if (reconciled) {
+    console.warn("Exclusao parcial reconciliada sem duplicar as cartas restantes", {
+      ...summarizeMissionOperation(operation, { remainingSourceIds }),
+    });
+    throw new Error(
+      "Algumas cartas nao foram apagadas; a pilha foi ajustada para evitar duplicacao.",
+    );
+  }
+
+  throw new Error(
+    "Algumas cartas nao foram apagadas e nao foi seguro ajustar a pilha automaticamente.",
+  );
+}
+
+async function addMissionDeckOrRollback(OBR, operation) {
+  try {
+    await OBR.scene.items.addItems([operation.item]);
+  } catch (error) {
+    logMissionDeckFailure("addItems", error, operation);
+
+    let removed = false;
+
+    try {
+      removed = await removeIntactMissionDeck(
+        OBR,
+        operation,
+        "rollback apos falha em addItems",
+      );
+    } catch (rollbackError) {
+      logMissionDeckFailure("rollback de addItems", rollbackError, operation);
+    }
+
+    if (removed) {
+      throw new Error("Nao consegui criar a pilha de missao; as cartas foram preservadas.");
+    }
+
+    throw new Error(
+      "A criacao da pilha falhou e nao foi seguro remover uma pilha residual automaticamente.",
+    );
+  }
+
+  const createdDeck = await readMissionDeck(
+    OBR,
+    operation.deckId,
+    operation,
+    "confirmacao de addItems",
+  );
+
+  if (!createdDeck || !missionDeckMatchesInitial(createdDeck, operation)) {
+    throw new Error("Nao consegui confirmar a pilha de missao criada.");
+  }
+}
+
+async function createMissionDeckFromSelection(OBR, buildImage) {
+  let selection;
+
+  try {
+    selection = (await OBR.player.getSelection()) || [];
+  } catch (error) {
+    logMissionDeckFailure("leitura da selecao", error, null);
+    throw new Error("Nao consegui ler a selecao atual.");
+  }
+
+  if (selection.length !== 5 || new Set(selection).size !== 5) {
+    throw new Error("Selecione exatamente 5 cartas duplas sacadas.");
+  }
+
+  const sourceIds = [...selection];
+  const operationKey = missionCreationKey(sourceIds);
+
+  if (activeMissionDeckCreations.has(operationKey)) {
+    throw new Error("Esta pilha de missao ja esta sendo criada.");
+  }
+
+  activeMissionDeckCreations.add(operationKey);
+
+  try {
+    const initialItems = await getItemsByIdsForMission(
+      OBR,
+      sourceIds,
+      "releitura inicial",
+    );
+    validateMissionCards(initialItems, sourceIds);
+
+    let currentSelection;
+
+    try {
+      currentSelection = (await OBR.player.getSelection()) || [];
+    } catch (error) {
+      logMissionDeckFailure("confirmacao da selecao", error, { sourceIds });
+      throw new Error("Nao consegui confirmar a selecao atual.");
+    }
+
+    if (!sameItemIds(sourceIds, currentSelection)) {
+      throw new Error("A selecao mudou; selecione novamente as 5 cartas.");
+    }
+
+    const currentItems = await getItemsByIdsForMission(
+      OBR,
+      sourceIds,
+      "releitura antes da criacao",
+    );
+    const selectedCards = validateMissionCards(currentItems, sourceIds);
+    let builtDeck;
+
+    try {
+      const records = selectedCards.map((item) => {
+        const entry = createMissionDeckEntry(item);
+
+        if (!entry) {
+          throw new Error("Uma das cartas selecionadas deixou de ser compativel.");
+        }
+
+        return {
+          sourceId: item.id,
+          entry: JSON.parse(JSON.stringify(entry)),
+        };
+      });
+      const shuffledRecords = shuffleCards(records);
+      builtDeck = createMissionDeckItem(buildImage, selectedCards, shuffledRecords);
+    } catch (error) {
+      logMissionDeckFailure("serializacao ou montagem da pilha", error, { sourceIds });
+      throw new Error("Nao consegui preparar os dados da pilha de missao.");
+    }
+
+    const operation = {
+      ...builtDeck,
+      deckId: builtDeck.item.id,
+      deckName: builtDeck.item.name,
+      sourceIds,
+    };
+
+    await addMissionDeckOrRollback(OBR, operation);
+
+    let deleteError = null;
+
+    try {
+      await OBR.scene.items.deleteItems(sourceIds);
+    } catch (error) {
+      deleteError = error;
+      logMissionDeckFailure("deleteItems das cartas originais", error, operation);
+    }
+
+    await reconcileMissionSourceDeletion(OBR, operation, deleteError);
+    return operation.item;
+  } finally {
+    activeMissionDeckCreations.delete(operationKey);
+  }
+}
+
 async function getDrawOffset(OBR) {
   try {
     return Math.max(48, (await OBR.scene.grid.getDpi()) * 0.6);
@@ -453,16 +920,20 @@ function createDrawnCardItem(buildImage, operation) {
     front: operation.drawnCard.front,
     back: operation.back,
     gridWidth: operation.gridWidth,
+    origin: operation.origin,
     currentFace: operation.drawnFace,
+    mirrorBack: operation.mirrorBack,
     sourceDeckId: operation.deckId,
     sourceDeckName: operation.deckName,
   });
   const item = buildImage(
     createImageData(face),
-    createGridData(face, operation.gridWidth),
+    createGridData(face, operation.gridWidth, operation.origin),
   )
     .name(operation.drawnCard.name)
-    .description(`Carta dupla: ${faceLabel(operation.drawnFace)}`)
+    .description(
+      operation.description || `Carta dupla: ${faceLabel(operation.drawnFace)}`,
+    )
     .layer(operation.layer)
     .position(operation.position)
     .metadata(createCardMetadataMap(cardMetadata))
@@ -522,6 +993,8 @@ function applyDrawToDeckDraft(deck, drawOffset, options) {
   const drawnCard = cloneDeckCard(metadata.cards[0]);
   const remainingCards = metadata.cards.slice(1).map(cloneDeckCard);
   const drawnFace = currentDeckFace(metadata);
+  const back = cloneSerializable(drawnCard.back || metadata.back);
+  const gridWidth = positiveGridWidth(drawnCard.gridWidth, metadata.gridWidth);
   const drawnPosition = getDrawPosition(deck, drawOffset, options);
   const nextMetadata = {
     ...metadata,
@@ -542,8 +1015,16 @@ function applyDrawToDeckDraft(deck, drawOffset, options) {
     deckName: metadata.name,
     layer: deck.layer,
     position: drawnPosition,
-    back: cloneSerializable(metadata.back),
-    gridWidth: metadata.gridWidth,
+    back,
+    gridWidth,
+    origin: cloneSerializable(drawnCard.origin),
+    mirrorBack:
+      typeof drawnCard.mirrorBack === "boolean" ? drawnCard.mirrorBack : undefined,
+    description:
+      typeof drawnCard.description === "string" &&
+      !/^Carta dupla:\s*(frente|verso)$/i.test(drawnCard.description.trim())
+        ? drawnCard.description
+        : "",
     drawnCard,
     drawnFace,
     remainingCards,
@@ -793,10 +1274,26 @@ async function getSelectedCardItems(OBR, fallbackSelection = []) {
 }
 
 function createReturnedDeckCard(card, metadata) {
-  return {
+  const returnedCard = {
     name: metadata.name || card.name || "Carta",
     front: cloneSerializable(metadata.faces.front),
+    back: cloneSerializable(metadata.faces.back),
+    gridWidth: metadata.gridWidth,
+    mirrorBack: shouldMirrorCardBack(metadata),
   };
+
+  if (metadata.origin) {
+    returnedCard.origin = cloneSerializable(metadata.origin);
+  }
+
+  if (
+    typeof card.description === "string" &&
+    !/^Carta dupla:\s*(frente|verso)$/i.test(card.description.trim())
+  ) {
+    returnedCard.description = card.description;
+  }
+
+  return returnedCard;
 }
 
 function summarizeReturnOperationForLog(operation) {
@@ -3555,17 +4052,6 @@ function setPresetCardDefaultControls(group) {
   }
 }
 
-function shuffleCardsForMission(cards) {
-  const shuffled = [...cards];
-
-  for (let index = shuffled.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1));
-    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
-  }
-
-  return shuffled;
-}
-
 function updateMissionDeckControls(isConnected = Boolean(obr)) {
   elements.createMissionDeckButton.disabled = !isConnected;
   elements.missionDeckInfo.textContent =
@@ -3811,26 +4297,6 @@ async function loadDeckFronts() {
   }));
 }
 
-function getAverageItemPosition(items) {
-  const positionedItems = items.filter(
-    (item) =>
-      Number.isFinite(item.position?.x) && Number.isFinite(item.position?.y),
-  );
-
-  if (!positionedItems.length) {
-    return null;
-  }
-
-  return {
-    x:
-      positionedItems.reduce((sum, item) => sum + item.position.x, 0) /
-      positionedItems.length,
-    y:
-      positionedItems.reduce((sum, item) => sum + item.position.y, 0) /
-      positionedItems.length,
-  };
-}
-
 async function addDeckToScene({
   name,
   back,
@@ -3890,24 +4356,6 @@ async function addCardToScene({
   return item;
 }
 
-async function getSelectedMissionCards() {
-  const selection = await obr.player.getSelection();
-  const itemIds = selection?.length ? selection : lastCardSelection;
-
-  if (!itemIds.length) {
-    throw new Error("Selecione exatamente 5 cartas sacadas.");
-  }
-
-  const items = await obr.scene.items.getItems(itemIds);
-  const cards = getDoubleSidedCards(items);
-
-  if (items.length !== 5 || cards.length !== 5) {
-    throw new Error("Selecione exatamente 5 cartas duplas sacadas.");
-  }
-
-  return cards;
-}
-
 async function createMissionDeck() {
   if (!obr || !buildImage) {
     setMessage("Abra esta extensao dentro do Owlbear Rodeo para criar a pilha.", "warning");
@@ -3918,28 +4366,8 @@ async function createMissionDeck() {
   setMessage("Criando pilha de missao...", "neutral");
 
   try {
-    const selectedCards = await getSelectedMissionCards();
-    const firstMetadata = getCardMetadata(selectedCards[0]);
-    const missionCards = shuffleCardsForMission(
-      selectedCards.map((item) => {
-        const metadata = getCardMetadata(item);
+    const deck = await createMissionDeckFromSelection(obr, buildImage);
 
-        return {
-          name: metadata.name || item.name || "Carta",
-          front: metadata.faces.front,
-        };
-      }),
-    );
-    const deck = await addDeckToScene({
-      name: "Salas da Missao",
-      back: firstMetadata.faces.back,
-      cards: missionCards,
-      gridWidth: firstMetadata.gridWidth || 1.5,
-      layer: selectedCards[0].layer || "PROP",
-      position: getAverageItemPosition(selectedCards),
-      deleteWhenEmpty: true,
-    });
-    await obr.scene.items.deleteItems(selectedCards.map((item) => item.id));
     if (deck?.id) {
       await obr.player.select([deck.id], true);
       lastDeckSelection = [deck.id];

@@ -2,6 +2,129 @@
 
 Este changelog registra alteracoes realizadas com auxilio de IA. Ele deve ser atualizado em futuras implementacoes, auditorias ou documentacoes.
 
+## 2026-07-17 - Etapa 5: pilha de missao robusta
+
+### Sessao
+
+Implementacao da Etapa 5 do plano oficial de correcoes, limitada a S-07 e S-08.
+
+O mantenedor informou que todos os testes manuais da Etapa 4 foram aprovados no
+Owlbear Rodeo, incluindo devolucao rapida, duas contas e mobile. A Etapa 4 foi
+marcada como `Concluido`.
+
+### Diagnostico
+
+- S-07: o painel criava a nova pilha, chamava `deleteItems` para as cinco cartas
+  e considerava a operacao concluida sem reler a cena. Uma falha total ou parcial
+  podia deixar as cartas simultaneamente soltas e dentro da pilha.
+- S-07: a selecao usava `lastCardSelection` quando a selecao atual estava vazia,
+  permitindo criar uma pilha a partir de uma selecao antiga.
+- S-07: duas chamadas rapidas podiam iniciar a mesma criacao sem coordenacao
+  local.
+- S-08: cada entrada da pilha guardava apenas `name` e `front`. A compra usava o
+  verso geral da pilha, perdendo versos individuais, origem, largura e
+  espelhamento da carta.
+- O SDK instalado confirma que `addItems` e `deleteItems` retornam `Promise<void>`.
+  O ID seguro da nova pilha vem do item produzido pelo builder antes de
+  `addItems`; nao existe transacao distribuida entre adicionar a pilha e apagar
+  as cartas.
+
+### Solucao aplicada
+
+- A criacao exige a selecao atual com exatamente cinco IDs unicos.
+- Os cinco itens sao relidos e revalidados imediatamente antes da mutacao.
+- A selecao atual e confirmada novamente; nenhum fallback antigo e usado.
+- Uma trava local curta, identificada pelo conjunto ordenado dos cinco IDs,
+  impede duas criacoes simultaneas na mesma instancia e e liberada em `finally`.
+- As entradas sao objetos comuns e serializaveis, independentes da metadata
+  original e de drafts do Immer.
+- A nova pilha recebe um ID conhecido do builder antes de `addItems`.
+- As cartas originais so sao apagadas depois que a pilha foi adicionada e relida
+  com sucesso.
+- Depois de `deleteItems`, os cinco IDs sao sempre relidos, mesmo quando a
+  chamada nao rejeita.
+- Se nenhuma carta permanecer, a pilha e mantida.
+- Se todas permanecerem e a pilha continuar intacta, somente a nova pilha e
+  removida.
+- Se parte permanecer e a pilha continuar intacta, as entradas correspondentes
+  as cartas ainda soltas sao retiradas da pilha. As cartas apagadas continuam
+  representadas na pilha, preservando cada carta exatamente uma vez.
+- Se a pilha tiver sido movida, embaralhada, comprada ou alterada, rollback e
+  reconciliacao destrutivos sao recusados.
+- Cada entrada passa a preservar verso proprio, largura no grid, origem,
+  espelhamento e descricao personalizada quando existente.
+- Compra e devolucao passaram a respeitar esses campos opcionais por entrada,
+  mantendo fallback para o verso e largura gerais em pilhas antigas.
+- O verso geral da pilha continua sendo o verso da primeira carta selecionada,
+  sem substituir os versos internos.
+- `deleteWhenEmpty` permanece verdadeiro e o fluxo robusto da Etapa 3 continua
+  responsavel por criar a ultima carta antes de apagar a pilha.
+
+### Arquivos modificados
+
+- `src/app.js`
+- `src/deck.js`
+- `src/card-data.js`
+- `manifest.json`
+- `index.html`
+- `background.html`
+- `README.md`
+- `docs/AI_CONTEXT.md`
+- `docs/IMPLEMENTATION_PLAN.md`
+- `docs/CHANGELOG_AI.md`
+- `dist/app.js`
+- `dist/background.js`
+
+### Simulacoes e validacoes
+
+- Selecao com quatro cartas, seis cartas, item comum e IDs repetidos.
+- Criacao normal com cinco cartas e contador igual a cinco.
+- Falha em `addItems` antes e depois de a pilha aparecer.
+- Nova tentativa depois de falha, confirmando liberacao da trava.
+- Erro em `deleteItems` com todas, nenhuma ou parte das cartas apagadas.
+- Reconciliacao parcial mantendo cada carta exatamente uma vez.
+- Recusa conservadora quando a pilha muda antes da reconciliacao.
+- Duas chamadas locais simultaneas para os mesmos cinco IDs.
+- Cinco versos diferentes, carta espelhada, origem personalizada e campo
+  opcional ausente.
+- Embaralhar, comprar, devolver ao fundo, comprar novamente e esvaziar a pilha.
+- Serializacao dos dados depois de callbacks de `updateItems`, sem proxies
+  revogados.
+- `node --check` nos fontes e bundles.
+- `npm.cmd run build`.
+- `git diff --check` e buscas obrigatorias por referencias locais.
+
+### Riscos e limitacoes
+
+- A trava existe apenas na instancia JavaScript atual. Duas contas exatamente
+  simultaneas ainda possuem uma janela residual porque o SDK nao oferece
+  transacao distribuida completa.
+- Se a exclusao for parcial e a pilha ja tiver sido usada, a extensao preserva o
+  estado mais recente e recusa uma alteracao destrutiva. Esse caso exige
+  verificacao manual do mestre.
+- Se a ultima carta apagar a pilha temporaria, a devolucao posterior continua
+  sem recriar automaticamente a pilha, conforme limitacao ja documentada.
+
+### Testes manuais pendentes
+
+- Teste minimo de criacao, contador, embaralhamento, compra e devolucao.
+- Quantidades invalidas e selecao com item comum.
+- Cinco cartas com versos visivelmente diferentes.
+- Compra ate a pilha temporaria desaparecer.
+- Acionamento repetido, duas contas e mobile.
+- Regressao de `V`, `C`, `E`, `R`, pilhas permanentes, bibliotecas, F5, cores,
+  slots e mapas.
+
+### Observacoes
+
+- A Etapa 5 foi marcada como `Em teste`.
+- A Etapa 6 nao foi iniciada.
+- S-11, S-12, S-13 e S-14 nao foram implementados.
+- A versao publica foi atualizada de `0.2.65` para `0.2.66`.
+- O cache de `index.html`, `background.html`, `dist/app.js` e
+  `dist/background.js` foi atualizado para `v=66`. Assets, estilos e SDK
+  inalterados mantiveram o cache anterior.
+
 ## 2026-07-13 - Etapa 4: devolucao robusta
 
 ### Sessao

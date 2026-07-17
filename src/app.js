@@ -17,6 +17,7 @@ import {
 } from "./card-data.js";
 import {
   applyDeckDisplay,
+  createMissionDeckFromSelection,
   createDeckText,
   drawSelectedDecks,
   getDeckItems,
@@ -1665,17 +1666,6 @@ function setPresetCardDefaultControls(group) {
   }
 }
 
-function shuffleCardsForMission(cards) {
-  const shuffled = [...cards];
-
-  for (let index = shuffled.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1));
-    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
-  }
-
-  return shuffled;
-}
-
 function updateMissionDeckControls(isConnected = Boolean(obr)) {
   elements.createMissionDeckButton.disabled = !isConnected;
   elements.missionDeckInfo.textContent =
@@ -1921,26 +1911,6 @@ async function loadDeckFronts() {
   }));
 }
 
-function getAverageItemPosition(items) {
-  const positionedItems = items.filter(
-    (item) =>
-      Number.isFinite(item.position?.x) && Number.isFinite(item.position?.y),
-  );
-
-  if (!positionedItems.length) {
-    return null;
-  }
-
-  return {
-    x:
-      positionedItems.reduce((sum, item) => sum + item.position.x, 0) /
-      positionedItems.length,
-    y:
-      positionedItems.reduce((sum, item) => sum + item.position.y, 0) /
-      positionedItems.length,
-  };
-}
-
 async function addDeckToScene({
   name,
   back,
@@ -2000,24 +1970,6 @@ async function addCardToScene({
   return item;
 }
 
-async function getSelectedMissionCards() {
-  const selection = await obr.player.getSelection();
-  const itemIds = selection?.length ? selection : lastCardSelection;
-
-  if (!itemIds.length) {
-    throw new Error("Selecione exatamente 5 cartas sacadas.");
-  }
-
-  const items = await obr.scene.items.getItems(itemIds);
-  const cards = getDoubleSidedCards(items);
-
-  if (items.length !== 5 || cards.length !== 5) {
-    throw new Error("Selecione exatamente 5 cartas duplas sacadas.");
-  }
-
-  return cards;
-}
-
 async function createMissionDeck() {
   if (!obr || !buildImage) {
     setMessage("Abra esta extensao dentro do Owlbear Rodeo para criar a pilha.", "warning");
@@ -2028,28 +1980,8 @@ async function createMissionDeck() {
   setMessage("Criando pilha de missao...", "neutral");
 
   try {
-    const selectedCards = await getSelectedMissionCards();
-    const firstMetadata = getCardMetadata(selectedCards[0]);
-    const missionCards = shuffleCardsForMission(
-      selectedCards.map((item) => {
-        const metadata = getCardMetadata(item);
+    const deck = await createMissionDeckFromSelection(obr, buildImage);
 
-        return {
-          name: metadata.name || item.name || "Carta",
-          front: metadata.faces.front,
-        };
-      }),
-    );
-    const deck = await addDeckToScene({
-      name: "Salas da Missao",
-      back: firstMetadata.faces.back,
-      cards: missionCards,
-      gridWidth: firstMetadata.gridWidth || 1.5,
-      layer: selectedCards[0].layer || "PROP",
-      position: getAverageItemPosition(selectedCards),
-      deleteWhenEmpty: true,
-    });
-    await obr.scene.items.deleteItems(selectedCards.map((item) => item.id));
     if (deck?.id) {
       await obr.player.select([deck.id], true);
       lastDeckSelection = [deck.id];
