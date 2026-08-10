@@ -2,6 +2,134 @@
 
 Este arquivo consolida auditorias realizadas durante o desenvolvimento. Use-o como historico tecnico e como entrada para planos de correcao.
 
+## 2026-08-10 - Reprodutibilidade e higiene tecnica
+
+### Auditado
+
+- `package.json`, `package-lock.json`, arvore instalada, imports, scripts npm,
+  `build.mjs`, `dev-server.mjs`, `scripts/`, `src/`, `dist/`, `.gitignore`,
+  `.nojekyll`, arquivos tecnicos da raiz e manifests JSON gerados.
+- A correspondencia entre fontes e bundles, a regeneracao das bibliotecas, a
+  existencia dos assets referenciados e a ausencia de caminhos locais nos dois
+  presets publicos foram verificadas sobre o estado atual do repositorio.
+- As alteracoes estruturais anteriores foram preservadas; S-01 a S-20, UX,
+  metadata, IDs, presets, assets e logica transacional nao foram reabertos.
+
+### Inconsistencias encontradas e corrigidas
+
+- `esbuild` estava declarado e instalado, mas nenhum fonte ou script o usava.
+  A dependencia e suas entradas do lockfile foram removidas; Rollup e
+  `@rollup/plugin-node-resolve` continuam sendo todo o ferramental do build.
+- O projeto nao declarava a versao minima do Node, embora o servidor local use
+  `fetch` nativo e o ferramental instalado exija Node moderno. `package.json`
+  agora declara Node 18 ou superior.
+- O build sobrescrevia os quatro bundles conhecidos, mas podia preservar
+  arquivos obsoletos em `dist/`. A pasta gerada agora e limpa antes da escrita;
+  erros continuam propagando codigo de saida diferente de zero.
+- Os geradores de cartas e pilhas dependiam da localidade padrao da maquina para
+  ordenar nomes e tratavam qualquer falha de leitura do manifest como arquivo
+  ausente. A ordenacao foi fixada em `pt-BR`, e somente `ENOENT` inicia um
+  manifest vazio; JSON corrompido ou erro de leitura agora interrompe o script.
+- Nao havia um comando unico para repetir as verificacoes mecanicas basicas.
+  `npm run check`, implementado apenas com Node padrao, valida sintaxe JS/MJS,
+  JSONs, coerencia entre package e lockfile, conteudo esperado de `dist/`,
+  assets das bibliotecas e URLs/assets dos mapas publicos.
+
+### Verificacoes executadas
+
+- `npm install` atualizou o lockfile e `npm ci` refez a instalacao limpa com 24
+  pacotes instalados; `npm ls --all` nao encontrou dependencias ausentes ou
+  extraneas.
+- `npm run build:preset-decks` regenerou `decks.json` e `cards.json` sem alterar
+  seus hashes ou deixar diff.
+- `npm run build` removeu um artefato residual controlado, produziu somente os
+  quatro bundles esperados e foi repetido duas vezes com hashes identicos. O
+  primeiro resultado tambem coincidiu com os bundles distribuidos antes do
+  teste.
+- `npm run check` passou em 7 JSONs, 26 arquivos JS/MJS, 191 referencias de
+  assets das bibliotecas e 1455 referencias de assets dos mapas. Isso inclui
+  `node --check` em fontes, scripts, vendor e bundles.
+- Os dois presets usam apenas `https://demonrider0.github.io`; nenhuma URL
+  local, caminho absoluto ou referencia publica sem arquivo correspondente foi
+  encontrada. `git diff --check` passou.
+
+### Mantido deliberadamente
+
+- `@owlbear-rodeo/sdk` 3.1.0, Rollup 4 e o plugin de resolucao permaneceram nas
+  versoes ja travadas pelo lockfile; nao houve atualizacao ampla.
+- `sdk-boot.js` e `sdk-client.js` parecem semelhantes, mas atendem ao bootstrap
+  antecipado e ao fallback explicito do painel. `vendor/events.js` e usado pelo
+  alias do build. Nenhum deles foi removido sem evidência de obsolescencia.
+- As referencias a `localhost` e `.local-assets` em `dev-server.mjs` e nos
+  ramos de deteccao/migracao sao parte do fluxo local intencional. A versao
+  publica nao depende delas.
+- `.gitignore` ja cobre `node_modules/`, `.npm-cache/`, `.local-assets/`, logs e
+  backups; `.nojekyll` vazio e necessario para a hospedagem estatica. O backup
+  local ignorado `assets/preset-decks/decks.json.bak` nao integra o repositorio
+  e nao foi apagado sem confirmacao de que seja descartavel.
+- A versao privada do pacote npm e a versao publica do manifesto continuam
+  separadas. README, changelog, versao/cache publico e documentacao de autoria
+  nao foram alterados nesta etapa.
+
+### Limitacoes e divida residual
+
+- `npm audit` informa duas ocorrencias moderadas da mesma vulnerabilidade em
+  `uuid`, dependencia transitiva do SDK, sem correcao disponivel para a arvore
+  atual. O SDK instalado importa apenas `v4`; o alerta reportado trata das APIs
+  `v3`, `v5` e `v6` com buffer fornecido pelo chamador. O SDK foi mantido para
+  preservar compatibilidade e evitar atualizacao fora de escopo.
+- Os avisos conhecidos do Rollup sobre `this` no topo dos modulos do SDK
+  continuam aparecendo, sem falha ou variacao nos bundles.
+- Disponibilidade real das URLs por rede, integracao no Owlbear, mobile e duas
+  contas continuam dependendo de ambiente real. Nenhum teste manual no Owlbear
+  foi considerado realizado.
+
+## 2026-08-07 - Revisao de maturidade tecnica e estrutura
+
+### Analisado
+
+- Fronteiras e dependencias dos modulos, tamanho e responsabilidade das funcoes,
+  duplicacao, caminhos mortos, estado global, listeners, leituras do SDK,
+  normalizacao, tratamento de erros e fluxo de build.
+- `app.js`, `background.js`, `card-data.js`, `deck.js`, `selection-board.js` e
+  `scene-preset.js` foram tratados como areas criticas; S-01 a S-20 nao foram
+  reabertos sem evidencia de regressao.
+
+### Alterado
+
+- O caminho de importacao manual local, inalcancavel no HTML da versao publica,
+  foi removido de `app.js`. O fonte caiu de 2474 para 1888 linhas e o bundle do
+  painel de 197742 para 178972 bytes, sem remover controles publicos.
+- A memoria de selecao do painel passou a classificar cartas e pilhas depois de
+  uma unica leitura dos itens, eliminando a busca duplicada no SDK.
+- A normalizacao e leitura de assets repetida entre as bibliotecas de cartas e
+  pilhas foi centralizada em `preset-assets.js`, mantendo paths, camadas,
+  dimensoes, MIME e mensagens existentes.
+
+### Adequado e mantido intacto
+
+- As responsabilidades transacionais de `deck.js`, `selection-board.js` e
+  `scene-preset.js` continuam extensas, mas a complexidade observada corresponde
+  a locks, releituras, verificacoes e rollbacks necessarios. Simplifica-las agora
+  elevaria o risco sem beneficio concreto demonstrado.
+- Metadata, IDs, presets, contratos de compatibilidade, comandos, atalhos, UX,
+  assets, dependencias, manifesto e versionamento nao foram alterados.
+
+### Risco deliberadamente adiado
+
+- `app.js` ainda concentra o fluxo de migracao/publicacao de assets alem da UI e
+  das bibliotecas. Uma separacao adicional exige validacao de Canvas, rede,
+  servidor local e mutacoes reais de cena; por isso deve ser uma etapa futura
+  especifica, com teste manual no Owlbear, se essa manutencao for priorizada.
+- Nenhum teste manual no Owlbear foi considerado realizado nesta revisao.
+
+### Validacao automatica
+
+- `node --check` nos fontes e bundles, verificacoes focadas dos presets e dos
+  seletores do painel, `npm.cmd run build` e `git diff --check` passaram.
+- O build manteve apenas os avisos conhecidos do SDK sobre `this` no topo de
+  modulos ES. `dist/app.js` foi regenerado pelo processo normal de build.
+
 ## 2026-07-13 - Auditoria geral de qualidade
 
 ### Resumo

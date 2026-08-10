@@ -19,6 +19,7 @@ const imageExtensions = new Set([".apng", ".avif", ".gif", ".jpg", ".jpeg", ".pn
 const itemLayers = new Set(["DRAWING", "PROP", "MOUNT", "CHARACTER", "ATTACHMENT", "NOTE", "TEXT"]);
 const backNames = [/^verso\b/i, /^back\b/i, /^costa\b/i, /^card[-_ ]?back\b/i];
 const pairedBackName = /^(.+?)[-_ ]+(?:verso|back|costa|card[-_ ]?back)$/i;
+const filenameCollator = new Intl.Collator("pt-BR", { numeric: true, sensitivity: "variant" });
 
 function publicPath(groupId, filename) {
   return `assets/preset-cards/${groupId}/${filename}`.replaceAll("\\", "/");
@@ -107,8 +108,12 @@ function getDefaultOrigin(defaultGroup, existingGroup) {
 async function readManifest() {
   try {
     return JSON.parse(await readFile(manifestPath, "utf8"));
-  } catch {
-    return { version: 1, groups: [] };
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return { version: 1, groups: [] };
+    }
+
+    throw error;
   }
 }
 
@@ -120,7 +125,7 @@ async function readGroupFiles(groupId) {
   return entries
     .filter((entry) => entry.isFile() && isImage(entry.name))
     .map((entry) => entry.name)
-    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+    .sort(filenameCollator.compare);
 }
 
 function mergeGroup(defaultGroup, existingGroup, files) {

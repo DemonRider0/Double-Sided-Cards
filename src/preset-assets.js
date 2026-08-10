@@ -1,0 +1,113 @@
+import { getMimeFromUrl } from "./card-data.js";
+
+const ITEM_LAYERS = new Set([
+  "DRAWING",
+  "PROP",
+  "MOUNT",
+  "CHARACTER",
+  "ATTACHMENT",
+  "NOTE",
+  "TEXT",
+]);
+
+function isExternalUrl(value) {
+  return /^(https?:|data:|blob:)/i.test(value);
+}
+
+export function normalizePresetLayer(value) {
+  return ITEM_LAYERS.has(value) ? value : "PROP";
+}
+
+export function resolvePresetAssetUrl(path) {
+  if (!path || typeof path !== "string") {
+    return "";
+  }
+
+  if (isExternalUrl(path)) {
+    return path;
+  }
+
+  return new URL(`../${path.replace(/^\/+/, "")}`, import.meta.url).toString();
+}
+
+export function getPresetNameFromPath(path, fallback) {
+  if (!path || typeof path !== "string") {
+    return fallback;
+  }
+
+  try {
+    const pathname = isExternalUrl(path) ? new URL(path).pathname : path;
+    const filename = pathname.split("/").filter(Boolean).pop();
+
+    if (!filename) {
+      return fallback;
+    }
+
+    return decodeURIComponent(filename.replace(/\.[^.]+$/, "")) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export function normalizePresetAsset(value, fallbackName) {
+  if (typeof value === "string") {
+    return {
+      name: getPresetNameFromPath(value, fallbackName),
+      path: value,
+    };
+  }
+
+  if (!value || typeof value !== "object") {
+    return {
+      name: fallbackName,
+      path: "",
+    };
+  }
+
+  return {
+    name: value.name || getPresetNameFromPath(value.path || value.url, fallbackName),
+    path: value.path || value.url || "",
+    width: value.width,
+    height: value.height,
+    mime: value.mime,
+  };
+}
+
+function readImage(url) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      if (!image.naturalWidth || !image.naturalHeight) {
+        reject(new Error(`Imagem sem tamanho valido: ${url}`));
+        return;
+      }
+
+      resolve({
+        width: image.naturalWidth,
+        height: image.naturalHeight,
+      });
+    };
+    image.onerror = () => reject(new Error(`Nao consegui carregar a imagem: ${url}`));
+    image.src = url;
+  });
+}
+
+export async function buildPresetFace(asset, missingAssetMessage) {
+  const url = resolvePresetAssetUrl(asset.path);
+
+  if (!url) {
+    throw new Error(missingAssetMessage);
+  }
+
+  const dimensions =
+    Number.isFinite(asset.width) && Number.isFinite(asset.height)
+      ? { width: asset.width, height: asset.height }
+      : await readImage(url);
+
+  return {
+    url,
+    width: dimensions.width,
+    height: dimensions.height,
+    mime: asset.mime || getMimeFromUrl(url),
+  };
+}

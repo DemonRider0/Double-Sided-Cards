@@ -22,6 +22,7 @@ const deckDefaults = [
 const imageExtensions = new Set([".apng", ".avif", ".gif", ".jpg", ".jpeg", ".png", ".svg", ".webp"]);
 const itemLayers = new Set(["DRAWING", "PROP", "MOUNT", "CHARACTER", "ATTACHMENT", "NOTE", "TEXT"]);
 const backNames = [/^verso\b/i, /^back\b/i, /^costa\b/i, /^deck[-_ ]?back\b/i];
+const filenameCollator = new Intl.Collator("pt-BR", { numeric: true, sensitivity: "variant" });
 
 function publicPath(deckId, filename) {
   return `assets/preset-decks/${deckId}/${filename}`.replaceAll("\\", "/");
@@ -68,8 +69,12 @@ function getDefaultLayer(defaultDeck, existingDeck) {
 async function readManifest() {
   try {
     return JSON.parse(await readFile(manifestPath, "utf8"));
-  } catch {
-    return { version: 1, decks: [] };
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return { version: 1, decks: [] };
+    }
+
+    throw error;
   }
 }
 
@@ -81,7 +86,7 @@ async function readDeckFiles(deckId) {
   return entries
     .filter((entry) => entry.isFile() && isImage(entry.name))
     .map((entry) => entry.name)
-    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+    .sort(filenameCollator.compare);
 }
 
 function mergeDeck(defaultDeck, existingDeck, files) {

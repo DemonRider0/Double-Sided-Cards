@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { rollup } from "rollup";
@@ -7,6 +7,7 @@ import { nodeResolve } from "@rollup/plugin-node-resolve";
 const root = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.join(root, "dist");
 
+await rm(dist, { recursive: true, force: true });
 await mkdir(dist, { recursive: true });
 
 for (const [input, output] of [

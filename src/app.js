@@ -10,7 +10,6 @@ import {
   deckDescription,
   getCardMetadata,
   getDeckMetadata,
-  getMimeFromUrl,
   normalizeCardMetadata,
   normalizeDeckMetadata,
   setCardMetadata,
@@ -53,8 +52,6 @@ import {
 } from "./selection-board.js";
 
 const elements = {
-  form: document.querySelector("#cardForm"),
-  deckForm: document.querySelector("#deckForm"),
   presetDeckSelect: document.querySelector("#presetDeckSelect"),
   presetDeckGridWidth: document.querySelector("#presetDeckGridWidth"),
   presetDeckLayer: document.querySelector("#presetDeckLayer"),
@@ -68,25 +65,6 @@ const elements = {
   importPresetCardButton: document.querySelector("#importPresetCardButton"),
   missionDeckInfo: document.querySelector("#missionDeckInfo"),
   createMissionDeckButton: document.querySelector("#createMissionDeckButton"),
-  name: document.querySelector("#cardName"),
-  frontUrl: document.querySelector("#frontUrl"),
-  frontFile: document.querySelector("#frontFile"),
-  pickFrontAssetButton: document.querySelector("#pickFrontAssetButton"),
-  backUrl: document.querySelector("#backUrl"),
-  backFile: document.querySelector("#backFile"),
-  pickBackAssetButton: document.querySelector("#pickBackAssetButton"),
-  gridWidth: document.querySelector("#gridWidth"),
-  layer: document.querySelector("#layer"),
-  deckName: document.querySelector("#deckName"),
-  deckBackUrl: document.querySelector("#deckBackUrl"),
-  deckBackFile: document.querySelector("#deckBackFile"),
-  pickDeckBackAssetButton: document.querySelector("#pickDeckBackAssetButton"),
-  deckFrontUrls: document.querySelector("#deckFrontUrls"),
-  deckFrontFiles: document.querySelector("#deckFrontFiles"),
-  pickDeckFrontAssetsButton: document.querySelector("#pickDeckFrontAssetsButton"),
-  deckAssetsStatus: document.querySelector("#deckAssetsStatus"),
-  deckGridWidth: document.querySelector("#deckGridWidth"),
-  deckLayer: document.querySelector("#deckLayer"),
   panelFlipButton: document.querySelector("#panelFlipButton"),
   panelDrawButton: document.querySelector("#panelDrawButton"),
   panelShuffleButton: document.querySelector("#panelShuffleButton"),
@@ -99,13 +77,8 @@ const elements = {
   createScenePresetButtons: [...document.querySelectorAll("[data-create-scene-preset]")],
   restoreScenePresetButtons: [...document.querySelectorAll("[data-restore-scene-preset]")],
   defaultBoardInfo: document.querySelector("#defaultBoardInfo"),
-  importButton: document.querySelector("#importButton"),
-  importDeckButton: document.querySelector("#importDeckButton"),
   connectionStatus: document.querySelector("#connectionStatus"),
   message: document.querySelector("#message"),
-  frontPreview: document.querySelector("#frontPreview"),
-  backPreview: document.querySelector("#backPreview"),
-  deckBackPreview: document.querySelector("#deckBackPreview"),
 };
 
 let obr = null;
@@ -119,12 +92,6 @@ let scenePresetEntries = [];
 let sceneRestoreRunning = false;
 let colorAssignmentsRefreshTimer = null;
 const customSelects = new Map();
-const selectedAssets = {
-  front: null,
-  back: null,
-  deckBack: null,
-  deckFronts: [],
-};
 
 window.addEventListener("error", (event) => {
   setConnectionStatus("Erro no painel", false);
@@ -146,24 +113,6 @@ function setConnectionStatus(text, isConnected) {
   elements.connectionStatus.dataset.connected = String(isConnected);
   if (!isConnected) {
     renderPlayerColorAssignments([]);
-  }
-  if (elements.importButton) {
-    elements.importButton.disabled = !isConnected;
-  }
-  if (elements.importDeckButton) {
-    elements.importDeckButton.disabled = !isConnected;
-  }
-  if (elements.pickFrontAssetButton) {
-    elements.pickFrontAssetButton.disabled = !isConnected;
-  }
-  if (elements.pickBackAssetButton) {
-    elements.pickBackAssetButton.disabled = !isConnected;
-  }
-  if (elements.pickDeckBackAssetButton) {
-    elements.pickDeckBackAssetButton.disabled = !isConnected;
-  }
-  if (elements.pickDeckFrontAssetsButton) {
-    elements.pickDeckFrontAssetsButton.disabled = !isConnected;
   }
   elements.migratePublicButton.disabled = !isConnected;
   updateDefaultBoardControls(isConnected);
@@ -322,10 +271,6 @@ function schedulePlayerColorAssignmentsRefresh(fallbackPlayers = null) {
   }, 150);
 }
 
-function isLocalhost() {
-  return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-}
-
 function formatPresetDate(value) {
   try {
     return new Intl.DateTimeFormat("pt-BR", {
@@ -372,27 +317,19 @@ async function refreshDefaultBoardInfo() {
   updateDefaultBoardControls(Boolean(obr));
 }
 
-async function rememberCardSelection(selection) {
+async function rememberSelection(selection) {
   if (!obr || !selection?.length) {
     return;
   }
 
   const selectedItems = await obr.scene.items.getItems(selection);
   const cardIds = getDoubleSidedCards(selectedItems).map((item) => item.id);
+  const deckIds = getDeckItems(selectedItems).map((item) => item.id);
 
   if (cardIds.length) {
     lastCardSelection = cardIds;
     lastFlipSelection = cardIds;
   }
-}
-
-async function rememberDeckSelection(selection) {
-  if (!obr || !selection?.length) {
-    return;
-  }
-
-  const selectedItems = await obr.scene.items.getItems(selection);
-  const deckIds = getDeckItems(selectedItems).map((item) => item.id);
 
   if (deckIds.length) {
     lastDeckSelection = deckIds;
@@ -406,7 +343,7 @@ async function refreshPanelSelectionMemory() {
   }
 
   const selection = await obr.player.getSelection();
-  await Promise.all([rememberCardSelection(selection), rememberDeckSelection(selection)]);
+  await rememberSelection(selection);
 }
 
 async function showPanelActionResult(count, singular, plural, warning) {
@@ -716,34 +653,6 @@ async function repairSceneMetadata() {
   return stats;
 }
 
-function normalizeUrl(value) {
-  const url = value.trim();
-  if (!url) {
-    throw new Error("Informe uma URL valida.");
-  }
-
-  return new URL(url).toString();
-}
-
-function getGoogleDriveFileId(rawUrl) {
-  try {
-    const url = new URL(rawUrl);
-
-    if (!url.hostname.endsWith("drive.google.com")) {
-      return null;
-    }
-
-    const fileMatch = url.pathname.match(/\/file\/d\/([^/]+)/);
-    if (fileMatch?.[1]) {
-      return fileMatch[1];
-    }
-
-    return url.searchParams.get("id");
-  } catch {
-    return null;
-  }
-}
-
 function getCurrentExtensionBaseUrl() {
   const url = new URL(window.location.href);
   url.search = "";
@@ -765,23 +674,6 @@ function getDefaultPublicBaseUrl() {
   }
 
   return getCurrentExtensionBaseUrl();
-}
-
-function getImageUrlCandidates(rawUrl) {
-  const url = normalizeUrl(rawUrl);
-  const driveId = getGoogleDriveFileId(url);
-
-  if (!driveId) {
-    return [url];
-  }
-
-  const encodedId = encodeURIComponent(driveId);
-  return [
-    `https://drive.google.com/thumbnail?id=${encodedId}&sz=w2400`,
-    `https://lh3.googleusercontent.com/d/${encodedId}=w2400`,
-    `https://drive.google.com/uc?export=view&id=${encodedId}`,
-    url,
-  ];
 }
 
 function normalizePublicBaseUrl(value) {
@@ -898,7 +790,26 @@ async function loadBlobImage(blob) {
   const objectUrl = URL.createObjectURL(blob);
 
   try {
-    return await loadImageFromUrl(objectUrl, blob.type || "image/png");
+    return await new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => {
+        if (!image.naturalWidth || !image.naturalHeight) {
+          reject(new Error("A imagem carregou sem dimensoes validas."));
+          return;
+        }
+
+        resolve({
+          url: objectUrl,
+          width: image.naturalWidth,
+          height: image.naturalHeight,
+          mime: blob.type || "image/png",
+        });
+      };
+      image.onerror = () => {
+        reject(new Error(`Nao consegui carregar esta imagem: ${objectUrl}`));
+      };
+      image.src = objectUrl;
+    });
   } finally {
     URL.revokeObjectURL(objectUrl);
   }
@@ -1340,282 +1251,6 @@ async function restoreDefaultBoard(presetId) {
   }
 }
 
-async function loadImageInfo(rawUrl) {
-  const candidates = getImageUrlCandidates(rawUrl);
-  let lastError = null;
-
-  for (const candidate of candidates) {
-    try {
-      const info = await loadImageFromUrl(candidate);
-      return await cacheRemoteImage(info, rawUrl);
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  const driveHint = getGoogleDriveFileId(rawUrl)
-    ? " Confira se o arquivo do Drive esta compartilhado com qualquer pessoa com o link."
-    : "";
-
-  throw new Error(`Nao consegui carregar esta imagem: ${rawUrl}.${driveHint}`, {
-    cause: lastError,
-  });
-}
-
-function isLocalAssetUrl(rawUrl) {
-  try {
-    const url = new URL(rawUrl);
-    return url.hostname === "localhost" || url.hostname === "127.0.0.1";
-  } catch {
-    return false;
-  }
-}
-
-async function cacheRemoteImage(info, originalUrl) {
-  if (info.url.startsWith("blob:") || info.url.startsWith("data:") || isLocalAssetUrl(info.url)) {
-    return info;
-  }
-
-  const isDriveUrl = Boolean(getGoogleDriveFileId(originalUrl));
-
-  try {
-    const response = await fetch(
-      `./__remote_asset?url=${encodeURIComponent(info.url)}&name=${encodeURIComponent(
-        getNameFromUrl(originalUrl, "image"),
-      )}`,
-    );
-
-    if (!response.ok) {
-      throw new Error("O servidor local nao conseguiu baixar a imagem remota.");
-    }
-
-    const payload = await response.json();
-    if (!payload.url) {
-      throw new Error("O servidor local nao retornou a imagem cacheada.");
-    }
-
-    return {
-      ...info,
-      url: payload.url,
-    };
-  } catch (error) {
-    if (isDriveUrl) {
-      throw new Error(
-        "O Drive carregou no navegador, mas o servidor local nao conseguiu baixar a imagem. " +
-          "Compartilhe o arquivo como qualquer pessoa com o link ou use os arquivos locais.",
-        { cause: error },
-      );
-    }
-
-    return info;
-  }
-}
-
-function loadImageFromUrl(url, mimeOverride) {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.referrerPolicy = "no-referrer";
-    image.onload = async () => {
-      if (!image.naturalWidth || !image.naturalHeight) {
-        reject(new Error("A imagem carregou sem dimensoes validas."));
-        return;
-      }
-
-      resolve({
-        url,
-        width: image.naturalWidth,
-        height: image.naturalHeight,
-        mime: mimeOverride || (await detectMime(url)),
-      });
-    };
-    image.onerror = () => {
-      reject(new Error(`Nao consegui carregar esta imagem: ${url}`));
-    };
-    image.src = url;
-  });
-}
-
-async function detectMime(url) {
-  if (url.startsWith("data:")) {
-    return url.match(/^data:([^;,]+)/)?.[1] || "image/png";
-  }
-
-  try {
-    const response = await fetch(url, {
-      method: "HEAD",
-      mode: "cors",
-    });
-    const contentType = response.headers.get("content-type")?.split(";")[0]?.trim();
-
-    if (contentType?.startsWith("image/")) {
-      return contentType;
-    }
-  } catch {
-    return getMimeFromUrl(url);
-  }
-
-  return getMimeFromUrl(url);
-}
-
-function getSelectedFile(input) {
-  return input.files?.[0] || null;
-}
-
-function getSelectedFiles(input) {
-  return Array.from(input.files || []);
-}
-
-function imageInfoFromAsset(asset) {
-  return {
-    ...asset.image,
-    name: asset.name || getNameFromUrl(asset.image.url, "Carta"),
-  };
-}
-
-function setPreviewImage(image, url) {
-  image.src = url;
-  image.hidden = false;
-}
-
-function clearAsset(key) {
-  if (key === "deckFronts") {
-    selectedAssets.deckFronts = [];
-    elements.deckAssetsStatus.textContent = "";
-    return;
-  }
-
-  selectedAssets[key] = null;
-}
-
-async function pickSingleAsset(key, image, layerInput) {
-  if (!obr) {
-    setMessage("Abra esta extensao dentro do Owlbear para escolher assets.", "warning");
-    return;
-  }
-
-  const [asset] = await obr.assets.downloadImages(false, "", layerInput.value);
-  if (!asset) {
-    return;
-  }
-
-  selectedAssets[key] = asset;
-  setPreviewImage(image, asset.image.url);
-  setMessage(`Asset "${asset.name}" selecionado.`, "success");
-}
-
-async function pickDeckFrontAssets() {
-  if (!obr) {
-    setMessage("Abra esta extensao dentro do Owlbear para escolher assets.", "warning");
-    return;
-  }
-
-  const assets = await obr.assets.downloadImages(true, "", elements.deckLayer.value);
-  if (!assets.length) {
-    return;
-  }
-
-  selectedAssets.deckFronts = assets;
-  elements.deckAssetsStatus.textContent =
-    assets.length === 1 ? "1 frente selecionada dos assets." : `${assets.length} frentes selecionadas dos assets.`;
-  setMessage(elements.deckAssetsStatus.textContent, "success");
-}
-
-async function loadFileImageInfo(file) {
-  const previewUrl = URL.createObjectURL(file);
-
-  try {
-    const [info, uploadedUrl] = await Promise.all([
-      loadImageFromUrl(previewUrl, file.type || getMimeFromUrl(file.name)),
-      uploadLocalFile(file),
-    ]);
-
-    return {
-      ...info,
-      url: uploadedUrl,
-      name: getNameFromFilename(file.name, "Carta"),
-    };
-  } finally {
-    URL.revokeObjectURL(previewUrl);
-  }
-}
-
-async function uploadLocalFile(file) {
-  const response = await fetch(`./__local_asset?name=${encodeURIComponent(file.name)}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": file.type || "application/octet-stream",
-    },
-    body: file,
-  });
-
-  if (!response.ok) {
-    throw new Error("Nao consegui enviar o arquivo local para o servidor de teste.");
-  }
-
-  const payload = await response.json();
-  if (!payload.url) {
-    throw new Error("O servidor de teste nao retornou a URL do arquivo local.");
-  }
-
-  return payload.url;
-}
-
-async function loadImageInput(urlInput, fileInput, label, asset) {
-  if (asset) {
-    return imageInfoFromAsset(asset);
-  }
-
-  const file = getSelectedFile(fileInput);
-
-  if (file) {
-    return loadFileImageInfo(file);
-  }
-
-  const rawUrl = urlInput.value.trim();
-  if (!rawUrl) {
-    throw new Error(`Informe uma URL ou arquivo para ${label}.`);
-  }
-
-  const info = await loadImageInfo(rawUrl);
-  return {
-    ...info,
-    name: getNameFromUrl(rawUrl, "Carta"),
-  };
-}
-
-function updatePreview(urlInput, fileInput, image, asset) {
-  if (asset) {
-    setPreviewImage(image, asset.image.url);
-    return;
-  }
-
-  const file = getSelectedFile(fileInput);
-
-  if (file) {
-    const previewUrl = URL.createObjectURL(file);
-    image.onload = () => URL.revokeObjectURL(previewUrl);
-    image.src = previewUrl;
-    image.hidden = false;
-    return;
-  }
-
-  const value = urlInput.value.trim();
-
-  if (!value) {
-    image.hidden = true;
-    image.removeAttribute("src");
-    return;
-  }
-
-  try {
-    image.src = getImageUrlCandidates(value)[0];
-    image.hidden = false;
-  } catch {
-    image.hidden = true;
-    image.removeAttribute("src");
-  }
-}
-
 async function getViewportCenter() {
   const [width, height] = await Promise.all([
     obr.viewport.getWidth(),
@@ -1628,10 +1263,6 @@ async function getViewportCenter() {
   });
 }
 
-function getNameFromFilename(filename, fallback) {
-  return filename ? filename.replace(/\.[^.]+$/, "") : fallback;
-}
-
 function getNameFromUrl(rawUrl, fallback) {
   try {
     const path = new URL(rawUrl).pathname;
@@ -1640,16 +1271,6 @@ function getNameFromUrl(rawUrl, fallback) {
   } catch {
     return fallback;
   }
-}
-
-function getCardName(front) {
-  const typedName = elements.name.value.trim();
-  return typedName || front.name || getNameFromUrl(front.url, "Carta");
-}
-
-function getDeckName() {
-  const typedName = elements.deckName.value.trim();
-  return typedName || "Pilha";
 }
 
 function getSelectedPresetDeck() {
@@ -1900,55 +1521,6 @@ function getPresetCardGridWidth() {
   return gridWidth;
 }
 
-function parseDeckLines() {
-  const lines = elements.deckFrontUrls.value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  if (!lines.length) {
-    throw new Error("Informe pelo menos uma frente por URL ou arquivo para a pilha.");
-  }
-
-  return lines.map((line, index) => {
-    const separatorIndex = line.indexOf("|");
-    const rawName = separatorIndex >= 0 ? line.slice(0, separatorIndex).trim() : "";
-    const rawUrl = separatorIndex >= 0 ? line.slice(separatorIndex + 1).trim() : line;
-    const url = normalizeUrl(rawUrl);
-    const name = rawName || getNameFromUrl(url, `Carta ${index + 1}`);
-
-    return { name, url };
-  });
-}
-
-async function loadDeckFronts() {
-  if (selectedAssets.deckFronts.length) {
-    return selectedAssets.deckFronts.map((asset) => ({
-      name: asset.name || "Carta",
-      front: imageInfoFromAsset(asset),
-    }));
-  }
-
-  const files = getSelectedFiles(elements.deckFrontFiles);
-
-  if (files.length) {
-    return Promise.all(
-      files.map(async (file) => ({
-        name: getNameFromFilename(file.name, "Carta"),
-        front: await loadFileImageInfo(file),
-      })),
-    );
-  }
-
-  const cardLines = parseDeckLines();
-  const fronts = await Promise.all(cardLines.map((card) => loadImageInfo(card.url)));
-
-  return fronts.map((front, index) => ({
-    name: cardLines[index].name,
-    front,
-  }));
-}
-
 async function addDeckToScene({
   name,
   back,
@@ -2036,93 +1608,6 @@ async function createMissionDeck() {
   }
 }
 
-async function createCard(event) {
-  event.preventDefault();
-
-  if (!obr || !buildImage) {
-    setMessage("Abra esta extensao dentro do Owlbear Rodeo para importar.", "warning");
-    return;
-  }
-
-  setMessage("Carregando imagens...", "neutral");
-  elements.importButton.disabled = true;
-
-  try {
-    const [front, back] = await Promise.all([
-      loadImageInput(elements.frontUrl, elements.frontFile, "a frente", selectedAssets.front),
-      loadImageInput(elements.backUrl, elements.backFile, "o verso", selectedAssets.back),
-    ]);
-
-    const gridWidth = Number.parseFloat(elements.gridWidth.value);
-    if (!Number.isFinite(gridWidth) || gridWidth <= 0) {
-      throw new Error("A largura no grid precisa ser maior que zero.");
-    }
-
-    const name = getCardName(front);
-    await addCardToScene({
-      name,
-      front,
-      back,
-      gridWidth,
-      layer: elements.layer.value,
-    });
-    await obr.notification.show(`Carta "${name}" importada.`);
-
-    setMessage("Carta importada.", "success");
-  } catch (error) {
-    console.error(error);
-    setMessage(error.message || "Nao consegui importar a carta.", "error");
-  } finally {
-    elements.importButton.disabled = false;
-  }
-}
-
-async function createDeck(event) {
-  event.preventDefault();
-
-  if (!obr || !buildImage) {
-    setMessage("Abra esta extensao dentro do Owlbear Rodeo para importar.", "warning");
-    return;
-  }
-
-  setMessage("Carregando pilha...", "neutral");
-  elements.importDeckButton.disabled = true;
-
-  try {
-    const [back, cards] = await Promise.all([
-      loadImageInput(
-        elements.deckBackUrl,
-        elements.deckBackFile,
-        "o verso da pilha",
-        selectedAssets.deckBack,
-      ),
-      loadDeckFronts(),
-    ]);
-    const gridWidth = Number.parseFloat(elements.deckGridWidth.value);
-
-    if (!Number.isFinite(gridWidth) || gridWidth <= 0) {
-      throw new Error("A largura no grid precisa ser maior que zero.");
-    }
-
-    const name = getDeckName();
-    await addDeckToScene({
-      name,
-      back,
-      cards,
-      gridWidth,
-      layer: elements.deckLayer.value,
-    });
-    await obr.notification.show(`Pilha "${name}" importada.`);
-
-    setMessage("Pilha importada.", "success");
-  } catch (error) {
-    console.error(error);
-    setMessage(error.message || "Nao consegui importar a pilha.", "error");
-  } finally {
-    elements.importDeckButton.disabled = false;
-  }
-}
-
 async function createPresetDeck() {
   if (!obr || !buildImage) {
     setMessage("Abra esta extensao dentro do Owlbear Rodeo para criar uma pilha.", "warning");
@@ -2203,12 +1688,6 @@ async function createPresetCard() {
 async function init() {
   enhancePanelSelects();
 
-  if (elements.form) {
-    elements.form.addEventListener("submit", createCard);
-  }
-  if (elements.deckForm) {
-    elements.deckForm.addEventListener("submit", createDeck);
-  }
   elements.presetDeckSelect.addEventListener("change", () =>
     updatePresetDeckControls(Boolean(obr), true),
   );
@@ -2337,58 +1816,6 @@ async function init() {
       await obr.notification.show(message, "SUCCESS");
     }),
   );
-  if (elements.form && elements.deckForm) {
-    elements.frontUrl.addEventListener("input", () =>
-      clearAsset("front") ||
-      updatePreview(elements.frontUrl, elements.frontFile, elements.frontPreview),
-    );
-    elements.frontFile.addEventListener("change", () =>
-      clearAsset("front") ||
-      updatePreview(elements.frontUrl, elements.frontFile, elements.frontPreview),
-    );
-    elements.pickFrontAssetButton.addEventListener("click", () =>
-      pickSingleAsset("front", elements.frontPreview, elements.layer).catch((error) => {
-        console.error(error);
-        setMessage(error.message || "Nao consegui escolher a frente dos assets.", "error");
-      }),
-    );
-    elements.backUrl.addEventListener("input", () =>
-      clearAsset("back") ||
-      updatePreview(elements.backUrl, elements.backFile, elements.backPreview),
-    );
-    elements.backFile.addEventListener("change", () =>
-      clearAsset("back") ||
-      updatePreview(elements.backUrl, elements.backFile, elements.backPreview),
-    );
-    elements.pickBackAssetButton.addEventListener("click", () =>
-      pickSingleAsset("back", elements.backPreview, elements.layer).catch((error) => {
-        console.error(error);
-        setMessage(error.message || "Nao consegui escolher o verso dos assets.", "error");
-      }),
-    );
-    elements.deckBackUrl.addEventListener("input", () =>
-      clearAsset("deckBack") ||
-      updatePreview(elements.deckBackUrl, elements.deckBackFile, elements.deckBackPreview),
-    );
-    elements.deckBackFile.addEventListener("change", () =>
-      clearAsset("deckBack") ||
-      updatePreview(elements.deckBackUrl, elements.deckBackFile, elements.deckBackPreview),
-    );
-    elements.pickDeckBackAssetButton.addEventListener("click", () =>
-      pickSingleAsset("deckBack", elements.deckBackPreview, elements.deckLayer).catch((error) => {
-        console.error(error);
-        setMessage(error.message || "Nao consegui escolher o verso dos assets.", "error");
-      }),
-    );
-    elements.deckFrontUrls.addEventListener("input", () => clearAsset("deckFronts"));
-    elements.deckFrontFiles.addEventListener("change", () => clearAsset("deckFronts"));
-    elements.pickDeckFrontAssetsButton.addEventListener("click", () =>
-      pickDeckFrontAssets().catch((error) => {
-        console.error(error);
-        setMessage(error.message || "Nao consegui escolher as frentes dos assets.", "error");
-      }),
-    );
-  }
   elements.migratePublicButton.addEventListener("click", () => {
     elements.migratePublicButton.disabled = true;
     setMessage("Migrando links locais da cena...", "neutral");
@@ -2412,16 +1839,6 @@ async function init() {
     );
   }
 
-  if (elements.form && elements.deckForm) {
-    updatePreview(elements.frontUrl, elements.frontFile, elements.frontPreview, selectedAssets.front);
-    updatePreview(elements.backUrl, elements.backFile, elements.backPreview, selectedAssets.back);
-    updatePreview(
-      elements.deckBackUrl,
-      elements.deckBackFile,
-      elements.deckBackPreview,
-      selectedAssets.deckBack,
-    );
-  }
   setConnectionStatus("Painel carregado; conectando...", false);
   setMessage("Previa ativa. Conectando ao Owlbear...", "neutral");
 
@@ -2439,15 +1856,12 @@ async function init() {
         console.warn("Nao consegui pedir o registro dos comandos", error);
     });
     const selection = await obr.player.getSelection();
-    await Promise.all([rememberCardSelection(selection), rememberDeckSelection(selection)]);
+    await rememberSelection(selection);
     await refreshDefaultBoardInfo();
     await refreshPlayerColorAssignments();
     obr.player.onChange((player) => {
-      rememberCardSelection(player.selection).catch((error) => {
-        console.warn("Nao consegui atualizar a selecao de cartas", error);
-      });
-      rememberDeckSelection(player.selection).catch((error) => {
-        console.warn("Nao consegui atualizar a selecao de pilhas", error);
+      rememberSelection(player.selection).catch((error) => {
+        console.warn("Nao consegui atualizar a selecao do painel", error);
       });
       schedulePlayerColorAssignmentsRefresh();
     });
