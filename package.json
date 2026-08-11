@@ -14,6 +14,7 @@
     "build:scene-presets": "node scripts/build-scene-preset-index.mjs",
     "audit:assets": "node scripts/audit-assets.mjs",
     "check": "node scripts/check-project.mjs",
+    "test:regressions": "node scripts/test-regressions.mjs",
     "prepare:github-assets": "node scripts/prepare-github-assets.mjs"
   },
   "dependencies": {

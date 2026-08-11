@@ -153,6 +153,15 @@ flowchart TD
   E --> F["Apagar item de carta solta"]
 ```
 
+Para tornar a devolucao idempotente entre clientes, a entrada recolocada na
+pilha guarda `returnedSceneItemId`, com o `id` da instancia de item removida da
+cena. Antes de acrescentar a entrada, a devolucao verifica esse marcador na
+pilha relida pelo `updateItems`; uma repeticao da mesma instancia apenas conclui
+a exclusao da carta solta. O marcador fica na propria entrada, e e substituido
+pelo novo `item.id` quando aquela carta for sacada e devolvida outra vez. Cartas
+antigas sem o campo continuam validas e recebem o marcador somente na primeira
+devolucao; campos desconhecidos da carta e da pilha continuam preservados.
+
 ### Restaurar mapa salvo
 
 ```mermaid

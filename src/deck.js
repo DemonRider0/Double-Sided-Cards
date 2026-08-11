@@ -32,6 +32,7 @@ const deckOperationQueues = new Map();
 const activeDeckOperationIds = new Set();
 const cardReturnQueues = new Map();
 const activeMissionDeckCreations = new Set();
+const RETURNED_SCENE_ITEM_ID_FIELD = "returnedSceneItemId";
 const CARD_METADATA_FIELDS = new Set([
   "version",
   "name",
@@ -1177,6 +1178,7 @@ function createReturnedDeckCard(card, metadata) {
     back: cloneSerializable(metadata.faces.back),
     gridWidth: metadata.gridWidth,
     mirrorBack: shouldMirrorCardBack(metadata),
+    [RETURNED_SCENE_ITEM_ID_FIELD]: card.id,
   };
 
   if (metadata.origin) {
@@ -1242,7 +1244,12 @@ function getReturnSourceDeckId(card) {
 
 function buildReturnOperation(card, deck, metadata, returnedCard) {
   const preReturnCards = metadata.cards.map(cloneDeckCard);
-  const postReturnCards = [...preReturnCards, cloneDeckCard(returnedCard)];
+  const alreadyReturned = preReturnCards.some(
+    (entry) => entry?.[RETURNED_SCENE_ITEM_ID_FIELD] === card.id,
+  );
+  const postReturnCards = alreadyReturned
+    ? preReturnCards.map(cloneDeckCard)
+    : [...preReturnCards, cloneDeckCard(returnedCard)];
 
   return {
     cardId: card.id,
@@ -1251,6 +1258,7 @@ function buildReturnOperation(card, deck, metadata, returnedCard) {
     returnedCard: cloneDeckCard(returnedCard),
     preReturnCards,
     postReturnCards,
+    appended: !alreadyReturned,
   };
 }
 
@@ -1298,6 +1306,11 @@ async function applyReturnToDeck(OBR, cardSnapshot, deckId) {
 
     const returnedCard = createReturnedDeckCard(cardSnapshot, cardMetadata);
     operation = buildReturnOperation(cardSnapshot, deck, metadata, returnedCard);
+
+    if (!operation.appended) {
+      return;
+    }
+
     const nextMetadata = {
       ...metadata,
       cards: operation.postReturnCards.map(cloneDeckCard),
@@ -1332,6 +1345,12 @@ async function deleteReturnedCardOrReconcile(OBR, operation) {
       deckId: operation.deckId,
     });
     return true;
+  }
+
+  if (!operation.appended) {
+    throw new Error(
+      "A pilha já registrou esta carta, mas não consegui apagá-la da cena.",
+    );
   }
 
   let rollbackSucceeded = false;

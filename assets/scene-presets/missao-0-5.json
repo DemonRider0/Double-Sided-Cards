@@ -15806,8 +15806,8 @@
       "id": "cebf3da7-4a6d-4c27-a5e9-2fcfc50742d7",
       "name": "Wynna Verso",
       "position": {
-        "x": 7950,
-        "y": 4050
+        "x": 7964.580411198606,
+        "y": 4021.04634495535
       },
       "rotation": 0,
       "scale": {
@@ -15817,15 +15817,10 @@
       "visible": true,
       "locked": true,
       "createdUserId": "64385312-8d1c-4e1c-b416-713830d3809c",
-      "zIndex": 1780861249773,
+      "zIndex": 1780851669497,
       "lastModified": "2026-06-07T19:40:59.636Z",
       "lastModifiedUserId": "64385312-8d1c-4e1c-b416-713830d3809c",
-      "metadata": {
-        "br.demonrider.double-sided-cards/card-category": {
-          "version": 1,
-          "category": "divinity"
-        }
-      },
+      "metadata": {},
       "image": {
         "width": 520,
         "height": 791,
@@ -20095,7 +20090,7 @@
           "divinity": {
             "position": {
               "x": 7964.580411198606,
-              "y": 3721.04634495535
+              "y": 4021.04634495535
             },
             "rotation": 0,
             "scale": {
@@ -20127,7 +20122,7 @@
         "blue": {
           "race": null,
           "class": null,
-          "divinity": "cebf3da7-4a6d-4c27-a5e9-2fcfc50742d7"
+          "divinity": null
         }
       },
       "origins": {
@@ -20680,20 +20675,6 @@
           },
           "layer": "MOUNT",
           "zIndex": 1780856929632,
-          "locked": false
-        },
-        "cebf3da7-4a6d-4c27-a5e9-2fcfc50742d7": {
-          "position": {
-            "x": 7964.580411198606,
-            "y": 4021.04634495535
-          },
-          "rotation": 0,
-          "scale": {
-            "x": 1.0141025641025643,
-            "y": 1
-          },
-          "layer": "MOUNT",
-          "zIndex": 1780851669497,
           "locked": false
         }
       },

@@ -51,6 +51,7 @@ A arquitetura e os fluxos entre módulos estão detalhados em [docs/ARCHITECTURE
 | `npm run build:preset-cards` | Regenera somente `cards.json`. |
 | `npm run build:scene-presets` | Regenera o índice dos mapas públicos. |
 | `npm run audit:assets` | Produz o inventário técnico dos assets usado nas auditorias. |
+| `npm run test:regressions` | Executa as regressões focadas de devolução concorrente, B17 e slot azul. |
 | `npm run prepare:github-assets` | Prepara assets locais para uso pela versão pública. |
 | `node dev-server.mjs 5180` | Inicia o servidor administrativo em `127.0.0.1:5180`. |
 
