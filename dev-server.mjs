@@ -9,7 +9,7 @@ const port = Number.parseInt(process.argv[2] ?? "5173", 10);
 const host = "127.0.0.1";
 const trustedHostnames = new Set(["localhost", "127.0.0.1"]);
 const localAssetsDir = path.join(root, ".local-assets");
-const scenePresetDir = path.join(root, "assets", "scene-presets");
+const scenePresetDir = path.join(root, ".private-asset-source", "scene-presets");
 const internalEndpoints = new Set([
   "/__local_asset",
   "/__remote_asset",
@@ -268,7 +268,7 @@ async function handleScenePresetSave(request, requestUrl, response) {
     JSON.stringify({
       itemCount: preset.items.length,
       savedAt: preset.savedAt,
-      url: `/assets/scene-presets/${filename}`,
+      sourcePath: `.private-asset-source/scene-presets/${filename}`,
     }),
   );
 }

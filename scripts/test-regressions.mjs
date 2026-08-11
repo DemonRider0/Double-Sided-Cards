@@ -1,20 +1,30 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import {
   DECK_METADATA_KEY,
   METADATA_KEY,
   normalizeDeckMetadata,
 } from "../src/card-data.js";
+import {
+  PRIVATE_ASSET_PACK_FORMAT,
+  PRIVATE_ASSET_PACK_VERSION,
+  PRIVATE_ASSET_STORAGE_KEY,
+  createAssetResolver,
+  getPrivateAssetPackStatus,
+  installPrivateAssetPack,
+  readPrivateAssetState,
+  resolveAssetReferences,
+  savePrivateAssetBindings,
+} from "../src/asset-resolver.js";
+import { loadPresetCardGroups } from "../src/preset-cards.js";
+import { loadPresetDecks } from "../src/preset-decks.js";
+import { loadScenePresetEntries } from "../src/scene-preset.js";
+import {
+  hydratePrivateAssetPackManifest,
+  matchOwlbearAssetBindings,
+} from "../src/private-asset-pack.js";
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const RETURNED_SCENE_ITEM_ID_FIELD = "returnedSceneItemId";
-const SELECTION_BOARD_KEY = "br.demonrider.double-sided-cards/selection-board";
-const CARD_CATEGORY_KEY = "br.demonrider.double-sided-cards/card-category";
-const BLUE_DIVINITY_SLOT_ITEM_ID = "cebf3da7-4a6d-4c27-a5e9-2fcfc50742d7";
 
 function clone(value) {
   return structuredClone(value);
@@ -216,61 +226,202 @@ async function testConcurrentReturnIdempotency() {
   assert.equal(normalizeDeckMetadata(deckMetadata, { item: shared.items.get(deckId) }).ok, true);
 }
 
-async function readJson(relativePath) {
-  return JSON.parse(await readFile(path.join(root, relativePath), "utf8"));
+function createPrivatePackFixture() {
+  const frontId = `sha256:${"a".repeat(64)}`;
+  const backId = `sha256:${"b".repeat(64)}`;
+  const preset = {
+    version: 1,
+    id: "tutorial",
+    name: "Tutorial",
+    savedAt: "2026-01-01T00:00:00.000Z",
+    itemCount: 1,
+    items: [
+      {
+        id: "item-1",
+        type: "IMAGE",
+        metadata: {},
+        image: { assetId: frontId, width: 10, height: 20, mime: "image/png" },
+      },
+    ],
+    metadata: {},
+  };
+  return {
+    format: PRIVATE_ASSET_PACK_FORMAT,
+    version: PRIVATE_ASSET_PACK_VERSION,
+    id: "fixture-pack",
+    name: "Fixture",
+    assets: {
+      [frontId]: {
+        file: `assets/${"a".repeat(64)}.png`,
+        name: "Frente.png",
+        owlbearName: "DSC aaaaaaaaaaaa Frente.png",
+      },
+      [backId]: {
+        file: `assets/${"b".repeat(64)}.png`,
+        name: "Verso.png",
+        owlbearName: "DSC bbbbbbbbbbbb Verso.png",
+      },
+    },
+    aliases: {
+      "assets/preset-cards/teste/Frente.png": frontId,
+      "assets/preset-cards/teste/Copia exata.png": frontId,
+      ".local-assets/legado.png": frontId,
+      "assets/preset-cards/teste/Verso.png": backId,
+      "owlbear:11111111-1111-1111-1111-111111111111": frontId,
+    },
+    presets: {
+      cards: {
+        version: 1,
+        groups: [
+          {
+            id: "teste",
+            name: "Teste",
+            back: { assetId: backId },
+            cards: [{ id: "frente", name: "Frente", front: { assetId: frontId } }],
+          },
+        ],
+      },
+      decks: {
+        version: 1,
+        decks: [
+          {
+            id: "teste",
+            name: "Teste",
+            back: { assetId: backId },
+            cards: [{ name: "Frente", front: { assetId: frontId } }],
+          },
+        ],
+      },
+      scenes: {
+        tutorial: {
+          definition: { id: "tutorial", name: "Tutorial", restoreLabel: "Restaurar" },
+          summary: { savedAt: preset.savedAt, itemCount: 1 },
+          preset,
+        },
+      },
+    },
+  };
 }
 
-async function testMissionBlueSlot() {
-  const [mission, tutorial] = await Promise.all([
-    readJson("assets/scene-presets/missao-0-5.json"),
-    readJson("assets/scene-presets/tutorial.json"),
+function createMemoryStorage() {
+  const values = new Map();
+  return {
+    getItem(key) {
+      return values.has(key) ? values.get(key) : null;
+    },
+    setItem(key, value) {
+      values.set(key, String(value));
+    },
+    removeItem(key) {
+      values.delete(key);
+    },
+  };
+}
+
+async function testPrivateAssetArchitecture() {
+  const pack = createPrivatePackFixture();
+  const [frontId, backId] = Object.keys(pack.assets);
+  const binding = {
+    url: "https://images.owlbear.rodeo/user-owned-front.png",
+    width: 1000,
+    height: 1500,
+    mime: "image/png",
+  };
+  const resolver = createAssetResolver(pack, { [frontId]: binding });
+
+  for (const legacyReference of [
+    "assets/preset-cards/teste/Frente.png",
+    "https://demonrider0.github.io/Double-Sided-Cards/assets/preset-cards/teste/Frente.png?v=69",
+    "http://localhost:5173/assets/preset-cards/teste/Copia%20exata.png",
+    "http://localhost:5173/.local-assets/legado.png",
+    "https://example.invalid/https://images.owlbear.rodeo/11111111-1111-1111-1111-111111111111.png",
+  ]) {
+    const result = resolver.resolve({ url: legacyReference, width: 1, height: 1 });
+    assert.equal(result.canonicalId, frontId);
+    assert.equal(result.resolved, true);
+    assert.equal(result.value.assetId, frontId);
+    assert.equal(result.value.url, binding.url);
+  }
+
+  assert.equal(resolver.resolve({ assetId: backId }).resolved, false);
+  assert.equal(resolver.resolve("https://example.invalid/public.png").canonicalId, null);
+
+  const migrated = resolveAssetReferences(
+    {
+      image: { url: "assets/preset-cards/teste/Frente.png", width: 1, height: 1 },
+      metadata: {
+        face: { url: "assets/preset-cards/teste/Copia exata.png", width: 1, height: 1 },
+      },
+    },
+    { resolver },
+  );
+  assert.equal(migrated.resolved, 1);
+  assert.equal(migrated.unresolved, 0);
+  assert.equal(migrated.value.image.assetId, frontId);
+  assert.equal(migrated.value.metadata.face.url, binding.url);
+
+  const storage = createMemoryStorage();
+  installPrivateAssetPack(pack, storage);
+  assert.ok(storage.getItem(PRIVATE_ASSET_STORAGE_KEY));
+  assert.equal(readPrivateAssetState(storage).pack.id, pack.id);
+  assert.deepEqual(getPrivateAssetPackStatus(storage), {
+    configured: true,
+    id: pack.id,
+    name: pack.name,
+    total: 2,
+    linked: 0,
+    missing: 2,
+  });
+  savePrivateAssetBindings({ [frontId]: binding }, storage);
+  assert.equal(getPrivateAssetPackStatus(storage).linked, 1);
+
+  const matched = matchOwlbearAssetBindings(pack, [
+    {
+      name: pack.assets[backId].owlbearName,
+      description: `double-sided-cards-private-asset:${encodeURIComponent(backId)}`,
+      image: {
+        url: "https://images.owlbear.rodeo/user-owned-back.png",
+        width: 1000,
+        height: 1500,
+        mime: "image/png",
+      },
+    },
   ]);
-  const missionState = mission.metadata[SELECTION_BOARD_KEY];
-  const tutorialState = tutorial.metadata[SELECTION_BOARD_KEY];
-  const missionItem = mission.items.find((item) => item.id === BLUE_DIVINITY_SLOT_ITEM_ID);
-  const tutorialItem = tutorial.items.find((item) => item.id === BLUE_DIVINITY_SLOT_ITEM_ID);
+  assert.equal(matched.bindings[backId].url.includes("owlbear.rodeo"), true);
+  assert.deepEqual(matched.unmatched, []);
 
-  assert.deepEqual(missionState.slots, tutorialState.slots);
-  assert.equal(missionState.assigned.blue.divinity, null);
-  assert.equal(missionState.origins[BLUE_DIVINITY_SLOT_ITEM_ID], undefined);
-  assert.equal(missionItem.metadata[CARD_CATEGORY_KEY], undefined);
-  assert.deepEqual(
-    {
-      position: missionItem.position,
-      rotation: missionItem.rotation,
-      scale: missionItem.scale,
-      layer: missionItem.layer,
-      zIndex: missionItem.zIndex,
-      locked: missionItem.locked,
+  assert.deepEqual(await loadPresetCardGroups(null), []);
+  assert.deepEqual(await loadPresetDecks(null), []);
+  assert.equal((await loadScenePresetEntries(null)).every((entry) => !entry.summary), true);
+  assert.equal((await loadPresetCardGroups(pack)).length, 1);
+  assert.equal((await loadPresetDecks(pack)).length, 1);
+
+  const externalManifest = {
+    ...pack,
+    presets: {
+      cards: "presets/cards.json",
+      decks: "presets/decks.json",
+      scenes: {
+        tutorial: {
+          name: "Tutorial",
+          restoreLabel: "Restaurar",
+          file: "presets/scenes/tutorial.json",
+        },
+      },
     },
-    {
-      position: tutorialItem.position,
-      rotation: tutorialItem.rotation,
-      scale: tutorialItem.scale,
-      layer: tutorialItem.layer,
-      zIndex: tutorialItem.zIndex,
-      locked: tutorialItem.locked,
-    },
+  };
+  const jsonFiles = new Map([
+    ["presets/cards.json", pack.presets.cards],
+    ["presets/decks.json", pack.presets.decks],
+    ["presets/scenes/tutorial.json", pack.presets.scenes.tutorial.preset],
+  ]);
+  const hydrated = await hydratePrivateAssetPackManifest(externalManifest, async (file) =>
+    clone(jsonFiles.get(file)),
   );
-}
-
-async function testWeaponsManifest() {
-  const manifest = await readJson("assets/preset-decks/decks.json");
-  const weapons = manifest.decks.find((deck) => deck.id === "armas");
-  const paths = weapons.cards.map((card) => card.front.path);
-  const hashes = await Promise.all(
-    paths.map(async (assetPath) =>
-      createHash("sha256").update(await readFile(path.join(root, assetPath))).digest("hex"),
-    ),
-  );
-
-  assert.equal(weapons.cards.length, 24);
-  assert.equal(new Set(paths).size, 24);
-  assert.equal(new Set(hashes).size, 24);
+  assert.equal(hydrated.presets.scenes.tutorial.preset.id, "tutorial");
 }
 
 await testConcurrentReturnIdempotency();
-await testMissionBlueSlot();
-await testWeaponsManifest();
+await testPrivateAssetArchitecture();
 
-console.log("Regressoes C3/B17 e C7 validadas.");
+console.log("Regressões de pilhas e arquitetura privada de assets validadas.");

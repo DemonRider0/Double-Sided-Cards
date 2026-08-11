@@ -2,6 +2,25 @@
 
 Este arquivo consolida auditorias realizadas durante o desenvolvimento. Use-o como histórico técnico e como entrada para planos de correção.
 
+## 2026-08-11 - Separacao do Core e Private Asset Pack
+
+- O Core deixou de hospedar `preset-cards`, `preset-decks`, `scene-presets` e `local-assets`; instalacoes sem pack continuam carregando com as bibliotecas e mapas pessoais indisponiveis.
+- `asset-resolver.js` centraliza IDs canonicos, aliases historicos, migracao de referencias e vinculos persistidos para `ImageContent` pertencente ao usuario no Owlbear.
+- O pack privado foi gerado fora do repositorio publico com 243 binarios canonicos para 937 arquivos de origem. Foram removidas 694 copias fisicas exatas, preservando 1697 aliases e 1646 referencias logicas nos manifests e mapas.
+- O SDK instalado, `@owlbear-rodeo/sdk 3.1.0`, disponibiliza `uploadImages` e `downloadImages`. Como `uploadImages` retorna `Promise<void>`, envio e vinculo precisam ser etapas separadas; o vinculo persiste no armazenamento da origem do navegador.
+- Nenhuma imagem foi recomprimida, o historico Git nao foi reescrito e a versao/cache nao foram alterados por esta arquitetura.
+- Os testes automatizados cobrem resolucao canonica, aliases de URL/caminho/ID, ausencia de pack, persistencia, hidratacao dos manifests e carregamento das bibliotecas. Upload, selecao real, persistencia entre sessoes e restauracao visual continuam pendentes de teste manual no Owlbear.
+
+## 2026-08-11 - Preparação da versão 1.0.0
+
+- A versão pública e o pacote de desenvolvimento foram unificados em `1.0.0`; os registros históricos de versões anteriores foram preservados.
+- O cache busting manual dos recursos públicos foi consolidado em `v=100`, sem alterar caminhos, IDs ou URLs persistidas além desse parâmetro.
+- A descrição pública do manifesto foi atualizada para refletir cartas, pilhas, bibliotecas, mapas salvos e jogadores por cor.
+- A limitação residual de devolução simultânea da mesma instância por clientes diferentes foi registrada como uma janela rara de concorrência distribuída. `returnedSceneItemId` mantém a idempotência de retries e repetições locais, mas o SDK não fornece transação distribuída ou compare-and-swap.
+- `npm ci`, `npm ls --all`, `npm run check` antes e depois do build, geradores, duas reconstruções de `dist/`, regressões focadas, `node --check`, parsing dos JSONs, verificação dos links internos e `git diff --check` passaram. Geradores e build produziram hashes idênticos em execuções consecutivas; permaneceram somente os avisos transitivos conhecidos de `uuid` e do SDK no Rollup.
+- Assets binários, manifests de bibliotecas, presets completos, IDs e formatos de metadata permaneceram sem diff. O arquivo preexistente não rastreado `assets/scene-presets.zip` foi preservado e não integra as alterações da release.
+- Nenhuma publicação, tag, push, alteração de assets ou nova funcionalidade faz parte desta preparação.
+
 ## 2026-08-10 - Consolidação automática final
 
 - O diff acumulado foi confrontado com fontes, bundles e documentação. A instalação limpa com `npm ci`, `npm ls --all`, `npm run check` antes e depois do build, geradores, duas reconstruções de `dist/`, `node --check`, parsing dos JSONs, auditoria de assets, testes hostis de metadata/presets, verificações focadas do servidor e `git diff --check` passaram.

@@ -1,14 +1,14 @@
 # Cartas Duplas para Owlbear Rodeo
 
-Extensão para manipular cartas 2D com frente e verso dentro do Owlbear Rodeo. O projeto reúne cartas individuais, pilhas reutilizáveis, mapas preparados e controles para partidas em desktop e mobile.
+Extensão para manipular cartas 2D com frente e verso dentro do Owlbear Rodeo. O Core público oferece as regras e os controles de jogo; bibliotecas e mapas pessoais podem ser adicionados por um Private Asset Pack local.
 
 ## Principais funcionalidades
 
 - cartas com frente e verso, incluindo suporte a verso espelhado;
 - compra, embaralhamento e devolução de cartas para a pilha de origem;
-- bibliotecas prontas de cartas e pilhas;
+- bibliotecas privadas opcionais de cartas e pilhas;
 - criação de pilha temporária a partir de cinco cartas selecionadas;
-- restauração dos mapas Tutorial e Missão 0.5 (não oficial);
+- restauração de mapas configurados no Private Asset Pack;
 - seleção de jogador por cor e slots de raça, classe e divindade;
 - ações pelo painel, pelos comandos do tabuleiro e por atalhos de teclado.
 
@@ -17,17 +17,21 @@ Extensão para manipular cartas 2D com frente e verso dentro do Owlbear Rodeo. O
 No Owlbear Rodeo, adicione uma extensão personalizada usando este manifesto público:
 
 ```text
-https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=69
+https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=100
 ```
 
-A extensão e seus assets são carregados pelo GitHub Pages, portanto é necessário acesso à internet durante o uso.
+Versão pública preparada: **1.0.0**.
+
+O Core é carregado pelo GitHub Pages. Imagens privadas não são hospedadas no repositório: quando um pack é configurado, elas pertencem à biblioteca do usuário no Owlbear Rodeo.
+
+Uma instalação sem Private Asset Pack continua funcional para cartas e pilhas já existentes, ações, atalhos, multiplayer e compatibilidade com cenas antigas. Apenas bibliotecas e mapas pessoais ficam indisponíveis.
 
 ## Uso básico
 
 1. Abra o painel **Cartas** dentro de uma sala do Owlbear Rodeo.
-2. Para começar por um tabuleiro pronto, use **Restaurar o Tutorial** ou **Restaurar a Missão 0.5 (não oficial)**. A restauração pede confirmação e altera a cena atual.
+2. Se um Private Asset Pack estiver configurado, escolha um mapa salvo. A restauração pede confirmação e altera a cena atual.
 3. Quando o mapa utilizar seleção por jogador, escolha sua cor pelo identificador correspondente no tabuleiro.
-4. Use a seção **Biblioteca** para criar uma cópia de uma pilha ou carta cadastrada. As bibliotecas não são consumidas durante a partida.
+4. Com um pack configurado e vinculado, use a seção **Biblioteca** para criar uma cópia de uma pilha ou carta cadastrada. As bibliotecas não são consumidas durante a partida.
 5. Selecione uma carta ou pilha e use as ações do painel ou do próprio tabuleiro para virar, comprar, embaralhar ou devolver.
 
 Para criar uma pilha temporária de missão, selecione exatamente cinco cartas já sacadas e use **Criar pilha com seleção**. A pilha é embaralhada e desaparece quando a última carta é comprada.

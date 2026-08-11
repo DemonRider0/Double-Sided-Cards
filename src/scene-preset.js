@@ -8,25 +8,26 @@ import {
   PLAYER_COLORS,
   SELECTION_BOARD_KEY,
 } from "./selection-board.js";
+import {
+  getConfiguredPrivateAssetPack,
+  resolveAssetReferences,
+} from "./asset-resolver.js";
 
 const PRESET_VERSION = 1;
 const ITEM_CHUNK_SIZE = 80;
 const RESTORE_MARKER_VERSION = 1;
-const SCENE_PRESET_INDEX_URL = "./assets/scene-presets/index.json";
 export const SCENE_RESTORE_MARKER_KEY = `${EXTENSION_ID}/scene-restore`;
 export const SCENE_PRESETS = [
   {
     id: "tutorial",
     name: "Tutorial",
     restoreLabel: "Restaurar o Tutorial",
-    url: "./assets/scene-presets/tutorial.json",
   },
   {
     id: "missao-0-5",
     name: "Missao 0.5 (nao oficial)",
     label: "Missão 0.5 (não oficial)",
     restoreLabel: "Restaurar a Missão 0.5 (não oficial)",
-    url: "./assets/scene-presets/missao-0-5.json",
   },
 ];
 const READONLY_UPDATE_KEYS = new Set([
@@ -388,37 +389,26 @@ function restoreItemState(item, presetItem) {
   }
 }
 
-export async function loadScenePreset(definition) {
-  let response;
-  try {
-    response = await fetch(`${definition.url}?v=${Date.now()}`, {
-      cache: "no-store",
-    });
-  } catch (error) {
-    console.error(`[scene-preset] Falha ao carregar ${definition.id}.`, error);
-    return null;
-  }
-
-  if (!response.ok) {
-    console.error(
-      `[scene-preset] Resposta HTTP invalida ao carregar ${definition.id}: ${response.status}.`,
-    );
-    return null;
-  }
-
-  let preset;
-  try {
-    preset = await response.json();
-  } catch (error) {
-    console.error(`[scene-preset] JSON invalido em ${definition.id}.`, error);
+export async function loadScenePreset(
+  definition,
+  pack = getConfiguredPrivateAssetPack(),
+) {
+  const entry = pack?.presets?.scenes?.[definition.id];
+  if (!entry?.preset) {
     return null;
   }
 
   try {
+    const resolution = resolveAssetReferences(entry.preset);
+    if (resolution.unresolved) {
+      throw new Error(
+        `${resolution.unresolved} assets do mapa ainda não foram vinculados ao Owlbear.`,
+      );
+    }
     const normalized = {
-      ...preset,
-      id: preset.id || definition.id,
-      name: preset.name || definition.name,
+      ...resolution.value,
+      id: resolution.value.id || definition.id,
+      name: resolution.value.name || definition.name,
     };
     return validateScenePreset(normalized);
   } catch (error) {
@@ -427,42 +417,30 @@ export async function loadScenePreset(definition) {
   }
 }
 
-export async function loadScenePresetEntries() {
-  let summaries = [];
-  let loadError = null;
-
-  try {
-    const response = await fetch(`${SCENE_PRESET_INDEX_URL}?v=${Date.now()}`, {
-      cache: "no-store",
-    });
-    if (!response.ok) {
-      throw new Error(`Resposta HTTP ${response.status}.`);
-    }
-
-    const index = await response.json();
-    if (index?.version !== PRESET_VERSION || !Array.isArray(index.presets)) {
-      throw new Error("Índice de mapas inválido.");
-    }
-    summaries = index.presets;
-  } catch (error) {
-    console.error("[scene-preset] Falha ao carregar o indice de mapas.", error);
-    loadError = "Não consegui carregar os mapas salvos. Reabra o painel para tentar novamente.";
-  }
-
-  return SCENE_PRESETS.map((definition) => {
-    const summary = summaries.find(
-      (entry) =>
-        entry?.id === definition.id &&
-        entry.name === definition.name &&
-        typeof entry.savedAt === "string" &&
-        Number.isInteger(entry.itemCount) &&
-        entry.itemCount > 0,
+export async function loadScenePresetEntries(pack = getConfiguredPrivateAssetPack()) {
+  return SCENE_PRESETS.map((fallbackDefinition) => {
+    const entry = pack?.presets?.scenes?.[fallbackDefinition.id];
+    const definition = entry?.definition
+      ? { ...fallbackDefinition, ...entry.definition, id: fallbackDefinition.id }
+      : fallbackDefinition;
+    const summary = entry?.summary;
+    const validSummary = Boolean(
+      typeof summary?.savedAt === "string" &&
+        Number.isInteger(summary?.itemCount) &&
+        summary.itemCount > 0,
     );
+    const resolution = entry?.preset ? resolveAssetReferences(entry.preset) : null;
 
     return {
       definition,
-      loadError,
-      summary: summary
+      loadError: null,
+      ready: Boolean(
+        entry?.preset &&
+          resolution &&
+          resolution.unresolved === 0 &&
+          resolution.canonical === resolution.resolved,
+      ),
+      summary: validSummary
         ? {
             savedAt: summary.savedAt,
             itemCount: summary.itemCount,
@@ -1490,7 +1468,17 @@ async function rollbackRestoration(OBR, operation, plan, journal) {
 }
 
 async function performRestore(OBR, preset, options, operation) {
-  const validatedPreset = validateScenePreset(preset, {
+  const resolution = resolveAssetReferences(preset);
+  if (resolution.unresolved) {
+    throw new SceneRestoreError(
+      `${resolution.unresolved} assets privados ainda não foram vinculados ao Owlbear.`,
+      {
+        code: "PRIVATE_ASSETS_NOT_LINKED",
+        stage: "validation",
+      },
+    );
+  }
+  const validatedPreset = validateScenePreset(resolution.value, {
     publicMode: options.publicMode ?? isPublicRuntime(),
   });
   let markerAcquired = false;

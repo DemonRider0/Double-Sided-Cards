@@ -3,9 +3,9 @@ import {
   getPresetNameFromPath,
   normalizePresetAsset,
   normalizePresetLayer,
+  isPresetAssetReady,
 } from "./preset-assets.js";
-
-const PRESET_DECKS_URL = new URL("../assets/preset-decks/decks.json", import.meta.url);
+import { getConfiguredPrivateAssetPack } from "./asset-resolver.js";
 
 function normalizePresetDeck(value, index) {
   const name = value?.name || `Pilha ${index + 1}`;
@@ -38,23 +38,19 @@ function normalizePresetDeck(value, index) {
   };
 }
 
-export async function loadPresetDecks() {
-  const response = await fetch(`${PRESET_DECKS_URL.toString()}?t=${Date.now()}`, {
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error("Não consegui carregar a biblioteca de pilhas.");
-  }
-
-  const data = await response.json();
+export async function loadPresetDecks(pack = getConfiguredPrivateAssetPack()) {
+  const data = pack?.presets?.decks;
   const decks = Array.isArray(data?.decks) ? data.decks : [];
 
   return decks.map(normalizePresetDeck);
 }
 
 export function isPresetDeckReady(deck) {
-  return Boolean(deck?.back?.path && deck.cards?.length);
+  return Boolean(
+    deck?.cards?.length &&
+      isPresetAssetReady(deck.back) &&
+      deck.cards.every((card) => isPresetAssetReady(card.front)),
+  );
 }
 
 async function buildFace(asset) {

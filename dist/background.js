@@ -1982,12 +1982,12 @@ const CATEGORY_IDS = new Set(CARD_CATEGORIES.map((category) => category.id));
 const selectionOperationTails = new Map();
 let playerColorOperationTail = Promise.resolve();
 
-function isRecord(value) {
+function isRecord$1(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 function copyDefinedRecord(value) {
-  if (!isRecord(value)) {
+  if (!isRecord$1(value)) {
     return {};
   }
 
@@ -2092,7 +2092,7 @@ function createEmptyState() {
 function normalizeState(value) {
   const emptyState = createEmptyState();
 
-  if (!isRecord(value)) {
+  if (!isRecord$1(value)) {
     return emptyState;
   }
 
@@ -4970,20 +4970,20 @@ class SceneApi {
     }
 }
 
-function normalizeUrl$1(url) {
+function normalizeUrl(url) {
     return url.startsWith("http") ? url : `${window.location.origin}${url}`;
 }
 /**
  * Normalize icon paths so that relative paths are transformed into absolute paths
  */
 function normalizeIconPaths(icons) {
-    return icons.map((base) => (Object.assign(Object.assign({}, base), { icon: normalizeUrl$1(base.icon) })));
+    return icons.map((base) => (Object.assign(Object.assign({}, base), { icon: normalizeUrl(base.icon) })));
 }
 /**
  * Normalize an object with a url property so that relative paths are transformed into absolute paths
  */
 function normalizeUrlObject(urlObject) {
-    return Object.assign(Object.assign({}, urlObject), { url: normalizeUrl$1(urlObject.url) });
+    return Object.assign(Object.assign({}, urlObject), { url: normalizeUrl(urlObject.url) });
 }
 
 var __awaiter$a = (undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
@@ -6120,6 +6120,165 @@ class LabelBuilder extends GenericItemBuilder {
     }
 }
 
+class ImageUploadBuilder {
+    constructor(file) {
+        this._upload = {
+            file,
+            grid: {
+                dpi: 150,
+                offset: { x: 0, y: 0 },
+            },
+            name: "",
+            rotation: 0,
+            scale: { x: 1, y: 1 },
+            text: {
+                richText: [
+                    {
+                        type: "paragraph",
+                        children: [{ text: "" }],
+                    },
+                ],
+                plainText: "",
+                style: {
+                    padding: 8,
+                    fontFamily: "Roboto",
+                    fontSize: 24,
+                    fontWeight: 400,
+                    textAlign: "CENTER",
+                    textAlignVertical: "BOTTOM",
+                    fillColor: "white",
+                    fillOpacity: 1,
+                    strokeColor: "white",
+                    strokeOpacity: 1,
+                    strokeWidth: 0,
+                    lineHeight: 1.5,
+                },
+                type: "PLAIN",
+                width: "AUTO",
+                height: "AUTO",
+            },
+            locked: false,
+            textItemType: "LABEL",
+            visible: true,
+        };
+    }
+    grid(grid) {
+        this._upload.grid = grid;
+        return this;
+    }
+    dpi(dpi) {
+        this._upload.grid.dpi = dpi;
+        return this;
+    }
+    offset(offset) {
+        this._upload.grid.offset = offset;
+        return this;
+    }
+    name(name) {
+        this._upload.name = name;
+        return this;
+    }
+    description(description) {
+        this._upload.description = description;
+        return this;
+    }
+    rotation(rotation) {
+        this._upload.rotation = rotation;
+        return this;
+    }
+    scale(scale) {
+        this._upload.scale = scale;
+        return this;
+    }
+    locked(locked) {
+        this._upload.locked = locked;
+        return this;
+    }
+    visible(visible) {
+        this._upload.visible = visible;
+        return this;
+    }
+    text(text) {
+        this._upload.text = text;
+        return this;
+    }
+    textItemType(textItemType) {
+        this._upload.textItemType = textItemType;
+        return this;
+    }
+    textWidth(width) {
+        this._upload.text.width = width;
+        return this;
+    }
+    textHeight(height) {
+        this._upload.text.height = height;
+        return this;
+    }
+    richText(richText) {
+        this._upload.text.richText = richText;
+        return this;
+    }
+    plainText(plainText) {
+        this._upload.text.plainText = plainText;
+        return this;
+    }
+    textType(textType) {
+        this._upload.text.type = textType;
+        return this;
+    }
+    textPadding(padding) {
+        this._upload.text.style.padding = padding;
+        return this;
+    }
+    fontFamily(fontFamily) {
+        this._upload.text.style.fontFamily = fontFamily;
+        return this;
+    }
+    fontSize(fontSize) {
+        this._upload.text.style.fontSize = fontSize;
+        return this;
+    }
+    fontWeight(fontWeight) {
+        this._upload.text.style.fontWeight = fontWeight;
+        return this;
+    }
+    textAlign(textAlign) {
+        this._upload.text.style.textAlign = textAlign;
+        return this;
+    }
+    textAlignVertical(textAlignVertical) {
+        this._upload.text.style.textAlignVertical = textAlignVertical;
+        return this;
+    }
+    textFillColor(fillColor) {
+        this._upload.text.style.fillColor = fillColor;
+        return this;
+    }
+    textFillOpacity(fillOpacity) {
+        this._upload.text.style.fillOpacity = fillOpacity;
+        return this;
+    }
+    textStrokeColor(strokeColor) {
+        this._upload.text.style.strokeColor = strokeColor;
+        return this;
+    }
+    textStrokeOpacity(strokeOpacity) {
+        this._upload.text.style.strokeOpacity = strokeOpacity;
+        return this;
+    }
+    textStrokeWidth(strokeWidth) {
+        this._upload.text.style.strokeWidth = strokeWidth;
+        return this;
+    }
+    textLineHeight(lineHeight) {
+        this._upload.text.style.lineHeight = lineHeight;
+        return this;
+    }
+    build() {
+        return this._upload;
+    }
+}
+
 /**
  *  base64.ts
  *
@@ -6309,6 +6468,9 @@ function buildImage(image, grid) {
 function buildLabel() {
     return new LabelBuilder(playerApi);
 }
+function buildImageUpload(file) {
+    return new ImageUploadBuilder(file);
+}
 
 function isInOwlbearFrame() {
   return window.parent !== window;
@@ -6320,7 +6482,7 @@ async function loadOwlbearSdk(timeoutMs = 5000) {
   }
 
   if (OBR.isReady) {
-    return { OBR, sdk: { buildImage, buildLabel } };
+    return { OBR, sdk: { buildImage, buildImageUpload, buildLabel } };
   }
 
   await new Promise((resolve, reject) => {
@@ -6341,171 +6503,441 @@ async function loadOwlbearSdk(timeoutMs = 5000) {
     });
   });
 
-  return { OBR, sdk: { buildImage, buildLabel } };
+  return { OBR, sdk: { buildImage, buildImageUpload, buildLabel } };
+}
+
+const PRIVATE_ASSET_STATE_VERSION = 1;
+
+const PRIVATE_ASSET_PACK_FORMAT = "double-sided-cards-private-asset-pack";
+const PRIVATE_ASSET_PACK_VERSION = 1;
+const PRIVATE_ASSET_STORAGE_KEY =
+  "br.demonrider.double-sided-cards/private-asset-pack";
+
+let cachedStorage = null;
+let cachedRawState = undefined;
+let cachedState = null;
+let cachedResolver = null;
+
+function isRecord(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function clone(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value));
+}
+
+function getDefaultStorage() {
+  try {
+    return globalThis.localStorage || null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeSlashes(value) {
+  return String(value || "").replaceAll("\\", "/");
+}
+
+function safeDecode(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function addPathCandidates(candidates, rawPath) {
+  const decoded = safeDecode(normalizeSlashes(rawPath))
+    .replace(/[?#].*$/, "")
+    .replace(/^\.\//, "")
+    .replace(/^\/+/, "");
+
+  if (!decoded) {
+    return;
+  }
+
+  candidates.add(decoded);
+
+  const repositoryMarker = "Double-Sided-Cards/";
+  const repositoryIndex = decoded.indexOf(repositoryMarker);
+  if (repositoryIndex >= 0) {
+    candidates.add(decoded.slice(repositoryIndex + repositoryMarker.length));
+  }
+
+  const assetsIndex = decoded.indexOf("assets/");
+  if (assetsIndex >= 0) {
+    candidates.add(decoded.slice(assetsIndex));
+  }
+
+  const localMarker = ".local-assets/";
+  const localIndex = decoded.indexOf(localMarker);
+  if (localIndex >= 0) {
+    const filename = decoded.slice(localIndex + localMarker.length);
+    candidates.add(`${localMarker}${filename}`);
+    candidates.add(`assets/local-assets/${filename}`);
+  }
+
+  const publishedLocalMarker = "assets/local-assets/";
+  const publishedLocalIndex = decoded.indexOf(publishedLocalMarker);
+  if (publishedLocalIndex >= 0) {
+    const filename = decoded.slice(publishedLocalIndex + publishedLocalMarker.length);
+    candidates.add(`${localMarker}${filename}`);
+    candidates.add(`${publishedLocalMarker}${filename}`);
+  }
+}
+
+function getAssetAliasCandidates(value) {
+  const candidates = new Set();
+  const raw = typeof value === "string" ? value.trim() : "";
+
+  if (!raw) {
+    return [];
+  }
+
+  candidates.add(raw);
+
+  const nestedMatches = [...raw.matchAll(/https?:\/\//gi)];
+  if (nestedMatches.length > 1) {
+    const nested = raw.slice(nestedMatches[nestedMatches.length - 1].index);
+    if (nested && nested !== raw) {
+      for (const candidate of getAssetAliasCandidates(nested)) {
+        candidates.add(candidate);
+      }
+    }
+  }
+
+  addPathCandidates(candidates, raw);
+
+  try {
+    const url = new URL(raw);
+    url.hash = "";
+    url.search = "";
+    candidates.add(url.toString());
+    addPathCandidates(candidates, url.pathname);
+
+    if (url.hostname.toLowerCase() === "images.owlbear.rodeo") {
+      const filename = safeDecode(url.pathname.split("/").filter(Boolean).pop() || "");
+      const assetId = filename.replace(/\.[^.]+$/, "");
+      if (assetId) {
+        candidates.add(`owlbear:${assetId}`);
+      }
+    }
+  } catch {
+    // Caminhos relativos e IDs lógicos são candidatos válidos sem serem URLs.
+  }
+
+  return [...candidates].filter(Boolean);
+}
+
+function assertSafeRelativePath(value, label) {
+  const normalized = normalizeSlashes(value).replace(/^\.\//, "");
+  if (
+    !normalized ||
+    normalized.startsWith("/") ||
+    /^[a-z]:\//i.test(normalized) ||
+    normalized.split("/").includes("..")
+  ) {
+    throw new Error(`${label} precisa ser um caminho relativo dentro do pack.`);
+  }
+  return normalized;
+}
+
+function validatePrivateAssetPack(value) {
+  if (
+    !isRecord(value) ||
+    value.format !== PRIVATE_ASSET_PACK_FORMAT ||
+    value.version !== PRIVATE_ASSET_PACK_VERSION ||
+    typeof value.id !== "string" ||
+    !value.id.trim() ||
+    !isRecord(value.assets) ||
+    !isRecord(value.aliases) ||
+    !isRecord(value.presets)
+  ) {
+    throw new Error("O Private Asset Pack possui uma estrutura inválida.");
+  }
+
+  const pack = clone(value);
+  for (const [assetId, asset] of Object.entries(pack.assets)) {
+    if (!assetId || !isRecord(asset)) {
+      throw new Error("O Private Asset Pack possui um asset canônico inválido.");
+    }
+    asset.file = assertSafeRelativePath(asset.file, `O asset ${assetId}`);
+    if (typeof asset.owlbearName !== "string" || !asset.owlbearName.trim()) {
+      throw new Error(`O asset ${assetId} não possui nome para o Owlbear.`);
+    }
+  }
+
+  for (const [alias, assetId] of Object.entries(pack.aliases)) {
+    if (!alias || typeof assetId !== "string" || !pack.assets[assetId]) {
+      throw new Error(`O alias ${alias || "sem nome"} aponta para um asset desconhecido.`);
+    }
+  }
+
+  if (
+    !isRecord(pack.presets.cards) ||
+    !isRecord(pack.presets.decks) ||
+    !isRecord(pack.presets.scenes)
+  ) {
+    throw new Error("Os manifests e presets do Private Asset Pack não foram carregados.");
+  }
+
+  for (const [sceneId, scene] of Object.entries(pack.presets.scenes)) {
+    if (
+      !sceneId ||
+      !isRecord(scene) ||
+      !isRecord(scene.definition) ||
+      !isRecord(scene.preset)
+    ) {
+      throw new Error(`O preset privado ${sceneId || "sem ID"} é inválido.`);
+    }
+  }
+
+  return pack;
+}
+
+function normalizeBinding(value) {
+  const image = isRecord(value?.image) ? value.image : value;
+  if (!isRecord(image) || typeof image.url !== "string" || !image.url.trim()) {
+    return null;
+  }
+
+  return {
+    url: image.url,
+    width: Number.isFinite(image.width) && image.width > 0 ? image.width : undefined,
+    height: Number.isFinite(image.height) && image.height > 0 ? image.height : undefined,
+    mime: typeof image.mime === "string" && image.mime.trim() ? image.mime : undefined,
+    name: typeof value?.name === "string" && value.name.trim() ? value.name : undefined,
+  };
+}
+
+function normalizeBindings(bindings, pack) {
+  const normalized = {};
+  for (const [assetId, binding] of Object.entries(bindings || {})) {
+    if (!pack.assets[assetId]) {
+      continue;
+    }
+    const value = normalizeBinding(binding);
+    if (value) {
+      normalized[assetId] = value;
+    }
+  }
+  return normalized;
+}
+
+function validateStoredState(value) {
+  if (!isRecord(value) || value.version !== PRIVATE_ASSET_STATE_VERSION) {
+    return null;
+  }
+
+  try {
+    const pack = validatePrivateAssetPack(value.pack);
+    return {
+      version: PRIVATE_ASSET_STATE_VERSION,
+      pack,
+      bindings: normalizeBindings(value.bindings, pack),
+    };
+  } catch (error) {
+    console.warn("Private Asset Pack persistido ignorado", error);
+    return null;
+  }
+}
+
+function readPrivateAssetState(storage = getDefaultStorage()) {
+  if (!storage) {
+    return null;
+  }
+
+  let raw;
+  try {
+    raw = storage.getItem(PRIVATE_ASSET_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+
+  if (storage === cachedStorage && raw === cachedRawState) {
+    return cachedState ? clone(cachedState) : null;
+  }
+
+  let state = null;
+  if (raw) {
+    try {
+      state = validateStoredState(JSON.parse(raw));
+    } catch (error) {
+      console.warn("Não foi possível ler o Private Asset Pack persistido", error);
+    }
+  }
+
+  cachedStorage = storage;
+  cachedRawState = raw;
+  cachedState = state;
+  cachedResolver = null;
+  return state ? clone(state) : null;
+}
+
+function addAlias(aliasMap, ambiguousAliases, alias, assetId) {
+  for (const candidate of getAssetAliasCandidates(alias)) {
+    for (const key of [candidate, candidate.toLowerCase()]) {
+      if (ambiguousAliases.has(key)) {
+        continue;
+      }
+      const current = aliasMap.get(key);
+      if (current && current !== assetId) {
+        aliasMap.delete(key);
+        ambiguousAliases.add(key);
+      } else {
+        aliasMap.set(key, assetId);
+      }
+    }
+  }
+}
+
+function createAssetResolver(pack = null, bindings = {}) {
+  const normalizedPack = pack ? validatePrivateAssetPack(pack) : null;
+  const normalizedBindings = normalizedPack ? normalizeBindings(bindings, normalizedPack) : {};
+  const aliasMap = new Map();
+  const ambiguousAliases = new Set();
+
+  if (normalizedPack) {
+    for (const assetId of Object.keys(normalizedPack.assets)) {
+      addAlias(aliasMap, ambiguousAliases, assetId, assetId);
+      addAlias(aliasMap, ambiguousAliases, `asset:${assetId}`, assetId);
+    }
+    for (const [alias, assetId] of Object.entries(normalizedPack.aliases)) {
+      addAlias(aliasMap, ambiguousAliases, alias, assetId);
+    }
+  }
+
+  function getCanonicalId(reference) {
+    if (!normalizedPack || typeof reference !== "string" || !reference.trim()) {
+      return null;
+    }
+
+    if (normalizedPack.assets[reference]) {
+      return reference;
+    }
+
+    for (const candidate of getAssetAliasCandidates(reference)) {
+      const exact = aliasMap.get(candidate);
+      if (exact) {
+        return exact;
+      }
+      const insensitive = aliasMap.get(candidate.toLowerCase());
+      if (insensitive) {
+        return insensitive;
+      }
+    }
+    return null;
+  }
+
+  function resolve(reference) {
+    const isObjectReference = isRecord(reference);
+    const rawReference = isObjectReference
+      ? reference.assetId || reference.path || reference.url || ""
+      : reference;
+    const assetId = getCanonicalId(rawReference);
+
+    if (!assetId) {
+      return {
+        canonicalId: null,
+        resolved: false,
+        value: reference,
+      };
+    }
+
+    const asset = normalizedPack.assets[assetId];
+    const binding = normalizedBindings[assetId];
+    if (!binding) {
+      return {
+        canonicalId: assetId,
+        resolved: false,
+        value: isObjectReference
+          ? { ...reference, assetId }
+          : reference,
+      };
+    }
+
+    if (!isObjectReference) {
+      return {
+        canonicalId: assetId,
+        resolved: true,
+        value: binding.url,
+      };
+    }
+
+    const value = {
+      ...reference,
+      assetId,
+      url: binding.url,
+      width: binding.width || reference.width || asset.width,
+      height: binding.height || reference.height || asset.height,
+      mime: binding.mime || reference.mime || asset.mime,
+    };
+    delete value.path;
+
+    return {
+      canonicalId: assetId,
+      resolved: true,
+      value,
+    };
+  }
+
+  return {
+    pack: normalizedPack,
+    bindings: normalizedBindings,
+    getCanonicalId,
+    isReady(reference) {
+      const assetId = getCanonicalId(
+        isRecord(reference)
+          ? reference.assetId || reference.path || reference.url || ""
+          : reference,
+      );
+      return Boolean(assetId && normalizedBindings[assetId]);
+    },
+    resolve,
+  };
+}
+
+function getConfiguredAssetResolver(storage = getDefaultStorage()) {
+  const state = readPrivateAssetState(storage);
+  if (!state) {
+    return createAssetResolver();
+  }
+
+  if (storage === cachedStorage && cachedResolver) {
+    return cachedResolver;
+  }
+
+  const resolver = createAssetResolver(state.pack, state.bindings);
+  if (storage === cachedStorage) {
+    cachedResolver = resolver;
+  }
+  return resolver;
+}
+
+function resolveConfiguredAsset(reference, storage = getDefaultStorage()) {
+  return getConfiguredAssetResolver(storage).resolve(reference);
 }
 
 function assetUrl(path) {
-  return `${new URL(`../${path}`, import.meta.url).toString()}?v=65`;
+  return `${new URL(`../${path}`, import.meta.url).toString()}?v=100`;
 }
 
 const COMMAND_REGISTRATION_DEBOUNCE_MS = 200;
-
-const OPTIMIZED_ASSET_FILENAMES = new Map([
-  [
-    "1779668122715-e5c59860-137c-4664-b55c-fc546033288b-mapa-tutorial-a-.png",
-    "1779668122715-e5c59860-137c-4664-b55c-fc546033288b-mapa-tutorial-a--mobile.jpg",
-  ],
-  [
-    "1779668122717-841f7e43-ef8f-407f-bfe7-115b51c6779c-mapa-tutorial-b-.png",
-    "1779668122717-841f7e43-ef8f-407f-bfe7-115b51c6779c-mapa-tutorial-b--mobile.jpg",
-  ],
-  [
-    "1780360314623-2d773fbe-40df-48d4-ac48-aecc7767ded0-mapa-tutorial-c-.png",
-    "1780360314623-2d773fbe-40df-48d4-ac48-aecc7767ded0-mapa-tutorial-c--mobile.jpg",
-  ],
-  [
-    "1780360314646-be4a1407-54d8-4f68-8a94-a03ba42de716-mapa-tutorial-a-.png",
-    "1780360314646-be4a1407-54d8-4f68-8a94-a03ba42de716-mapa-tutorial-a--mobile.jpg",
-  ],
-]);
-
-const BUNDLED_REMOTE_ASSET_IDS = new Map([
-  ["ed545ed3-1b28-4bdf-8744-96fb835e2a14", "owlbear-edba733b-f850-4f74-8d9d-4b426f5083f6-Mesa-Expedicao-Excarlate.png"],
-  ["edba733b-f850-4f74-8d9d-4b426f5083f6", "owlbear-edba733b-f850-4f74-8d9d-4b426f5083f6-Mesa-Expedicao-Excarlate.png"],
-  ["8ee18e58-32e4-4148-b228-8565c87d764a", "owlbear-8ee18e58-32e4-4148-b228-8565c87d764a-Player.png"],
-  ["eebc34cf-f140-4cc1-bad6-be29e352460b", "owlbear-eebc34cf-f140-4cc1-bad6-be29e352460b-Raca-Verso.png"],
-  ["4506362a-8e87-40af-b929-e09afda3fa8e", "owlbear-4506362a-8e87-40af-b929-e09afda3fa8e-Classes-Verso.png"],
-  ["ba0c7d8a-9288-49b4-a1bb-91adcabdd075", "owlbear-ba0c7d8a-9288-49b4-a1bb-91adcabdd075-Wynna-Verso.png"],
-  ["498fa6fd-56d8-4e4f-ae5c-afd5383ba8e1", "owlbear-498fa6fd-56d8-4e4f-ae5c-afd5383ba8e1-Acesso.png"],
-  ["0e503377-26e4-4cdf-8672-00d8ae907adc", "owlbear-0e503377-26e4-4cdf-8672-00d8ae907adc-Mizlah-Token.webp"],
-  ["efe0588e-57ef-49e2-9449-9d97f16f3fce", "owlbear-efe0588e-57ef-49e2-9449-9d97f16f3fce-Mithreus-Token.webp"],
-  ["e2be2ca1-9bfc-4f40-984b-7234c6c0a372", "owlbear-e2be2ca1-9bfc-4f40-984b-7234c6c0a372-Mathias-Token.webp"],
-  ["6b45ef2c-672b-4fab-baed-8812cdc7738e", "owlbear-6b45ef2c-672b-4fab-baed-8812cdc7738e-Missao-0-Tutorial-Pag-2.jpg"],
-  ["ad8ae303-af2f-4fb4-b039-7ca3fb79e01f", "owlbear-ad8ae303-af2f-4fb4-b039-7ca3fb79e01f-Missao-0-Tutorial-Pag-1.jpg"],
-  ["859beb28-9b08-4af0-9aa3-e757fa96a49a", "owlbear-859beb28-9b08-4af0-9aa3-e757fa96a49a-Missao-1.1-Pg-2.webp"],
-  ["098a5a25-6a2f-43a1-9841-7589ead78fe3", "owlbear-098a5a25-6a2f-43a1-9841-7589ead78fe3-Missao-1.1-Pg-1.webp"],
-]);
-
-function isLocalhost() {
-  return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-}
-
-function toBundledRemoteAssetUrl(value) {
-  if (typeof value !== "string") {
-    return value;
-  }
-
-  try {
-    const url = new URL(value, window.location.origin);
-
-    if (url.hostname !== "images.owlbear.rodeo") {
-      return value;
-    }
-
-    const file = url.pathname.split("/").pop() || "";
-    const id = file.replace(/\.[^.]+$/, "");
-    const bundledFilename = BUNDLED_REMOTE_ASSET_IDS.get(id);
-
-    return bundledFilename ? assetUrl(`assets/local-assets/${bundledFilename}`) : value;
-  } catch {
-    return value;
-  }
-}
-
-function toOptimizedAssetUrl(value) {
-  if (typeof value !== "string") {
-    return value;
-  }
-
-  const bundledUrl = toBundledRemoteAssetUrl(value);
-
-  if (bundledUrl !== value) {
-    return bundledUrl;
-  }
-
-  for (const [oldFilename, newFilename] of OPTIMIZED_ASSET_FILENAMES) {
-    if (value.includes(oldFilename)) {
-      return value.replace(oldFilename, newFilename);
-    }
-  }
-
-  return value;
-}
-
-function isJpegUrl(value) {
-  return typeof value === "string" && /\.jpe?g(?:$|[?#])/i.test(value);
-}
-
-function toLocalAssetUrl(value) {
-  if (!isLocalhost() || typeof value !== "string") {
-    return value;
-  }
-
-  try {
-    const url = new URL(value, window.location.origin);
-    const publicAssetMarker = "/Double-Sided-Cards/assets/";
-
-    if (url.hostname === "demonrider0.github.io") {
-      const markerIndex = url.pathname.indexOf(publicAssetMarker);
-
-      if (markerIndex >= 0) {
-        return `${window.location.origin}/assets/${url.pathname.slice(markerIndex + publicAssetMarker.length)}`;
-      }
-    }
-
-    const markers = ["/.local-assets/", "/assets/local-assets/"];
-    let filename = "";
-
-    for (const marker of markers) {
-      const markerIndex = url.pathname.indexOf(marker);
-
-      if (markerIndex >= 0) {
-        filename = url.pathname.slice(markerIndex + marker.length);
-        break;
-      }
-    }
-
-    if (!filename) {
-      return value;
-    }
-
-    const nextUrl = `${window.location.origin}/assets/local-assets/${filename}`;
-
-    return normalizeUrl(value) === normalizeUrl(nextUrl) ? value : nextUrl;
-  } catch {
-    return value;
-  }
-}
-
-function normalizeUrl(value) {
-  try {
-    const url = new URL(value, window.location.origin);
-    url.hash = "";
-    return url.toString();
-  } catch {
-    return value;
-  }
-}
 
 function repairImageData(image) {
   if (!image?.url) {
     return { value: image, changed: false };
   }
 
-  const optimizedUrl = toOptimizedAssetUrl(image.url);
-  const nextUrl = toLocalAssetUrl(optimizedUrl);
-  const nextMime = isJpegUrl(nextUrl) ? "image/jpeg" : image.mime;
+  const resolution = resolveConfiguredAsset(image);
+  const nextImage = resolution.resolved ? resolution.value : image;
 
-  if (nextUrl === image.url && nextMime === image.mime) {
+  if (JSON.stringify(nextImage) === JSON.stringify(image)) {
     return { value: image, changed: false };
   }
 
   return {
-    value: {
-      ...image,
-      url: nextUrl,
-      mime: nextMime,
-    },
+    value: nextImage,
     changed: true,
   };
 }

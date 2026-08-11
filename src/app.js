@@ -51,6 +51,17 @@ import {
   PLAYER_COLORS,
   returnSelectedCardToOrigin,
 } from "./selection-board.js";
+import {
+  clearPrivateAssetPack,
+  getPrivateAssetPackStatus,
+  resolveAssetReferences,
+} from "./asset-resolver.js";
+import {
+  configurePrivateAssetPack,
+  linkPrivateAssetPackFromOwlbear,
+  readPrivateAssetPackFiles,
+  uploadPrivateAssetPack,
+} from "./private-asset-pack.js";
 
 const elements = {
   presetDeckSelect: document.querySelector("#presetDeckSelect"),
@@ -73,8 +84,12 @@ const elements = {
   panelRepairButton: document.querySelector("#panelRepairButton"),
   returnOriginButton: document.querySelector("#returnOriginButton"),
   colorAssignments: document.querySelector("#colorAssignments"),
-  publicBaseUrl: document.querySelector("#publicBaseUrl"),
-  migratePublicButton: document.querySelector("#migratePublicButton"),
+  privatePackInput: document.querySelector("#privatePackInput"),
+  privatePackChooseButton: document.querySelector("#privatePackChooseButton"),
+  privatePackUploadButton: document.querySelector("#privatePackUploadButton"),
+  privatePackLinkButton: document.querySelector("#privatePackLinkButton"),
+  privatePackClearButton: document.querySelector("#privatePackClearButton"),
+  privatePackInfo: document.querySelector("#privatePackInfo"),
   createScenePresetButtons: [...document.querySelectorAll("[data-create-scene-preset]")],
   restoreScenePresetButtons: [...document.querySelectorAll("[data-restore-scene-preset]")],
   defaultBoardInfo: document.querySelector("#defaultBoardInfo"),
@@ -84,6 +99,7 @@ const elements = {
 
 let obr = null;
 let buildImage = null;
+let buildImageUpload = null;
 let lastCardSelection = [];
 let lastDeckSelection = [];
 let lastFlipSelection = [];
@@ -91,7 +107,8 @@ let presetDecks = [];
 let presetCardGroups = [];
 let scenePresetEntries = [];
 let sceneRestoreRunning = false;
-let migrationRunning = false;
+let privatePackRunning = false;
+let selectedPrivatePack = null;
 let colorAssignmentsRefreshTimer = null;
 const customSelects = new Map();
 
@@ -132,7 +149,7 @@ function setConnectionStatus(text, isConnected) {
   if (!isConnected) {
     renderPlayerColorAssignments([]);
   }
-  updateMigratePublicButton(isConnected);
+  updatePrivatePackControls(isConnected);
   updateDefaultBoardControls(isConnected);
   elements.panelFlipButton.disabled = !isConnected;
   elements.panelDrawButton.disabled = !isConnected;
@@ -145,10 +162,24 @@ function setConnectionStatus(text, isConnected) {
   updateMissionDeckControls(isConnected);
 }
 
-function updateMigratePublicButton(isConnected = Boolean(obr)) {
-  const hasValidUrl =
-    Boolean(elements.publicBaseUrl.value.trim()) && elements.publicBaseUrl.checkValidity();
-  elements.migratePublicButton.disabled = migrationRunning || !isConnected || !hasValidUrl;
+function updatePrivatePackControls(isConnected = Boolean(obr)) {
+  const status = getPrivateAssetPackStatus();
+  elements.privatePackChooseButton.disabled = privatePackRunning;
+  elements.privatePackUploadButton.disabled =
+    privatePackRunning || !isConnected || !selectedPrivatePack?.assetFiles?.size;
+  elements.privatePackLinkButton.disabled =
+    privatePackRunning || !isConnected || !status.configured;
+  elements.privatePackClearButton.disabled = privatePackRunning || !status.configured;
+
+  if (!status.configured) {
+    elements.privatePackInfo.textContent =
+      "Core público ativo. Configure um pack privado para habilitar bibliotecas e mapas pessoais.";
+    return;
+  }
+
+  elements.privatePackInfo.textContent =
+    `${status.name || status.id}: ${status.linked} de ${status.total} assets vinculados ao Owlbear` +
+    (status.missing ? `; faltam ${status.missing}.` : ".");
 }
 
 async function showNotification(text, tone) {
@@ -332,7 +363,8 @@ function updateDefaultBoardControls(isConnected = Boolean(obr)) {
 
   for (const button of elements.restoreScenePresetButtons) {
     const entry = entriesById.get(button.dataset.restoreScenePreset);
-    button.disabled = sceneRestoreRunning || !isConnected || !(entry?.preset || entry?.summary);
+    button.disabled =
+      sceneRestoreRunning || !isConnected || !entry?.ready || !(entry?.preset || entry?.summary);
   }
 
   if (!scenePresetEntries.length) {
@@ -346,11 +378,14 @@ function updateDefaultBoardControls(isConnected = Boolean(obr)) {
     return;
   }
 
-  const parts = scenePresetEntries.map(({ definition, preset, summary }) => {
+  const parts = scenePresetEntries.map(({ definition, preset, ready, summary }) => {
     const details = preset || summary;
     const displayName = definition.label || definition.name;
     if (!details) {
       return `${displayName}: não cadastrado`;
+    }
+    if (!ready) {
+      return `${displayName}: aguardando vínculo dos assets privados`;
     }
 
     const itemLabel = details.itemCount === 1 ? "1 item" : `${details.itemCount} itens`;
@@ -704,64 +739,54 @@ function getRepairMessage(stats) {
     parts.push(stats.decks === 1 ? "1 pilha" : `${stats.decks} pilhas`);
   }
 
-  return `Cena sincronizada: ${parts.join(" e ")}.`;
-}
-
-function imageMayHaveTransparency(blob) {
-  const mime = blob.type || "";
-  return mime === "image/png" || mime === "image/webp";
-}
-
-function imageLooksTransparent(image) {
-  const sampleSize = 64;
-  const canvas = document.createElement("canvas");
-  canvas.width = sampleSize;
-  canvas.height = sampleSize;
-  const context = canvas.getContext("2d");
-
-  if (!context) {
-    return false;
+  if (stats.assets) {
+    parts.push(
+      stats.assets === 1
+        ? "1 referência de asset migrada"
+        : `${stats.assets} referências de assets migradas`,
+    );
   }
 
-  context.clearRect(0, 0, sampleSize, sampleSize);
-  context.drawImage(image, 0, 0, sampleSize, sampleSize);
-  const pixels = context.getImageData(0, 0, sampleSize, sampleSize).data;
-
-  for (let index = 3; index < pixels.length; index += 4) {
-    if (pixels[index] < 250) {
-      return true;
-    }
-  }
-
-  return false;
+  return `Cena sincronizada: ${parts.join(", ")}.`;
 }
-
 
 async function repairSceneMetadata() {
   const items = await obr.scene.items.getItems();
   const repairableItems = [];
-  const stats = { cards: 0, decks: 0 };
+  const stats = { cards: 0, decks: 0, assets: 0 };
 
   for (const item of items) {
-    const card = normalizeCardMetadata(getCardMetadata(item), { item });
+    const resolution = resolveAssetReferences(item);
+    const resolvedItem = resolution.value;
+    const card = normalizeCardMetadata(getCardMetadata(resolvedItem), { item: resolvedItem });
 
     if (card.ok) {
       repairableItems.push(item);
       stats.cards += 1;
+      stats.assets += resolution.resolved;
       continue;
     }
 
-    const deck = normalizeDeckMetadata(getDeckMetadata(item), { item });
+    const deck = normalizeDeckMetadata(getDeckMetadata(resolvedItem), { item: resolvedItem });
 
     if (deck.ok) {
       repairableItems.push(item);
       stats.decks += 1;
+      stats.assets += resolution.resolved;
+      continue;
+    }
+
+    if (resolution.resolved) {
+      repairableItems.push(item);
+      stats.assets += resolution.resolved;
     }
   }
 
   if (repairableItems.length) {
     await obr.scene.items.updateItems(repairableItems, (draftItems) => {
       for (const item of draftItems) {
+        const resolution = resolveAssetReferences(item);
+        Object.assign(item, resolution.value);
         const cardResult = normalizeCardMetadata(getCardMetadata(item), { item });
         const cardMetadata = cardResult.ok ? cardResult.value : null;
 
@@ -797,524 +822,6 @@ async function repairSceneMetadata() {
   return stats;
 }
 
-function getCurrentExtensionBaseUrl() {
-  const url = new URL(window.location.href);
-  url.search = "";
-  url.hash = "";
-
-  if (url.pathname.endsWith("/index.html")) {
-    url.pathname = url.pathname.slice(0, -"index.html".length);
-  }
-
-  url.pathname = url.pathname.replace(/\/$/, "");
-  return url.toString().replace(/\/$/, "");
-}
-
-function getDefaultPublicBaseUrl() {
-  const { hostname } = window.location;
-
-  if (hostname === "localhost" || hostname === "127.0.0.1") {
-    return "";
-  }
-
-  return getCurrentExtensionBaseUrl();
-}
-
-function normalizePublicBaseUrl(value) {
-  const url = new URL(value.trim());
-
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new Error("Informe uma URL pública iniciando com http ou https.");
-  }
-
-  url.search = "";
-  url.hash = "";
-  return url.toString().replace(/\/$/, "");
-}
-
-function encodeAssetFilename(filename) {
-  return filename
-    .split("/")
-    .filter(Boolean)
-    .map((part) => encodeURIComponent(part))
-    .join("/");
-}
-
-function normalizeComparableUrl(value) {
-  try {
-    const url = new URL(value);
-    url.hash = "";
-    return url.toString();
-  } catch {
-    return value;
-  }
-}
-
-function repairNestedPublicUrl(rawUrl, stats) {
-  const value = String(rawUrl || "");
-  const matches = [...value.matchAll(/https?:\/\//g)];
-
-  if (matches.length < 2) {
-    return value;
-  }
-
-  const nextUrl = value.slice(matches[matches.length - 1].index);
-
-  if (normalizeComparableUrl(value) === normalizeComparableUrl(nextUrl)) {
-    return value;
-  }
-
-  stats.urls += 1;
-  return nextUrl;
-}
-
-function getMigratableAssetFilename(rawUrl) {
-  try {
-    const url = new URL(rawUrl);
-    const markers = ["/.local-assets/", "/assets/local-assets/"];
-
-    for (const marker of markers) {
-      const markerIndex = url.pathname.indexOf(marker);
-      if (markerIndex >= 0) {
-        return decodeURIComponent(url.pathname.slice(markerIndex + marker.length));
-      }
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function isRemoteSceneAssetUrl(rawUrl) {
-  try {
-    const url = new URL(rawUrl, window.location.origin);
-    const isLocalUrl = url.hostname === "localhost" || url.hostname === "127.0.0.1";
-
-    return !isLocalUrl && (url.protocol === "http:" || url.protocol === "https:");
-  } catch {
-    return false;
-  }
-}
-
-function shouldCachePlainSceneImage(item) {
-  if (!item.image?.url || !isRemoteSceneAssetUrl(item.image.url)) {
-    return false;
-  }
-
-  try {
-    const url = new URL(item.image.url, window.location.origin);
-
-    if (url.hostname === "images.owlbear.rodeo") {
-      return true;
-    }
-  } catch {
-    return false;
-  }
-
-  const area = (item.image.width || 0) * (item.image.height || 0);
-  const mime = item.image.mime || "";
-  const isWebp = mime === "image/webp" || /\.webp(?:$|[?#])/i.test(item.image.url);
-
-  return item.layer === "MAP" || item.layer === "NOTE" || area >= 2_000_000 || isWebp;
-}
-
-function getCachedAssetInfo(rawUrl, remoteCache) {
-  const repairedUrl = repairNestedPublicUrl(rawUrl, { urls: 0 });
-  return remoteCache.get(rawUrl) || remoteCache.get(repairedUrl) || null;
-}
-
-function getRemoteAssetName(item, mime = "image/jpeg") {
-  const fallback = item.name || getNameFromUrl(item.image?.url || "", "image");
-  const extension = mime === "image/png" ? "png" : "jpg";
-  return `${fallback}.${extension}`;
-}
-
-async function loadBlobImage(blob) {
-  const objectUrl = URL.createObjectURL(blob);
-
-  try {
-    return await new Promise((resolve, reject) => {
-      const image = new Image();
-      image.onload = () => {
-        if (!image.naturalWidth || !image.naturalHeight) {
-          reject(new Error("A imagem carregou sem dimensões válidas."));
-          return;
-        }
-
-        resolve({
-          url: objectUrl,
-          width: image.naturalWidth,
-          height: image.naturalHeight,
-          mime: blob.type || "image/png",
-        });
-      };
-      image.onerror = () => {
-        reject(new Error(`Não consegui carregar esta imagem: ${objectUrl}`));
-      };
-      image.src = objectUrl;
-    });
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
-}
-
-function canvasToBlob(canvas, mime, quality) {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => {
-        if (blob) {
-          resolve(blob);
-          return;
-        }
-
-        reject(new Error("Não consegui converter a imagem para o formato otimizado."));
-      },
-      mime,
-      quality,
-    );
-  });
-}
-
-async function optimizeSceneImageBlob(blob, info) {
-  const shouldConvertToJpeg =
-    blob.type === "image/webp" ||
-    blob.type === "image/png" ||
-    (info.width || 0) * (info.height || 0) >= 2_000_000;
-
-  if (!shouldConvertToJpeg) {
-    return { blob, mime: blob.type || info.mime || "image/png" };
-  }
-
-  const image = await createImageBitmap(blob);
-
-  try {
-    const transparent = imageMayHaveTransparency(blob) && imageLooksTransparent(image);
-    const canvas = document.createElement("canvas");
-    canvas.width = image.width;
-    canvas.height = image.height;
-    const context = canvas.getContext("2d");
-
-    if (!context) {
-      return { blob, mime: blob.type || info.mime || "image/png" };
-    }
-
-    if (!transparent) {
-      context.fillStyle = "#ffffff";
-      context.fillRect(0, 0, canvas.width, canvas.height);
-    }
-
-    context.drawImage(image, 0, 0);
-    const mime = transparent ? "image/png" : "image/jpeg";
-
-    return {
-      blob: await canvasToBlob(canvas, mime, transparent ? undefined : 0.84),
-      mime,
-    };
-  } finally {
-    image.close?.();
-  }
-}
-
-async function uploadBlobAsLocalAsset(blob, name) {
-  const response = await fetch(`./__local_asset?name=${encodeURIComponent(name)}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": blob.type || "application/octet-stream",
-    },
-    body: blob,
-  });
-
-  if (!response.ok) {
-    throw new Error("O servidor local não conseguiu salvar a imagem otimizada.");
-  }
-
-  const payload = await response.json();
-  if (!payload.url) {
-    throw new Error("O servidor local não retornou a imagem otimizada.");
-  }
-
-  return payload.url;
-}
-
-async function cachePlainSceneImage(item) {
-  const response = await fetch(item.image.url, {
-    cache: "no-store",
-    mode: "cors",
-  });
-
-  if (!response.ok) {
-    throw new Error(`Não consegui baixar "${item.name || "imagem"}" do Owlbear.`);
-  }
-
-  const originalBlob = await response.blob();
-  const info = await loadBlobImage(originalBlob);
-  const optimized = await optimizeSceneImageBlob(originalBlob, info);
-  const url = await uploadBlobAsLocalAsset(optimized.blob, getRemoteAssetName(item, optimized.mime));
-
-  return {
-    url,
-    width: info.width,
-    height: info.height,
-    mime: optimized.mime,
-  };
-}
-
-async function cachePlainRemoteSceneImages(items, stats) {
-  const cache = new Map();
-
-  if (window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
-    return cache;
-  }
-
-  const remoteItems = [];
-  const seenUrls = new Set();
-
-  for (const item of items) {
-    if (
-      item.type !== "IMAGE" ||
-      getCardMetadata(item) ||
-      getDeckMetadata(item) ||
-      !shouldCachePlainSceneImage(item) ||
-      seenUrls.has(item.image.url)
-    ) {
-      continue;
-    }
-
-    seenUrls.add(item.image.url);
-    remoteItems.push(item);
-  }
-
-  if (!remoteItems.length) {
-    return cache;
-  }
-
-  setMessage(`Otimizando ${remoteItems.length} imagens normais da cena...`, "neutral");
-
-  for (const item of remoteItems) {
-    try {
-      const info = await cachePlainSceneImage(item);
-      cache.set(item.image.url, info);
-      stats.cached += 1;
-    } catch (error) {
-      console.warn("Nao consegui otimizar imagem normal da cena", item.name, error);
-      stats.cacheErrors += 1;
-    }
-  }
-
-  return cache;
-}
-
-function migrateAssetUrl(rawUrl, publicBaseUrl, stats, remoteCache = new Map()) {
-  const repairedUrl = repairNestedPublicUrl(rawUrl, stats);
-  const cachedAsset = getCachedAssetInfo(repairedUrl, remoteCache);
-  const urlToMigrate = cachedAsset?.url || repairedUrl;
-  const filename = getMigratableAssetFilename(urlToMigrate);
-
-  if (!filename) {
-    return repairedUrl;
-  }
-
-  const nextUrl = `${publicBaseUrl}/assets/local-assets/${encodeAssetFilename(filename)}`;
-
-  if (normalizeComparableUrl(rawUrl) === normalizeComparableUrl(nextUrl)) {
-    return repairedUrl;
-  }
-
-  stats.urls += 1;
-  return nextUrl;
-}
-
-function migrateFaceUrl(face, publicBaseUrl, stats, remoteCache) {
-  const cachedAsset = getCachedAssetInfo(face.url, remoteCache);
-  const nextUrl = migrateAssetUrl(face.url, publicBaseUrl, stats, remoteCache);
-
-  if (
-    normalizeComparableUrl(face.url) === normalizeComparableUrl(nextUrl) &&
-    (!cachedAsset?.mime || face.mime === cachedAsset.mime)
-  ) {
-    return face;
-  }
-
-  return {
-    ...face,
-    url: nextUrl,
-    width: cachedAsset?.width || face.width,
-    height: cachedAsset?.height || face.height,
-    mime: cachedAsset?.mime || face.mime,
-  };
-}
-
-function migrateImageItem(item, publicBaseUrl, stats, remoteCache) {
-  if (!item.image?.url) {
-    return false;
-  }
-
-  const cachedAsset = getCachedAssetInfo(item.image.url, remoteCache);
-  const nextUrl = migrateAssetUrl(item.image.url, publicBaseUrl, stats, remoteCache);
-
-  if (
-    normalizeComparableUrl(item.image.url) === normalizeComparableUrl(nextUrl) &&
-    (!cachedAsset?.mime || item.image.mime === cachedAsset.mime)
-  ) {
-    return false;
-  }
-
-  item.image = {
-    ...item.image,
-    url: nextUrl,
-    width: cachedAsset?.width || item.image.width,
-    height: cachedAsset?.height || item.image.height,
-    mime: cachedAsset?.mime || item.image.mime,
-  };
-  return true;
-}
-
-function migrateCardItem(item, publicBaseUrl, stats, remoteCache) {
-  const result = normalizeCardMetadata(getCardMetadata(item), { item });
-  const metadata = result.ok ? result.value : null;
-
-  if (!metadata) {
-    return false;
-  }
-
-  const urlCountBefore = stats.urls;
-  const nextMetadata = {
-    ...metadata,
-    faces: {
-      front: migrateFaceUrl(metadata.faces.front, publicBaseUrl, stats, remoteCache),
-      back: migrateFaceUrl(metadata.faces.back, publicBaseUrl, stats, remoteCache),
-    },
-  };
-  nextMetadata.mirrorBack = shouldMirrorBackFace(
-    nextMetadata.faces.front,
-    nextMetadata.faces.back,
-  );
-  const currentFace = nextMetadata.faces[nextMetadata.currentFace] || nextMetadata.faces.front;
-  const urlsChanged = stats.urls !== urlCountBefore;
-  const divinitySizingChanged = needsDivinitySizing(item, currentFace);
-  const mirrorChanged = metadata.mirrorBack !== nextMetadata.mirrorBack;
-
-  if (!urlsChanged && !divinitySizingChanged && !mirrorChanged) {
-    return false;
-  }
-
-  item.image = createImageData(currentFace);
-  item.grid = createGridData(currentFace, nextMetadata.gridWidth, nextMetadata.origin);
-  applyDivinitySizing(item, currentFace);
-  applyCardFaceTransform(
-    item,
-    nextMetadata,
-    nextMetadata.currentFace === "back" ? "back" : "front",
-  );
-  if (divinitySizingChanged) {
-    stats.sized += 1;
-  }
-  setCardMetadata(item, nextMetadata);
-  return true;
-}
-
-function migrateDeckItem(item, publicBaseUrl, stats, remoteCache) {
-  const result = normalizeDeckMetadata(getDeckMetadata(item), { item });
-  const metadata = result.ok ? result.value : null;
-
-  if (!metadata) {
-    return false;
-  }
-
-  const urlCountBefore = stats.urls;
-  const nextCards = metadata.cards.map((card) => ({
-    ...card,
-    front: migrateFaceUrl(card.front, publicBaseUrl, stats, remoteCache),
-    ...(card.back
-      ? { back: migrateFaceUrl(card.back, publicBaseUrl, stats, remoteCache) }
-      : {}),
-  }));
-  const nextMetadata = {
-    ...metadata,
-    back: migrateFaceUrl(metadata.back, publicBaseUrl, stats, remoteCache),
-    cards: nextCards,
-  };
-
-  if (stats.urls === urlCountBefore) {
-    return false;
-  }
-
-  const count = nextMetadata.cards.length;
-  applyDeckDisplay(item, nextMetadata);
-  setDeckMetadata(item, nextMetadata);
-  return true;
-}
-
-async function migrateSceneLocalAssets() {
-  if (!obr) {
-    setMessage("Abra esta extensão dentro do Owlbear para migrar os links.", "warning");
-    return;
-  }
-
-  const rawBaseUrl = elements.publicBaseUrl.value.trim();
-  if (!rawBaseUrl) {
-    throw new Error("Informe a URL pública do GitHub Pages antes de migrar.");
-  }
-
-  const publicBaseUrl = normalizePublicBaseUrl(rawBaseUrl);
-  const items = await obr.scene.items.getItems();
-  const stats = {
-    cached: 0,
-    cacheErrors: 0,
-    items: 0,
-    urls: 0,
-    sized: 0,
-  };
-  const remoteCache = await cachePlainRemoteSceneImages(items, stats);
-
-  await obr.scene.items.updateItems(items, (draftItems) => {
-    for (const item of draftItems) {
-      const changed =
-        migrateCardItem(item, publicBaseUrl, stats, remoteCache) ||
-        migrateDeckItem(item, publicBaseUrl, stats, remoteCache) ||
-        migrateImageItem(item, publicBaseUrl, stats, remoteCache);
-
-      if (changed) {
-        stats.items += 1;
-      }
-    }
-  });
-
-  if (!stats.items) {
-    setMessage("Não encontrei links locais ou divindades fora do padrão nesta cena.", "warning");
-    return;
-  }
-
-  const itemLabel = stats.items === 1 ? "1 item" : `${stats.items} itens`;
-  const urlLabel = stats.urls === 1 ? "1 imagem" : `${stats.urls} imagens`;
-  const divinityLabel =
-    stats.sized === 1 ? "1 divindade ajustada" : `${stats.sized} divindades ajustadas`;
-  const cachedLabel =
-    stats.cached === 1 ? "1 imagem normal otimizada" : `${stats.cached} imagens normais otimizadas`;
-  const cacheErrorLabel =
-    stats.cacheErrors === 1
-      ? "1 imagem normal não pode ser otimizada"
-      : `${stats.cacheErrors} imagens normais não puderam ser otimizadas`;
-  const message = stats.urls
-    ? `Migrei ${itemLabel} da cena para usar ${urlLabel} públicas${
-        stats.sized || stats.cached || stats.cacheErrors
-          ? `; ${[stats.cached ? cachedLabel : "", stats.sized ? divinityLabel : ""]
-              .filter(Boolean)
-              .concat(stats.cacheErrors ? [cacheErrorLabel] : [])
-              .join("; ")}.`
-          : "."
-      }`
-    : stats.sized
-      ? `${divinityLabel}.`
-      : cacheErrorLabel;
-
-  setMessage(message, "success");
-  await showNotification(
-    stats.urls ? "Links locais migrados para o GitHub Pages." : "Divindades ajustadas.",
-    "SUCCESS",
-  );
-}
 
 function getScenePresetEntry(presetId) {
   return scenePresetEntries.find((entry) => entry.definition.id === presetId) || null;
@@ -1366,7 +873,7 @@ async function restoreDefaultBoard(presetId) {
 
   const entry = getScenePresetEntry(presetId);
 
-  if (!(entry?.preset || entry?.summary)) {
+  if (!(entry?.preset || entry?.summary) || !entry.ready) {
     setMessage("Esse mapa salvo ainda não foi cadastrado na extensão.", "warning");
     await showNotification("Mapa salvo não cadastrado.", "WARNING");
     return;
@@ -1674,6 +1181,108 @@ async function loadPresetLibrary() {
   populatePresetCardGroupSelect();
 }
 
+async function reloadPrivateContent() {
+  await Promise.all([loadPresetLibrary(), refreshDefaultBoardInfo()]);
+  updatePrivatePackControls(Boolean(obr));
+}
+
+async function configureSelectedPrivatePack(files) {
+  privatePackRunning = true;
+  updatePrivatePackControls(Boolean(obr));
+  setMessage("Lendo o Private Asset Pack...", "neutral");
+
+  try {
+    const imported = await readPrivateAssetPackFiles(files);
+    configurePrivateAssetPack(imported);
+    selectedPrivatePack = imported;
+    await reloadPrivateContent();
+    const missingFiles = imported.pack
+      ? Object.keys(imported.pack.assets).length - imported.assetFiles.size
+      : 0;
+    setMessage(
+      missingFiles
+        ? `Pack configurado, mas ${missingFiles} arquivos canônicos não estavam na pasta selecionada.`
+        : "Pack configurado. Envie os assets ao Owlbear e depois vincule a seleção.",
+      missingFiles ? "warning" : "success",
+    );
+  } finally {
+    privatePackRunning = false;
+    elements.privatePackInput.value = "";
+    updatePrivatePackControls(Boolean(obr));
+  }
+}
+
+async function uploadSelectedPrivatePack() {
+  if (!obr || !buildImageUpload || !selectedPrivatePack) {
+    throw new Error("Selecione o Private Asset Pack antes de enviar os assets.");
+  }
+
+  const confirmed = window.confirm(
+    `Enviar ${selectedPrivatePack.assetFiles.size} assets canônicos para a biblioteca privada do Owlbear?`,
+  );
+  if (!confirmed) {
+    return;
+  }
+
+  privatePackRunning = true;
+  updatePrivatePackControls(true);
+  try {
+    const result = await uploadPrivateAssetPack(
+      obr,
+      buildImageUpload,
+      selectedPrivatePack,
+      ({ uploaded, total }) => {
+        setMessage(`Enviando assets privados ao Owlbear: ${uploaded} de ${total}...`, "neutral");
+      },
+    );
+    setMessage(
+      `${result.uploaded} assets enviados ao Owlbear. Agora vincule os assets pelo seletor.`,
+      result.missingFiles ? "warning" : "success",
+    );
+  } finally {
+    privatePackRunning = false;
+    updatePrivatePackControls(Boolean(obr));
+  }
+}
+
+async function linkConfiguredPrivatePack() {
+  if (!obr) {
+    throw new Error("Abra a extensão dentro do Owlbear para vincular os assets.");
+  }
+
+  privatePackRunning = true;
+  updatePrivatePackControls(true);
+  setMessage("Selecione no Owlbear os assets do pack que deseja vincular...", "neutral");
+  try {
+    const result = await linkPrivateAssetPackFromOwlbear(obr);
+    await reloadPrivateContent();
+    const stats = await repairSceneMetadata();
+    const suffix = stats.assets
+      ? ` ${stats.assets} referências da cena atual foram migradas.`
+      : "";
+    setMessage(
+      result.linked
+        ? `${result.linked} assets vinculados de ${result.selected} selecionados.${suffix}`
+        : "Nenhum asset selecionado correspondeu ao manifesto do pack.",
+      result.linked ? (result.unmatched.length ? "warning" : "success") : "warning",
+    );
+  } finally {
+    privatePackRunning = false;
+    updatePrivatePackControls(Boolean(obr));
+  }
+}
+
+async function removeConfiguredPrivatePack() {
+  if (!window.confirm("Remover deste navegador a configuração e os vínculos do pack privado?")) {
+    return;
+  }
+
+  clearPrivateAssetPack();
+  selectedPrivatePack = null;
+  await reloadPrivateContent();
+  setMessage("Configuração local do Private Asset Pack removida. O Core público continua ativo.", "success");
+}
+
 function getPresetDeckGridWidth() {
   const gridWidth = Number.parseFloat(elements.presetDeckGridWidth.value);
 
@@ -1899,9 +1508,34 @@ async function init() {
     elements.presetCardInfo.textContent =
       getErrorMessage(error, "Não consegui carregar a biblioteca de cartas.");
   });
-  elements.publicBaseUrl.value = getDefaultPublicBaseUrl();
-  elements.publicBaseUrl.addEventListener("input", () => updateMigratePublicButton(Boolean(obr)));
-  updateMigratePublicButton(false);
+  elements.privatePackChooseButton.addEventListener("click", () =>
+    elements.privatePackInput.click(),
+  );
+  elements.privatePackInput.addEventListener("change", () => {
+    configureSelectedPrivatePack(elements.privatePackInput.files).catch((error) => {
+      console.error(error);
+      setMessage(getErrorMessage(error, "Não consegui configurar o Private Asset Pack."), "error");
+    });
+  });
+  elements.privatePackUploadButton.addEventListener("click", () => {
+    uploadSelectedPrivatePack().catch((error) => {
+      console.error(error);
+      setMessage(getErrorMessage(error, "Não consegui enviar os assets ao Owlbear."), "error");
+    });
+  });
+  elements.privatePackLinkButton.addEventListener("click", () => {
+    linkConfiguredPrivatePack().catch((error) => {
+      console.error(error);
+      setMessage(getErrorMessage(error, "Não consegui vincular os assets do Owlbear."), "error");
+    });
+  });
+  elements.privatePackClearButton.addEventListener("click", () => {
+    removeConfiguredPrivatePack().catch((error) => {
+      console.error(error);
+      setMessage(getErrorMessage(error, "Não consegui remover a configuração do pack."), "error");
+    });
+  });
+  updatePrivatePackControls(false);
   elements.panelFlipButton.addEventListener("click", () =>
     runPanelAction(elements.panelFlipButton, async () => {
       const fallbackSelection = lastFlipSelection.length
@@ -1988,20 +1622,6 @@ async function init() {
       await showNotification(message, "SUCCESS");
     }, "Sincronizando a cena..."),
   );
-  elements.migratePublicButton.addEventListener("click", () => {
-    migrationRunning = true;
-    updateMigratePublicButton(Boolean(obr));
-    setMessage("Migrando links locais da cena...", "neutral");
-    migrateSceneLocalAssets()
-      .catch((error) => {
-        console.error(error);
-        setMessage(getErrorMessage(error, "Não consegui migrar os links locais."), "error");
-      })
-      .finally(() => {
-        migrationRunning = false;
-        updateMigratePublicButton(Boolean(obr));
-      });
-  });
   for (const button of elements.createScenePresetButtons) {
     button.addEventListener("click", () =>
       runPanelAction(button, () => createDefaultBoardFromCurrentScene(button.dataset.createScenePreset)),
@@ -2023,7 +1643,7 @@ async function init() {
   try {
     loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=65").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=100").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
   } catch (error) {
@@ -2043,6 +1663,7 @@ async function init() {
 
   obr = loaded.OBR;
   buildImage = loaded.sdk.buildImage;
+  buildImageUpload = loaded.sdk.buildImageUpload;
   obr.broadcast
     .sendMessage(COMMANDS_CHANNEL, { type: "register-commands" }, { destination: "LOCAL" })
     .catch((error) => {

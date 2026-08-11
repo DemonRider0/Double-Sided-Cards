@@ -4,9 +4,9 @@ import {
   getPresetNameFromPath,
   normalizePresetAsset,
   normalizePresetLayer,
+  isPresetAssetReady,
 } from "./preset-assets.js";
-
-const PRESET_CARDS_URL = new URL("../assets/preset-cards/cards.json", import.meta.url);
+import { getConfiguredPrivateAssetPack } from "./asset-resolver.js";
 
 function normalizeOrigin(value) {
   if (!Number.isFinite(value?.x) || !Number.isFinite(value?.y)) {
@@ -60,23 +60,16 @@ function normalizePresetCardGroup(value, index) {
   };
 }
 
-export async function loadPresetCardGroups() {
-  const response = await fetch(`${PRESET_CARDS_URL.toString()}?t=${Date.now()}`, {
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error("Não consegui carregar a biblioteca de cartas.");
-  }
-
-  const data = await response.json();
+export async function loadPresetCardGroups(pack = getConfiguredPrivateAssetPack()) {
+  const data = pack?.presets?.cards;
   const groups = Array.isArray(data?.groups) ? data.groups : [];
 
   return groups.map(normalizePresetCardGroup);
 }
 
 export function isPresetCardReady(group, card) {
-  return Boolean((card?.back?.path || group?.back?.path) && card?.front?.path);
+  const back = card?.back?.assetId || card?.back?.path ? card.back : group?.back;
+  return Boolean(isPresetAssetReady(back) && isPresetAssetReady(card?.front));
 }
 
 async function buildFace(asset, label) {
@@ -88,7 +81,7 @@ export async function buildPresetCardData(group, card) {
     throw new Error(`A carta "${card?.name || "padrão"}" ainda não tem frente e verso.`);
   }
 
-  const backAsset = card?.back?.path ? card.back : group.back;
+  const backAsset = card?.back?.assetId || card?.back?.path ? card.back : group.back;
   const [front, back] = await Promise.all([
     buildFace(card.front, "frente"),
     buildFace(backAsset, "verso"),

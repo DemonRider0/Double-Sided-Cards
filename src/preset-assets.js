@@ -1,4 +1,5 @@
 import { getMimeFromUrl } from "./card-data.js";
+import { getConfiguredAssetResolver } from "./asset-resolver.js";
 
 const ITEM_LAYERS = new Set([
   "DRAWING",
@@ -18,16 +19,9 @@ export function normalizePresetLayer(value) {
   return ITEM_LAYERS.has(value) ? value : "PROP";
 }
 
-export function resolvePresetAssetUrl(path) {
-  if (!path || typeof path !== "string") {
-    return "";
-  }
-
-  if (isExternalUrl(path)) {
-    return path;
-  }
-
-  return new URL(`../${path.replace(/^\/+/, "")}`, import.meta.url).toString();
+export function resolvePresetAssetUrl(asset) {
+  const result = getConfiguredAssetResolver().resolve(asset);
+  return result.resolved ? result.value.url || result.value : "";
 }
 
 export function getPresetNameFromPath(path, fallback) {
@@ -66,6 +60,7 @@ export function normalizePresetAsset(value, fallbackName) {
 
   return {
     name: value.name || getPresetNameFromPath(value.path || value.url, fallbackName),
+    assetId: value.assetId,
     path: value.path || value.url || "",
     width: value.width,
     height: value.height,
@@ -93,21 +88,28 @@ function readImage(url) {
 }
 
 export async function buildPresetFace(asset, missingAssetMessage) {
-  const url = resolvePresetAssetUrl(asset.path);
+  const resolved = getConfiguredAssetResolver().resolve(asset);
+  const value = resolved.resolved ? resolved.value : null;
+  const url = value?.url || "";
 
   if (!url) {
     throw new Error(missingAssetMessage);
   }
 
   const dimensions =
-    Number.isFinite(asset.width) && Number.isFinite(asset.height)
-      ? { width: asset.width, height: asset.height }
+    Number.isFinite(value.width) && Number.isFinite(value.height)
+      ? { width: value.width, height: value.height }
       : await readImage(url);
 
   return {
+    assetId: resolved.canonicalId,
     url,
     width: dimensions.width,
     height: dimensions.height,
-    mime: asset.mime || getMimeFromUrl(url),
+    mime: value.mime || getMimeFromUrl(url),
   };
+}
+
+export function isPresetAssetReady(asset) {
+  return getConfiguredAssetResolver().isReady(asset);
 }

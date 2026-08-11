@@ -1,6 +1,6 @@
 {
   "name": "cartas-duplas-owlbear",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "author": "DemonRider",
   "private": true,
   "type": "module",
@@ -9,13 +9,10 @@
   },
   "scripts": {
     "build": "node build.mjs",
-    "build:preset-decks": "node scripts/build-preset-decks.mjs && node scripts/build-preset-cards.mjs",
-    "build:preset-cards": "node scripts/build-preset-cards.mjs",
-    "build:scene-presets": "node scripts/build-scene-preset-index.mjs",
-    "audit:assets": "node scripts/audit-assets.mjs",
+    "build:private-asset-pack": "node scripts/build-private-asset-pack.mjs",
+    "check:private-asset-pack": "node scripts/check-private-asset-pack.mjs",
     "check": "node scripts/check-project.mjs",
-    "test:regressions": "node scripts/test-regressions.mjs",
-    "prepare:github-assets": "node scripts/prepare-github-assets.mjs"
+    "test:regressions": "node scripts/test-regressions.mjs"
   },
   "dependencies": {
     "@owlbear-rodeo/sdk": "3.1.0"

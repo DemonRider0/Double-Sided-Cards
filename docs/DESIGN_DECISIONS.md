@@ -44,10 +44,10 @@ Este documento registra decisões técnicas importantes. Uma decisão só deve s
 | --- | --- |
 | Problema | Mobile e outros computadores nao conseguem acessar `localhost` do computador do mestre. |
 | Decisao | Hospedar a versao publica no GitHub Pages. |
-| Justificativa tecnica | GitHub Pages entrega HTML, JS e assets estaticos por URL publica HTTPS. |
+| Justificativa tecnica | GitHub Pages entrega o Core estatico por HTTPS; assets privados ficam na conta do usuario no Owlbear. |
 | Alternativas consideradas | Netlify, servidor proprio, depender de localhost. |
 | Vantagens | Gratuito, simples, suficiente para extensao estatica. |
-| Desvantagens | Nao grava arquivos novos em runtime; exige commit/push para atualizar assets. |
+| Desvantagens | Nao grava arquivos novos em runtime; o Private Asset Pack precisa ser configurado separadamente. |
 | Nao alterar quando | O projeto continuar sem backend. |
 
 ## 5. Manter diferenca entre publico e local
@@ -126,12 +126,12 @@ Este documento registra decisões técnicas importantes. Uma decisão só deve s
 
 | Campo | Conteudo |
 | --- | --- |
-| Problema | Usuarios publicos precisam reconstruir tabuleiros prontos sem importar tudo manualmente. |
-| Decisao | Salvar mapas em JSON dentro de `assets/scene-presets/`. |
-| Justificativa tecnica | GitHub Pages serve o JSON; a extensao recria itens via SDK. |
+| Problema | Mapas pessoais precisam ser restauraveis sem publicar conteudo protegido nem quebrar URLs antigas. |
+| Decisao | Salvar mapas no Private Asset Pack, usando `assetId` canonico e aliases legados. |
+| Justificativa tecnica | O pack fornece o JSON e o resolvedor troca IDs/aliases por assets pertencentes ao usuario no Owlbear antes de recriar itens via SDK. |
 | Alternativas consideradas | Instruir cada usuario a montar cenas, usar backups manuais do Owlbear. |
-| Vantagens | Publicacao reproduzivel e facil de testar. |
-| Desvantagens | JSON grande e sensivel a URLs de assets. |
+| Vantagens | Core publico independente, restauracao reproduzivel e compatibilidade centralizada. |
+| Desvantagens | Exige pack e vinculo local; o SDK nao retorna os IDs depois de `uploadImages`. |
 | Nao alterar quando | O projeto depender de tabuleiros oficiais prontos. |
 
 ## 12. Divindades com tamanho especial

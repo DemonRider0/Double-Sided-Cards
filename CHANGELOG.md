@@ -2,6 +2,26 @@
 
 Este arquivo registra mudanças técnicas, auditorias e atualizações documentais relevantes do projeto.
 
+## 1.0.0 - 2026-08-11
+
+Preparação da primeira versão pública estável.
+
+### Principais mudanças
+
+- Estabilização das operações de cartas e pilhas, incluindo compra, devolução, embaralhamento, pilhas temporárias e compatibilidade com cenas antigas.
+- Restauração robusta dos mapas Tutorial e Missão 0.5, com validação, coordenação e recuperação conservadora.
+- Carregamento de bibliotecas e mapas mais eficiente, com dimensões de imagens pré-calculadas e mapas completos sob demanda.
+- Melhorias de acessibilidade, responsividade mobile e feedback das operações do painel.
+- Reforço das fronteiras de confiança de metadados, presets, URLs e servidor administrativo local.
+- Build, geradores e verificações reproduzíveis, além de documentação consolidada para uso e manutenção.
+- Versão unificada em `1.0.0`, descrição pública atualizada e cache busting consolidado em `v=100`.
+- Separação do Core público e do Private Asset Pack, com assets privados no Owlbear, resolução canônica por SHA-256, aliases legados e funcionamento normal sem pack.
+
+### Limitação conhecida
+
+- Em concorrência distribuída rara, dois clientes devolvendo simultaneamente a mesma instância de carta ainda podem duplicar sua entrada na pilha; retries e repetições locais permanecem protegidos. O limite técnico está documentado em `DEVELOPMENT.md` e `docs/ARCHITECTURE.md`.
+- O SDK 3.1.0 não retorna ID/URL em `uploadImages`; depois do envio, o usuário precisa selecionar os assets uma vez para persistir os vínculos neste navegador.
+
 ## 2026-07-17 - Encerramento formal do plano S-01 a S-20
 
 ### Sessao

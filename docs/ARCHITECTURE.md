@@ -6,11 +6,6 @@ Este documento descreve a arquitetura técnica da extensão Cartas Duplas.
 
 ```text
 .
-|-- assets/
-|   |-- local-assets/
-|   |-- preset-cards/
-|   |-- preset-decks/
-|   `-- scene-presets/
 |-- dist/
 |-- docs/
 |-- icons/
@@ -33,14 +28,10 @@ Este documento descreve a arquitetura técnica da extensão Cartas Duplas.
 
 | Pasta | Responsabilidade | Observacoes |
 | --- | --- | --- |
-| `assets/local-assets/` | Imagens publicadas que vieram de importacoes locais ou mapas salvos. | Pode ficar grande; nao deve conter caminhos locais no uso publico. |
-| `assets/preset-decks/` | Bibliotecas publicas de pilhas. | Inclui imagens e `decks.json` gerado por script. |
-| `assets/preset-cards/` | Bibliotecas publicas de cartas individuais. | Inclui imagens e `cards.json` gerado por script. |
-| `assets/scene-presets/` | Presets de mapas restauraveis. | Contem JSON completo dos mapas. |
 | `dist/` | Bundles gerados pelo build. | Entregue ao GitHub Pages. Nao editar manualmente. |
 | `docs/` | Documentacao permanente do projeto. | Fonte de contexto tecnico. |
 | `icons/` | Icones usados pelo manifesto e comandos. | Referenciados por manifesto/background. |
-| `scripts/` | Scripts de preparacao de assets e manifests. | Executados via `npm run ...`. |
+| `scripts/` | Build, verificacao do Core e ferramentas opcionais do pack privado. | O pack gerado deve ficar fora do Core. |
 | `src/` | Codigo fonte da extensao. | Principal area de manutencao. |
 | `vendor/` | Dependencias vendorizadas, se houver. | Mantida para compatibilidade. |
 
@@ -87,6 +78,8 @@ flowchart LR
   app --> presetDecks["src/preset-decks.js"]
   app --> presetCards["src/preset-cards.js"]
   app --> scenePreset["src/scene-preset.js"]
+  app --> privatePack["src/private-asset-pack.js"]
+  app --> resolver["src/asset-resolver.js"]
   app --> selection["src/selection-board.js"]
   app --> divinity["src/divinity-sizing.js"]
   app --> obr["src/sdk-client.js"]
@@ -98,6 +91,7 @@ flowchart LR
   background --> divinity
   background --> feedback["src/feedback.js"]
   background --> obr2["src/sdk-boot.js"]
+  background --> resolver
 
   deck --> card
   flip --> card
@@ -106,6 +100,10 @@ flowchart LR
   divinity --> selection
   presetDecks --> card
   presetCards --> card
+  presetDecks --> resolver
+  presetCards --> resolver
+  scenePreset --> resolver
+  privatePack --> resolver
 ```
 
 ## Fluxo geral das chamadas
@@ -153,14 +151,20 @@ flowchart TD
   E --> F["Apagar item de carta solta"]
 ```
 
-Para tornar a devolucao idempotente entre clientes, a entrada recolocada na
+Para tornar retries e repeticoes locais idempotentes, a entrada recolocada na
 pilha guarda `returnedSceneItemId`, com o `id` da instancia de item removida da
 cena. Antes de acrescentar a entrada, a devolucao verifica esse marcador na
-pilha relida pelo `updateItems`; uma repeticao da mesma instancia apenas conclui
-a exclusao da carta solta. O marcador fica na propria entrada, e e substituido
-pelo novo `item.id` quando aquela carta for sacada e devolvida outra vez. Cartas
-antigas sem o campo continuam validas e recebem o marcador somente na primeira
-devolucao; campos desconhecidos da carta e da pilha continuam preservados.
+pilha relida pelo `updateItems`; uma repeticao observada no estado relido apenas
+conclui a exclusao da carta solta. O marcador fica na propria entrada, e e
+substituido pelo novo `item.id` quando aquela carta for sacada e devolvida outra
+vez. Cartas antigas sem o campo continuam validas e recebem o marcador somente
+na primeira devolucao; campos desconhecidos da carta e da pilha continuam
+preservados.
+
+Essa idempotencia nao elimina completamente uma corrida distribuida rara: dois
+clientes podem ler a pilha antes de qualquer um observar o marcador do outro e
+acrescentar a mesma instancia. O SDK nao oferece transacao distribuida ou
+compare-and-swap para fechar essa janela.
 
 ### Restaurar mapa salvo
 
@@ -199,8 +203,10 @@ A extensao nao usa banco externo. O estado de jogo fica distribuido assim:
 | Cor ativa do jogador | Metadata do jogador |
 | Ocupacao dos slots | Metadata da cena |
 | Coordenacao temporaria de restauracao | Metadata interna versionada da cena |
-| Mapas salvos publicos | JSON em `assets/scene-presets/` |
-| Bibliotecas de pilhas/cartas | JSON e imagens em `assets/preset-*` |
+| Configuracao do Private Asset Pack | `localStorage` da origem da extensao |
+| Vinculos `assetId -> ImageContent` | `localStorage` da origem da extensao |
+| Mapas e bibliotecas pessoais | JSON no pack privado, carregado no armazenamento local |
+| Binarios privados | Biblioteca de assets pertencente ao usuario no Owlbear |
 
 ## Integracao com o SDK do Owlbear
 
@@ -215,6 +221,8 @@ O painel usa o SDK para:
 - executar acoes por botoes;
 - mostrar estado de conexao;
 - listar jogadores e cores.
+- enviar arquivos canônicos com `OBR.assets.uploadImages`;
+- selecionar e vincular assets do usuario com `OBR.assets.downloadImages`.
 
 ### Background
 
@@ -225,7 +233,7 @@ O background usa o SDK para:
 - registrar atalhos;
 - reagir a mudancas de selecao;
 - sincronizar displays de pilhas;
-- reparar URLs de assets quando necessario;
+- reparar aliases e URLs historicas por meio do resolvedor central;
 - aplicar selecao automatica de cor/categoria.
 
 ## Comunicacao painel-background
@@ -244,30 +252,35 @@ sequenceDiagram
   B->>O: cria menus, tool actions e shortcuts
 ```
 
-## Estrutura dos assets
+## Resolucao central e Private Asset Pack
 
-### Preset decks
+`src/asset-resolver.js` e a unica camada que converte uma referencia logica ou historica em imagem utilizavel. Os consumidores recebem `assetId` canonico; caminhos antigos sao apenas entradas de compatibilidade.
 
-Cada pilha de biblioteca tem:
+```mermaid
+flowchart LR
+  old["URL/caminho/ID antigo"] --> aliases["aliases do pack"]
+  logical["assetId canônico"] --> resolver["asset-resolver"]
+  aliases --> resolver
+  resolver --> binding["vínculo persistido"]
+  binding --> owl["ImageContent do asset do usuário no Owlbear"]
+  owl --> consumers["cartas, pilhas, mapas e reparo de cena"]
+```
 
-- pasta de imagens;
-- imagem de verso, normalmente `Verso.png`;
-- manifest `decks.json`;
-- tamanho padrao e camada padrao.
+O normalizador reconhece URLs completas do GitHub Pages, caminhos relativos antigos, variantes `localhost/.local-assets`, URLs aninhadas que o reparo historico ja tratava e IDs antigos de `images.owlbear.rodeo`. O alias aponta para um unico ID `sha256:<hash>`, permitindo remover copias fisicas sem apagar identificadores antigos.
 
-O script `scripts/build-preset-decks.mjs` gera/atualiza o manifest.
+O pack privado usa:
 
-### Preset cards
+```text
+private-asset-pack.json       # catalogo canonico, aliases e indice de presets
+assets/<sha256>.<extensao>    # um arquivo original por conteudo exato
+presets/cards.json            # biblioteca privada de cartas por assetId
+presets/decks.json            # biblioteca privada de pilhas por assetId
+presets/scenes/*.json         # mapas privados por assetId
+```
 
-Cada grupo de cartas tem:
+Ao selecionar a pasta, o painel hidrata os JSONs e persiste apenas dados e vinculos; binarios nunca entram no `localStorage`. `uploadImages` envia os arquivos, mas no SDK 3.1.0 retorna `void`. O usuario precisa entao selecionar os assets em `downloadImages`; o nome/descricao gerados carregam o ID canonico e permitem montar o vinculo persistente.
 
-- pasta de imagens;
-- verso de grupo `Verso.png` ou verso individual como `Nome verso.png`;
-- manifest `cards.json`;
-- categoria opcional (`race`, `class`, `divinity`);
-- tamanho, camada e origem opcionais.
-
-O script `scripts/build-preset-cards.mjs` gera/atualiza o manifest.
+Sem pack, os loaders retornam listas vazias e os botoes de presets permanecem desabilitados. O restante da extensao nao depende desse estado opcional.
 
 ## Build
 
@@ -277,8 +290,10 @@ flowchart LR
   build --> dist["dist/app.js, dist/background.js, dist/sdk-*.js"]
   html["index.html/background.html"] --> public["GitHub Pages"]
   dist --> public
-  assets["assets/"] --> public
+  icons["icons/"] --> public
   manifest["manifest.json"] --> public
+  source["árvore privada histórica"] --> packBuild["build:private-asset-pack"]
+  packBuild --> private["Private Asset Pack fora do Core"]
 ```
 
 Comandos principais:
@@ -286,9 +301,9 @@ Comandos principais:
 | Comando | Funcao |
 | --- | --- |
 | `npm run build` | Gera bundles em `dist/`. |
-| `npm run build:preset-decks` | Atualiza manifests de pilhas e cartas, depois deve rodar build. |
-| `npm run build:preset-cards` | Atualiza apenas manifest de cartas. |
-| `npm run prepare:github-assets` | Prepara assets locais para publicacao. |
+| `npm run build:private-asset-pack -- --source <origem> --output <dir>` | Migra uma arvore privada historica para um pack canonico fora do Core, sem recompressao. |
+| `npm run check:private-asset-pack -- --pack <dir>` | Verifica hashes, aliases e presets privados. |
+| `npm run test:regressions` | Testa resolvedor, aliases, ausencia de pack e regressao de pilhas. |
 | `node dev-server.mjs 5180` | Servidor local de teste. |
 
 ## Ordem de leitura recomendada
@@ -312,7 +327,9 @@ Para manutenção futura, a ordem recomendada da documentação é:
 | `src/scene-preset.js` | Pode apagar/recriar muitos itens da cena. |
 | `src/selection-board.js` | Pode quebrar controle de cor e slots de jogador. |
 | `src/background.js` | Pode remover comandos, atalhos ou gerar lentidao. |
-| `assets/scene-presets/` | Qualquer erro afeta restauracao publica dos mapas. |
+| `src/asset-resolver.js` | Pode quebrar aliases e referencias persistidas antigas. |
+| `src/private-asset-pack.js` | Pode vincular o asset errado ou deixar bibliotecas incompletas. |
+| Private Asset Pack | Qualquer erro afeta bibliotecas e restauracao dos mapas privados. |
 
 ## Regra de ouro
 

@@ -1,5 +1,7 @@
 node_modules/
 .npm-cache/
 .local-assets/
+.private-asset-source/
+private-asset-pack*/
 *.log
 *.bak

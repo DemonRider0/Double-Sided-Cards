@@ -9,12 +9,12 @@ Este documento reúne as instruções operacionais do projeto Cartas Duplas. A d
 - Plataforma: Owlbear Rodeo.
 - Hospedagem pública: GitHub Pages.
 - Autoria: DemonRider.
-- Manifesto público atual: `https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=69`.
-- Versão pública atual no manifesto: `0.2.69`.
+- Manifesto público da versão 1.0.0: `https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=100`.
+- Versão pública atual no manifesto: `1.0.0`.
 
-`package.json` identifica o pacote privado de desenvolvimento como `0.1.0`, enquanto `manifest.json` identifica a versão pública como `0.2.69`. Essa diferença foi preservada deliberadamente. Ela deve ser resolvida somente quando houver uma decisão sobre a próxima versão pública; não deve ser normalizada automaticamente para `1.0.0`.
+`package.json`, `package-lock.json` e `manifest.json` usam `1.0.0`. A unificação foi adotada para a primeira versão pública estável; versões históricas permanecem registradas no changelog e no histórico de auditorias.
 
-A descrição atual de `manifest.json` é mais antiga e mais estreita que a apresentação pública do README. Ela foi mantida porque esta etapa não altera o manifesto; sua revisão deve ocorrer junto da próxima decisão de versão e cache.
+A descrição de `manifest.json` resume o escopo funcional. Bibliotecas e mapas pessoais são opcionais e não fazem parte do conteúdo hospedado pelo Core.
 
 O repositório não possui `LICENSE`. Uma licença não deve ser inferida: qualquer decisão de licenciamento público precisa ser tomada explicitamente por DemonRider.
 
@@ -32,12 +32,13 @@ O projeto é uma aplicação frontend estática. Não possui banco de dados nem 
 | --- | --- |
 | `src/` | Código-fonte do painel, background e regras da extensão. |
 | `dist/` | Bundles gerados e distribuídos; não editar manualmente. |
-| `assets/preset-cards/` | Biblioteca de cartas e seu manifest gerado. |
-| `assets/preset-decks/` | Biblioteca de pilhas e seu manifest gerado. |
-| `assets/scene-presets/` | Mapas públicos restauráveis e seu índice. |
-| `scripts/` | Validação e preparação dos manifests e assets. |
+| `src/asset-resolver.js` | Registro canônico, aliases, resolução e persistência local dos vínculos privados. |
+| `src/private-asset-pack.js` | Leitura do pack, upload e vínculo pela API de assets do Owlbear. |
+| `scripts/` | Build, validação do Core e geração/verificação opcional do pack privado. |
 | `manifest.json` | Entrada pública da extensão e versão pública. |
 | `index.html` / `background.html` | Entradas do painel e do contexto de background. |
+
+Os diretórios `assets/preset-cards`, `assets/preset-decks`, `assets/scene-presets` e `assets/local-assets` não pertencem ao Core e não devem ser recriados para publicação.
 
 A arquitetura e os fluxos entre módulos estão detalhados em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -45,14 +46,11 @@ A arquitetura e os fluxos entre módulos estão detalhados em [docs/ARCHITECTURE
 
 | Comando | Finalidade |
 | --- | --- |
-| `npm run check` | Valida sintaxe, JSONs, package/lockfile, bundles, bibliotecas e referências dos mapas. |
+| `npm run check` | Valida sintaxe, JSONs, package/lockfile, bundles e a ausência de conteúdo privado no Core. |
 | `npm run build` | Gera os quatro bundles esperados em `dist/`. |
-| `npm run build:preset-decks` | Regenera `decks.json` e, em seguida, `cards.json`. |
-| `npm run build:preset-cards` | Regenera somente `cards.json`. |
-| `npm run build:scene-presets` | Regenera o índice dos mapas públicos. |
-| `npm run audit:assets` | Produz o inventário técnico dos assets usado nas auditorias. |
-| `npm run test:regressions` | Executa as regressões focadas de devolução concorrente, B17 e slot azul. |
-| `npm run prepare:github-assets` | Prepara assets locais para uso pela versão pública. |
+| `npm run test:regressions` | Executa regressões de pilhas, resolução canônica, aliases, persistência e ausência de pack. |
+| `npm run build:private-asset-pack -- --source <origem> --output <destino>` | Migra uma árvore privada antiga para o formato canônico; origem e destino devem ficar fora do Core. |
+| `npm run check:private-asset-pack -- --pack <diretório>` | Verifica hashes, aliases, manifests, bibliotecas e mapas de um pack privado. |
 | `node dev-server.mjs 5180` | Inicia o servidor administrativo em `127.0.0.1:5180`. |
 
 ## Build e validação
@@ -69,41 +67,43 @@ Use `node --check <arquivo>` para uma verificação pontual de JavaScript ou MJS
 
 Os arquivos de `dist/` fazem parte da entrega pública e devem corresponder ao código em `src/`. O build limpa artefatos gerados obsoletos antes de escrever os bundles atuais.
 
-## Bibliotecas de cartas e pilhas
+## Private Asset Pack
 
-### Cartas
+O pack é uma pasta local e privada com esta estrutura:
 
-As cartas individuais ficam em `assets/preset-cards/`. Cada grupo usa `Verso.png` como verso padrão; uma carta pode usar um verso próprio com o nome da frente seguido de ` verso`, como `Thwor.png` e `Thwor verso.png`.
-
-Depois de alterar as imagens ou a configuração das cartas, execute:
-
-```powershell
-npm run build:preset-cards
-npm run build
+```text
+private-asset-pack.json
+assets/<sha256>.<extensão>
+presets/cards.json
+presets/decks.json
+presets/scenes/<mapa>.json
 ```
 
-### Pilhas
+O manifesto externo contém o catálogo de assets canônicos, aliases legados e os caminhos dos manifests/presets. Os JSONs privados usam `assetId` em vez de uma URL física. Arquivos de conteúdo idêntico compartilham o mesmo ID `sha256:<hash>` e um único binário em `assets/`.
 
-As pilhas ficam em `assets/preset-decks/`. A convenção de verso é `Verso.png`. Depois de alterar imagens ou configuração, execute:
+O fluxo no painel é:
+
+1. **Selecionar pack** lê a pasta e persiste manifests, presets e aliases no armazenamento do navegador.
+2. **Enviar ao Owlbear** usa `OBR.assets.uploadImages` para copiar os arquivos canônicos para a biblioteca privada do usuário.
+3. **Vincular assets** usa `OBR.assets.downloadImages(true, ...)`; o usuário seleciona os assets e a extensão persiste o mapa `assetId → ImageContent` retornado pelo Owlbear.
+4. Bibliotecas, mapas e o reparo de cenas passam a resolver IDs e aliases para essas URLs do Owlbear.
+
+O SDK `3.1.0` retorna `Promise<void>` em `uploadImages`: o upload não informa o ID/URL criado. Por isso, envio e vínculo são duas ações separadas. O vínculo persiste no `localStorage` da origem da extensão; outro navegador, perfil ou origem precisa selecionar os assets novamente. Os binários permanecem na conta do usuário no Owlbear mesmo se a configuração local do pack for removida.
+
+Para gerar um pack a partir de uma árvore privada compatível com o layout histórico, use um destino fora deste repositório:
 
 ```powershell
-npm run build:preset-decks
-npm run build
+npm run build:private-asset-pack -- --source <raiz-privada> --output <novo-pack> --previous <pack-anterior>\private-asset-pack.json
+npm run check:private-asset-pack -- --pack ..\Double-Sided-Cards-Local\private-asset-pack-v1
 ```
 
-Os manifests gerados são fontes públicas da extensão. IDs, tamanhos, camadas, ordem de cartas e formatos persistidos não devem ser alterados como parte de uma limpeza documental.
-
-## Mapas salvos e assets locais
-
-Os mapas publicados ficam em `assets/scene-presets/`. O painel público restaura esses arquivos, mas não os grava no GitHub Pages. A preparação ou atualização de mapas deve ser feita pelo fluxo local, preservando os IDs, metadados e URLs necessários à compatibilidade.
-
-Assets incorporados a partir de uma preparação local ficam em `assets/local-assets/`. Antes de publicar um mapa, confirme que ele não depende de `localhost`, `127.0.0.1`, caminhos absolutos do Windows ou arquivos fora do repositório.
-
-Os mapas e as bibliotecas atuais são contratos de compatibilidade. Consulte [PROJECT_RULES.md](PROJECT_RULES.md) antes de modificar qualquer um deles.
+O gerador copia os bytes originais, calcula SHA-256 e não recomprime imagens. `--previous` preserva aliases do pack anterior cujo hash canônico ainda exista. Mapas, ordem de cartas, IDs, tamanhos, camadas e metadados continuam sendo contratos de compatibilidade.
 
 ## Versão pública e cache
 
 O cache busting é manual. Alterações em JavaScript, HTML, CSS, manifesto ou background precisam seguir as regras de versão e cache descritas em [PROJECT_RULES.md](PROJECT_RULES.md). Não incremente versão ou parâmetros de cache em uma alteração exclusivamente documental.
+
+Na preparação da versão `1.0.0`, o valor público adotado foi `v=100`. O mesmo valor invalida manifesto, entradas HTML, bundles, carregamento alternativo do SDK, estilos, ícones e URLs públicas montadas pelo background. Não altere caminhos ou IDs ao incrementar esse parâmetro em versões futuras.
 
 Antes de uma publicação futura, confirme que:
 
@@ -111,7 +111,7 @@ Antes de uma publicação futura, confirme que:
 - `dist/` está atualizado;
 - o manifesto usa caminhos `/Double-Sided-Cards/...`;
 - versão e parâmetros de cache foram decididos em conjunto;
-- os assets e mapas públicos não contêm dependências locais;
+- os quatro diretórios privados não existem no Core e o pack foi validado separadamente;
 - a checklist manual relevante em [docs/TEST_CHECKLIST.md](docs/TEST_CHECKLIST.md) foi executada no Owlbear Rodeo.
 
 O repositório já está preparado para hospedagem estática na raiz pelo GitHub Pages, incluindo `.nojekyll`. Publicação, push e alteração da configuração do Pages não fazem parte das validações locais.
@@ -124,8 +124,19 @@ Quando houver uma etapa de publicação autorizada, a configuração documentada
 - Campos desconhecidos de metadados devem ser preservados; dados essenciais não devem ser inventados sem fallback seguro.
 - O Owlbear SDK não oferece transação distribuída completa entre itens e metadados. Filas e locks locais reduzem corridas, mas não eliminam todas as janelas entre contas.
 - O GitHub Pages é estático e não grava novos arquivos em runtime.
+- O Core não hospeda presets nem imagens privadas; sem pack, as bibliotecas e os mapas pessoais ficam vazios, mas a extensão continua carregando.
+- URLs do Owlbear são obtidas exclusivamente pela seleção do usuário na API de assets e são persistidas por origem do navegador.
 - O painel e o background rodam em contextos separados.
 - A diferença intencional entre a versão pública e a pasta local está registrada em [PROJECT_RULES.md](PROJECT_RULES.md).
+
+### Devolução simultânea entre clientes
+
+Em uma condição de corrida rara, dois clientes tentando devolver simultaneamente a mesma instância de carta podem duplicar sua entrada na pilha.
+
+- A operação normal de devolução permanece protegida por trava local, releituras e rollback condicional.
+- O campo `returnedSceneItemId` fornece idempotência para retries e repetições locais da mesma instância.
+- A janela residual exige concorrência distribuída, com clientes diferentes atualizando a mesma pilha praticamente ao mesmo tempo.
+- O SDK não fornece uma transação distribuída ou compare-and-swap que elimine completamente essa janela.
 
 ## Documentação técnica
 

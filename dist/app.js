@@ -645,7 +645,7 @@ function normalizeComparableText(value) {
     .toLowerCase();
 }
 
-function normalizeComparableUrl$1(value) {
+function normalizeComparableUrl(value) {
   try {
     const url = new URL(String(value || "").trim());
     url.hash = "";
@@ -705,7 +705,7 @@ function shouldMirrorBackFace(front, back) {
     return false;
   }
 
-  if (normalizeComparableUrl$1(front.url) === normalizeComparableUrl$1(back.url)) {
+  if (normalizeComparableUrl(front.url) === normalizeComparableUrl(back.url)) {
     return true;
   }
 
@@ -2310,12 +2310,12 @@ const CATEGORY_IDS = new Set(CARD_CATEGORIES.map((category) => category.id));
 const selectionOperationTails = new Map();
 Promise.resolve();
 
-function isRecord$1(value) {
+function isRecord$3(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 function copyDefinedRecord(value) {
-  if (!isRecord$1(value)) {
+  if (!isRecord$3(value)) {
     return {};
   }
 
@@ -2384,7 +2384,7 @@ function createEmptyState() {
 function normalizeState(value) {
   const emptyState = createEmptyState();
 
-  if (!isRecord$1(value)) {
+  if (!isRecord$3(value)) {
     return emptyState;
   }
 
@@ -2816,6 +2816,542 @@ async function flipSelectedItems(OBR, fallbackSelection = []) {
   return flipItems(OBR, fallbackItems);
 }
 
+const PRIVATE_ASSET_STATE_VERSION = 1;
+
+const PRIVATE_ASSET_PACK_FORMAT = "double-sided-cards-private-asset-pack";
+const PRIVATE_ASSET_PACK_VERSION = 1;
+const PRIVATE_ASSET_STORAGE_KEY =
+  "br.demonrider.double-sided-cards/private-asset-pack";
+
+let cachedStorage = null;
+let cachedRawState = undefined;
+let cachedState = null;
+let cachedResolver = null;
+
+function isRecord$2(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function clone$1(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value));
+}
+
+function getDefaultStorage() {
+  try {
+    return globalThis.localStorage || null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeSlashes(value) {
+  return String(value || "").replaceAll("\\", "/");
+}
+
+function safeDecode(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function addPathCandidates(candidates, rawPath) {
+  const decoded = safeDecode(normalizeSlashes(rawPath))
+    .replace(/[?#].*$/, "")
+    .replace(/^\.\//, "")
+    .replace(/^\/+/, "");
+
+  if (!decoded) {
+    return;
+  }
+
+  candidates.add(decoded);
+
+  const repositoryMarker = "Double-Sided-Cards/";
+  const repositoryIndex = decoded.indexOf(repositoryMarker);
+  if (repositoryIndex >= 0) {
+    candidates.add(decoded.slice(repositoryIndex + repositoryMarker.length));
+  }
+
+  const assetsIndex = decoded.indexOf("assets/");
+  if (assetsIndex >= 0) {
+    candidates.add(decoded.slice(assetsIndex));
+  }
+
+  const localMarker = ".local-assets/";
+  const localIndex = decoded.indexOf(localMarker);
+  if (localIndex >= 0) {
+    const filename = decoded.slice(localIndex + localMarker.length);
+    candidates.add(`${localMarker}${filename}`);
+    candidates.add(`assets/local-assets/${filename}`);
+  }
+
+  const publishedLocalMarker = "assets/local-assets/";
+  const publishedLocalIndex = decoded.indexOf(publishedLocalMarker);
+  if (publishedLocalIndex >= 0) {
+    const filename = decoded.slice(publishedLocalIndex + publishedLocalMarker.length);
+    candidates.add(`${localMarker}${filename}`);
+    candidates.add(`${publishedLocalMarker}${filename}`);
+  }
+}
+
+function getAssetAliasCandidates(value) {
+  const candidates = new Set();
+  const raw = typeof value === "string" ? value.trim() : "";
+
+  if (!raw) {
+    return [];
+  }
+
+  candidates.add(raw);
+
+  const nestedMatches = [...raw.matchAll(/https?:\/\//gi)];
+  if (nestedMatches.length > 1) {
+    const nested = raw.slice(nestedMatches[nestedMatches.length - 1].index);
+    if (nested && nested !== raw) {
+      for (const candidate of getAssetAliasCandidates(nested)) {
+        candidates.add(candidate);
+      }
+    }
+  }
+
+  addPathCandidates(candidates, raw);
+
+  try {
+    const url = new URL(raw);
+    url.hash = "";
+    url.search = "";
+    candidates.add(url.toString());
+    addPathCandidates(candidates, url.pathname);
+
+    if (url.hostname.toLowerCase() === "images.owlbear.rodeo") {
+      const filename = safeDecode(url.pathname.split("/").filter(Boolean).pop() || "");
+      const assetId = filename.replace(/\.[^.]+$/, "");
+      if (assetId) {
+        candidates.add(`owlbear:${assetId}`);
+      }
+    }
+  } catch {
+    // Caminhos relativos e IDs lógicos são candidatos válidos sem serem URLs.
+  }
+
+  return [...candidates].filter(Boolean);
+}
+
+function assertSafeRelativePath(value, label) {
+  const normalized = normalizeSlashes(value).replace(/^\.\//, "");
+  if (
+    !normalized ||
+    normalized.startsWith("/") ||
+    /^[a-z]:\//i.test(normalized) ||
+    normalized.split("/").includes("..")
+  ) {
+    throw new Error(`${label} precisa ser um caminho relativo dentro do pack.`);
+  }
+  return normalized;
+}
+
+function validatePrivateAssetPack(value) {
+  if (
+    !isRecord$2(value) ||
+    value.format !== PRIVATE_ASSET_PACK_FORMAT ||
+    value.version !== PRIVATE_ASSET_PACK_VERSION ||
+    typeof value.id !== "string" ||
+    !value.id.trim() ||
+    !isRecord$2(value.assets) ||
+    !isRecord$2(value.aliases) ||
+    !isRecord$2(value.presets)
+  ) {
+    throw new Error("O Private Asset Pack possui uma estrutura inválida.");
+  }
+
+  const pack = clone$1(value);
+  for (const [assetId, asset] of Object.entries(pack.assets)) {
+    if (!assetId || !isRecord$2(asset)) {
+      throw new Error("O Private Asset Pack possui um asset canônico inválido.");
+    }
+    asset.file = assertSafeRelativePath(asset.file, `O asset ${assetId}`);
+    if (typeof asset.owlbearName !== "string" || !asset.owlbearName.trim()) {
+      throw new Error(`O asset ${assetId} não possui nome para o Owlbear.`);
+    }
+  }
+
+  for (const [alias, assetId] of Object.entries(pack.aliases)) {
+    if (!alias || typeof assetId !== "string" || !pack.assets[assetId]) {
+      throw new Error(`O alias ${alias || "sem nome"} aponta para um asset desconhecido.`);
+    }
+  }
+
+  if (
+    !isRecord$2(pack.presets.cards) ||
+    !isRecord$2(pack.presets.decks) ||
+    !isRecord$2(pack.presets.scenes)
+  ) {
+    throw new Error("Os manifests e presets do Private Asset Pack não foram carregados.");
+  }
+
+  for (const [sceneId, scene] of Object.entries(pack.presets.scenes)) {
+    if (
+      !sceneId ||
+      !isRecord$2(scene) ||
+      !isRecord$2(scene.definition) ||
+      !isRecord$2(scene.preset)
+    ) {
+      throw new Error(`O preset privado ${sceneId || "sem ID"} é inválido.`);
+    }
+  }
+
+  return pack;
+}
+
+function normalizeBinding(value) {
+  const image = isRecord$2(value?.image) ? value.image : value;
+  if (!isRecord$2(image) || typeof image.url !== "string" || !image.url.trim()) {
+    return null;
+  }
+
+  return {
+    url: image.url,
+    width: Number.isFinite(image.width) && image.width > 0 ? image.width : undefined,
+    height: Number.isFinite(image.height) && image.height > 0 ? image.height : undefined,
+    mime: typeof image.mime === "string" && image.mime.trim() ? image.mime : undefined,
+    name: typeof value?.name === "string" && value.name.trim() ? value.name : undefined,
+  };
+}
+
+function normalizeBindings(bindings, pack) {
+  const normalized = {};
+  for (const [assetId, binding] of Object.entries(bindings || {})) {
+    if (!pack.assets[assetId]) {
+      continue;
+    }
+    const value = normalizeBinding(binding);
+    if (value) {
+      normalized[assetId] = value;
+    }
+  }
+  return normalized;
+}
+
+function validateStoredState(value) {
+  if (!isRecord$2(value) || value.version !== PRIVATE_ASSET_STATE_VERSION) {
+    return null;
+  }
+
+  try {
+    const pack = validatePrivateAssetPack(value.pack);
+    return {
+      version: PRIVATE_ASSET_STATE_VERSION,
+      pack,
+      bindings: normalizeBindings(value.bindings, pack),
+    };
+  } catch (error) {
+    console.warn("Private Asset Pack persistido ignorado", error);
+    return null;
+  }
+}
+
+function resetCache() {
+  cachedStorage = null;
+  cachedRawState = undefined;
+  cachedState = null;
+  cachedResolver = null;
+}
+
+function readPrivateAssetState(storage = getDefaultStorage()) {
+  if (!storage) {
+    return null;
+  }
+
+  let raw;
+  try {
+    raw = storage.getItem(PRIVATE_ASSET_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+
+  if (storage === cachedStorage && raw === cachedRawState) {
+    return cachedState ? clone$1(cachedState) : null;
+  }
+
+  let state = null;
+  if (raw) {
+    try {
+      state = validateStoredState(JSON.parse(raw));
+    } catch (error) {
+      console.warn("Não foi possível ler o Private Asset Pack persistido", error);
+    }
+  }
+
+  cachedStorage = storage;
+  cachedRawState = raw;
+  cachedState = state;
+  cachedResolver = null;
+  return state ? clone$1(state) : null;
+}
+
+function writePrivateAssetState(state, storage = getDefaultStorage()) {
+  if (!storage) {
+    throw new Error("O navegador não disponibilizou armazenamento persistente.");
+  }
+
+  const normalized = validateStoredState(state);
+  if (!normalized) {
+    throw new Error("O estado do Private Asset Pack é inválido.");
+  }
+
+  storage.setItem(PRIVATE_ASSET_STORAGE_KEY, JSON.stringify(normalized));
+  resetCache();
+  return clone$1(normalized);
+}
+
+function installPrivateAssetPack(pack, storage = getDefaultStorage()) {
+  const normalizedPack = validatePrivateAssetPack(pack);
+  const previous = readPrivateAssetState(storage);
+  const bindings =
+    previous?.pack?.id === normalizedPack.id
+      ? normalizeBindings(previous.bindings, normalizedPack)
+      : {};
+
+  return writePrivateAssetState(
+    {
+      version: PRIVATE_ASSET_STATE_VERSION,
+      pack: normalizedPack,
+      bindings,
+    },
+    storage,
+  );
+}
+
+function savePrivateAssetBindings(bindings, storage = getDefaultStorage()) {
+  const state = readPrivateAssetState(storage);
+  if (!state) {
+    throw new Error("Configure o Private Asset Pack antes de vincular os assets.");
+  }
+
+  return writePrivateAssetState(
+    {
+      ...state,
+      bindings: {
+        ...state.bindings,
+        ...normalizeBindings(bindings, state.pack),
+      },
+    },
+    storage,
+  );
+}
+
+function clearPrivateAssetPack(storage = getDefaultStorage()) {
+  if (storage) {
+    storage.removeItem(PRIVATE_ASSET_STORAGE_KEY);
+  }
+  resetCache();
+}
+
+function addAlias(aliasMap, ambiguousAliases, alias, assetId) {
+  for (const candidate of getAssetAliasCandidates(alias)) {
+    for (const key of [candidate, candidate.toLowerCase()]) {
+      if (ambiguousAliases.has(key)) {
+        continue;
+      }
+      const current = aliasMap.get(key);
+      if (current && current !== assetId) {
+        aliasMap.delete(key);
+        ambiguousAliases.add(key);
+      } else {
+        aliasMap.set(key, assetId);
+      }
+    }
+  }
+}
+
+function createAssetResolver(pack = null, bindings = {}) {
+  const normalizedPack = pack ? validatePrivateAssetPack(pack) : null;
+  const normalizedBindings = normalizedPack ? normalizeBindings(bindings, normalizedPack) : {};
+  const aliasMap = new Map();
+  const ambiguousAliases = new Set();
+
+  if (normalizedPack) {
+    for (const assetId of Object.keys(normalizedPack.assets)) {
+      addAlias(aliasMap, ambiguousAliases, assetId, assetId);
+      addAlias(aliasMap, ambiguousAliases, `asset:${assetId}`, assetId);
+    }
+    for (const [alias, assetId] of Object.entries(normalizedPack.aliases)) {
+      addAlias(aliasMap, ambiguousAliases, alias, assetId);
+    }
+  }
+
+  function getCanonicalId(reference) {
+    if (!normalizedPack || typeof reference !== "string" || !reference.trim()) {
+      return null;
+    }
+
+    if (normalizedPack.assets[reference]) {
+      return reference;
+    }
+
+    for (const candidate of getAssetAliasCandidates(reference)) {
+      const exact = aliasMap.get(candidate);
+      if (exact) {
+        return exact;
+      }
+      const insensitive = aliasMap.get(candidate.toLowerCase());
+      if (insensitive) {
+        return insensitive;
+      }
+    }
+    return null;
+  }
+
+  function resolve(reference) {
+    const isObjectReference = isRecord$2(reference);
+    const rawReference = isObjectReference
+      ? reference.assetId || reference.path || reference.url || ""
+      : reference;
+    const assetId = getCanonicalId(rawReference);
+
+    if (!assetId) {
+      return {
+        canonicalId: null,
+        resolved: false,
+        value: reference,
+      };
+    }
+
+    const asset = normalizedPack.assets[assetId];
+    const binding = normalizedBindings[assetId];
+    if (!binding) {
+      return {
+        canonicalId: assetId,
+        resolved: false,
+        value: isObjectReference
+          ? { ...reference, assetId }
+          : reference,
+      };
+    }
+
+    if (!isObjectReference) {
+      return {
+        canonicalId: assetId,
+        resolved: true,
+        value: binding.url,
+      };
+    }
+
+    const value = {
+      ...reference,
+      assetId,
+      url: binding.url,
+      width: binding.width || reference.width || asset.width,
+      height: binding.height || reference.height || asset.height,
+      mime: binding.mime || reference.mime || asset.mime,
+    };
+    delete value.path;
+
+    return {
+      canonicalId: assetId,
+      resolved: true,
+      value,
+    };
+  }
+
+  return {
+    pack: normalizedPack,
+    bindings: normalizedBindings,
+    getCanonicalId,
+    isReady(reference) {
+      const assetId = getCanonicalId(
+        isRecord$2(reference)
+          ? reference.assetId || reference.path || reference.url || ""
+          : reference,
+      );
+      return Boolean(assetId && normalizedBindings[assetId]);
+    },
+    resolve,
+  };
+}
+
+function getConfiguredAssetResolver(storage = getDefaultStorage()) {
+  const state = readPrivateAssetState(storage);
+  if (!state) {
+    return createAssetResolver();
+  }
+
+  if (storage === cachedStorage && cachedResolver) {
+    return cachedResolver;
+  }
+
+  const resolver = createAssetResolver(state.pack, state.bindings);
+  if (storage === cachedStorage) {
+    cachedResolver = resolver;
+  }
+  return resolver;
+}
+
+function getConfiguredPrivateAssetPack(storage = getDefaultStorage()) {
+  return readPrivateAssetState(storage)?.pack || null;
+}
+
+function getPrivateAssetPackStatus(storage = getDefaultStorage()) {
+  const state = readPrivateAssetState(storage);
+  const total = state ? Object.keys(state.pack.assets).length : 0;
+  const linked = state ? Object.keys(state.bindings).length : 0;
+  return {
+    configured: Boolean(state),
+    id: state?.pack.id || "",
+    name: state?.pack.name || "",
+    total,
+    linked,
+    missing: Math.max(0, total - linked),
+  };
+}
+
+function resolveAssetReferences(value, options = {}) {
+  const resolver = options.resolver || getConfiguredAssetResolver(options.storage);
+  const stats = {
+    canonical: new Set(),
+    resolved: new Set(),
+    unresolved: new Set(),
+  };
+
+  function visit(entry) {
+    if (Array.isArray(entry)) {
+      return entry.map(visit);
+    }
+
+    if (!isRecord$2(entry)) {
+      if (typeof entry === "string") {
+        const result = resolver.resolve(entry);
+        if (result.canonicalId) {
+          stats.canonical.add(result.canonicalId);
+          (result.resolved ? stats.resolved : stats.unresolved).add(result.canonicalId);
+          return result.value;
+        }
+      }
+      return entry;
+    }
+
+    const result = resolver.resolve(entry);
+    if (result.canonicalId) {
+      stats.canonical.add(result.canonicalId);
+      (result.resolved ? stats.resolved : stats.unresolved).add(result.canonicalId);
+      return result.value;
+    }
+
+    return Object.fromEntries(Object.entries(entry).map(([key, child]) => [key, visit(child)]));
+  }
+
+  const resolvedValue = visit(value);
+  return {
+    value: resolvedValue,
+    canonical: stats.canonical.size,
+    resolved: stats.resolved.size,
+    unresolved: stats.unresolved.size,
+    unresolvedIds: [...stats.unresolved],
+  };
+}
+
 const ITEM_LAYERS = new Set([
   "DRAWING",
   "PROP",
@@ -2832,18 +3368,6 @@ function isExternalUrl(value) {
 
 function normalizePresetLayer(value) {
   return ITEM_LAYERS.has(value) ? value : "PROP";
-}
-
-function resolvePresetAssetUrl(path) {
-  if (!path || typeof path !== "string") {
-    return "";
-  }
-
-  if (isExternalUrl(path)) {
-    return path;
-  }
-
-  return new URL(`../${path.replace(/^\/+/, "")}`, import.meta.url).toString();
 }
 
 function getPresetNameFromPath(path, fallback) {
@@ -2882,6 +3406,7 @@ function normalizePresetAsset(value, fallbackName) {
 
   return {
     name: value.name || getPresetNameFromPath(value.path || value.url, fallbackName),
+    assetId: value.assetId,
     path: value.path || value.url || "",
     width: value.width,
     height: value.height,
@@ -2909,26 +3434,31 @@ function readImage(url) {
 }
 
 async function buildPresetFace(asset, missingAssetMessage) {
-  const url = resolvePresetAssetUrl(asset.path);
+  const resolved = getConfiguredAssetResolver().resolve(asset);
+  const value = resolved.resolved ? resolved.value : null;
+  const url = value?.url || "";
 
   if (!url) {
     throw new Error(missingAssetMessage);
   }
 
   const dimensions =
-    Number.isFinite(asset.width) && Number.isFinite(asset.height)
-      ? { width: asset.width, height: asset.height }
+    Number.isFinite(value.width) && Number.isFinite(value.height)
+      ? { width: value.width, height: value.height }
       : await readImage(url);
 
   return {
+    assetId: resolved.canonicalId,
     url,
     width: dimensions.width,
     height: dimensions.height,
-    mime: asset.mime || getMimeFromUrl(url),
+    mime: value.mime || getMimeFromUrl(url),
   };
 }
 
-const PRESET_DECKS_URL = new URL("../assets/preset-decks/decks.json", import.meta.url);
+function isPresetAssetReady(asset) {
+  return getConfiguredAssetResolver().isReady(asset);
+}
 
 function normalizePresetDeck(value, index) {
   const name = value?.name || `Pilha ${index + 1}`;
@@ -2961,23 +3491,19 @@ function normalizePresetDeck(value, index) {
   };
 }
 
-async function loadPresetDecks() {
-  const response = await fetch(`${PRESET_DECKS_URL.toString()}?t=${Date.now()}`, {
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error("Não consegui carregar a biblioteca de pilhas.");
-  }
-
-  const data = await response.json();
+async function loadPresetDecks(pack = getConfiguredPrivateAssetPack()) {
+  const data = pack?.presets?.decks;
   const decks = Array.isArray(data?.decks) ? data.decks : [];
 
   return decks.map(normalizePresetDeck);
 }
 
 function isPresetDeckReady(deck) {
-  return Boolean(deck?.back?.path && deck.cards?.length);
+  return Boolean(
+    deck?.cards?.length &&
+      isPresetAssetReady(deck.back) &&
+      deck.cards.every((card) => isPresetAssetReady(card.front)),
+  );
 }
 
 async function buildFace$1(asset) {
@@ -3007,8 +3533,6 @@ async function buildPresetDeckData(deck) {
     layer: deck.layer,
   };
 }
-
-const PRESET_CARDS_URL = new URL("../assets/preset-cards/cards.json", import.meta.url);
 
 function normalizeOrigin(value) {
   if (!Number.isFinite(value?.x) || !Number.isFinite(value?.y)) {
@@ -3062,23 +3586,16 @@ function normalizePresetCardGroup(value, index) {
   };
 }
 
-async function loadPresetCardGroups() {
-  const response = await fetch(`${PRESET_CARDS_URL.toString()}?t=${Date.now()}`, {
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error("Não consegui carregar a biblioteca de cartas.");
-  }
-
-  const data = await response.json();
+async function loadPresetCardGroups(pack = getConfiguredPrivateAssetPack()) {
+  const data = pack?.presets?.cards;
   const groups = Array.isArray(data?.groups) ? data.groups : [];
 
   return groups.map(normalizePresetCardGroup);
 }
 
 function isPresetCardReady(group, card) {
-  return Boolean((card?.back?.path || group?.back?.path) && card?.front?.path);
+  const back = card?.back?.assetId || card?.back?.path ? card.back : group?.back;
+  return Boolean(isPresetAssetReady(back) && isPresetAssetReady(card?.front));
 }
 
 async function buildFace(asset, label) {
@@ -3090,7 +3607,7 @@ async function buildPresetCardData(group, card) {
     throw new Error(`A carta "${card?.name || "padrão"}" ainda não tem frente e verso.`);
   }
 
-  const backAsset = card?.back?.path ? card.back : group.back;
+  const backAsset = card?.back?.assetId || card?.back?.path ? card.back : group.back;
   const [front, back] = await Promise.all([
     buildFace(card.front, "frente"),
     buildFace(backAsset, "verso"),
@@ -3110,21 +3627,18 @@ async function buildPresetCardData(group, card) {
 const PRESET_VERSION = 1;
 const ITEM_CHUNK_SIZE = 80;
 const RESTORE_MARKER_VERSION = 1;
-const SCENE_PRESET_INDEX_URL = "./assets/scene-presets/index.json";
 const SCENE_RESTORE_MARKER_KEY = `${EXTENSION_ID}/scene-restore`;
 const SCENE_PRESETS = [
   {
     id: "tutorial",
     name: "Tutorial",
     restoreLabel: "Restaurar o Tutorial",
-    url: "./assets/scene-presets/tutorial.json",
   },
   {
     id: "missao-0-5",
     name: "Missao 0.5 (nao oficial)",
     label: "Missão 0.5 (não oficial)",
     restoreLabel: "Restaurar a Missão 0.5 (não oficial)",
-    url: "./assets/scene-presets/missao-0-5.json",
   },
 ];
 const READONLY_UPDATE_KEYS = new Set([
@@ -3150,7 +3664,7 @@ class SceneRestoreError extends Error {
   }
 }
 
-function isRecord(value) {
+function isRecord$1(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
@@ -3182,7 +3696,7 @@ function valuesEqual(left, right) {
     );
   }
 
-  if (!isRecord(left) || !isRecord(right)) {
+  if (!isRecord$1(left) || !isRecord$1(right)) {
     return false;
   }
 
@@ -3305,7 +3819,7 @@ function validatePublicReferences(value, path = "preset", key = "") {
     return;
   }
 
-  if (isRecord(value)) {
+  if (isRecord$1(value)) {
     for (const [entryKey, entryValue] of Object.entries(value)) {
       validatePublicReferences(entryValue, `${path}.${entryKey}`, entryKey);
     }
@@ -3318,12 +3832,12 @@ function validatePresetBoardIntegrity(preset, itemIds) {
     return;
   }
 
-  if (!isRecord(board)) {
+  if (!isRecord$1(board)) {
     throw new Error("A metadata de seleção do mapa é inválida.");
   }
 
   for (const categories of Object.values(board.assigned || {})) {
-    if (!isRecord(categories)) {
+    if (!isRecord$1(categories)) {
       continue;
     }
 
@@ -3337,7 +3851,7 @@ function validatePresetBoardIntegrity(preset, itemIds) {
   const explicitColors = new Set();
   for (const item of preset.items) {
     const colorMetadata = item.metadata?.[COLOR_TOKEN_KEY];
-    if (isRecord(colorMetadata) && typeof colorMetadata.color === "string") {
+    if (isRecord$1(colorMetadata) && typeof colorMetadata.color === "string") {
       explicitColors.add(colorMetadata.color);
     }
   }
@@ -3356,7 +3870,7 @@ function validateCardAndDeckMetadata(item) {
       key === DECK_METADATA_KEY ||
       key.endsWith("/card") ||
       key.endsWith("/deck");
-    if (isCardOrDeck && !isRecord(value)) {
+    if (isCardOrDeck && !isRecord$1(value)) {
       throw new Error(`O item ${item.id} possui metadata de carta ou pilha inválida.`);
     }
   }
@@ -3377,11 +3891,11 @@ function validateScenePreset(
   }
 
   if (
-    !isRecord(value) ||
+    !isRecord$1(value) ||
     value.version !== PRESET_VERSION ||
     !Array.isArray(value.items) ||
     !value.items.length ||
-    !isRecord(value.metadata)
+    !isRecord$1(value.metadata)
   ) {
     throw new SceneRestoreError("O mapa salvo possui uma estrutura inválida.", {
       code: "INVALID_PRESET",
@@ -3408,7 +3922,7 @@ function validateScenePreset(
 
   const ids = new Set();
   for (const [index, item] of value.items.entries()) {
-    if (!isRecord(item) || typeof item.id !== "string" || !item.id.trim()) {
+    if (!isRecord$1(item) || typeof item.id !== "string" || !item.id.trim()) {
       throw new SceneRestoreError(`O item ${index + 1} do mapa não possui ID válido.`, {
         code: "INVALID_PRESET",
         stage: "validation",
@@ -3420,7 +3934,7 @@ function validateScenePreset(
         stage: "validation",
       });
     }
-    if (typeof item.type !== "string" || !item.type.trim() || !isRecord(item.metadata)) {
+    if (typeof item.type !== "string" || !item.type.trim() || !isRecord$1(item.metadata)) {
       throw new SceneRestoreError(`O item ${item.id} possui estrutura inválida.`, {
         code: "INVALID_PRESET",
         stage: "validation",
@@ -3486,37 +4000,26 @@ function restoreItemState(item, presetItem) {
   }
 }
 
-async function loadScenePreset(definition) {
-  let response;
-  try {
-    response = await fetch(`${definition.url}?v=${Date.now()}`, {
-      cache: "no-store",
-    });
-  } catch (error) {
-    console.error(`[scene-preset] Falha ao carregar ${definition.id}.`, error);
-    return null;
-  }
-
-  if (!response.ok) {
-    console.error(
-      `[scene-preset] Resposta HTTP invalida ao carregar ${definition.id}: ${response.status}.`,
-    );
-    return null;
-  }
-
-  let preset;
-  try {
-    preset = await response.json();
-  } catch (error) {
-    console.error(`[scene-preset] JSON invalido em ${definition.id}.`, error);
+async function loadScenePreset(
+  definition,
+  pack = getConfiguredPrivateAssetPack(),
+) {
+  const entry = pack?.presets?.scenes?.[definition.id];
+  if (!entry?.preset) {
     return null;
   }
 
   try {
+    const resolution = resolveAssetReferences(entry.preset);
+    if (resolution.unresolved) {
+      throw new Error(
+        `${resolution.unresolved} assets do mapa ainda não foram vinculados ao Owlbear.`,
+      );
+    }
     const normalized = {
-      ...preset,
-      id: preset.id || definition.id,
-      name: preset.name || definition.name,
+      ...resolution.value,
+      id: resolution.value.id || definition.id,
+      name: resolution.value.name || definition.name,
     };
     return validateScenePreset(normalized);
   } catch (error) {
@@ -3525,42 +4028,30 @@ async function loadScenePreset(definition) {
   }
 }
 
-async function loadScenePresetEntries() {
-  let summaries = [];
-  let loadError = null;
-
-  try {
-    const response = await fetch(`${SCENE_PRESET_INDEX_URL}?v=${Date.now()}`, {
-      cache: "no-store",
-    });
-    if (!response.ok) {
-      throw new Error(`Resposta HTTP ${response.status}.`);
-    }
-
-    const index = await response.json();
-    if (index?.version !== PRESET_VERSION || !Array.isArray(index.presets)) {
-      throw new Error("Índice de mapas inválido.");
-    }
-    summaries = index.presets;
-  } catch (error) {
-    console.error("[scene-preset] Falha ao carregar o indice de mapas.", error);
-    loadError = "Não consegui carregar os mapas salvos. Reabra o painel para tentar novamente.";
-  }
-
-  return SCENE_PRESETS.map((definition) => {
-    const summary = summaries.find(
-      (entry) =>
-        entry?.id === definition.id &&
-        entry.name === definition.name &&
-        typeof entry.savedAt === "string" &&
-        Number.isInteger(entry.itemCount) &&
-        entry.itemCount > 0,
+async function loadScenePresetEntries(pack = getConfiguredPrivateAssetPack()) {
+  return SCENE_PRESETS.map((fallbackDefinition) => {
+    const entry = pack?.presets?.scenes?.[fallbackDefinition.id];
+    const definition = entry?.definition
+      ? { ...fallbackDefinition, ...entry.definition, id: fallbackDefinition.id }
+      : fallbackDefinition;
+    const summary = entry?.summary;
+    const validSummary = Boolean(
+      typeof summary?.savedAt === "string" &&
+        Number.isInteger(summary?.itemCount) &&
+        summary.itemCount > 0,
     );
+    const resolution = entry?.preset ? resolveAssetReferences(entry.preset) : null;
 
     return {
       definition,
-      loadError,
-      summary: summary
+      loadError: null,
+      ready: Boolean(
+        entry?.preset &&
+          resolution &&
+          resolution.unresolved === 0 &&
+          resolution.canonical === resolution.resolved,
+      ),
+      summary: validSummary
         ? {
             savedAt: summary.savedAt,
             itemCount: summary.itemCount,
@@ -3605,7 +4096,7 @@ function createOperationToken() {
 
 function isRestoreMarker(value) {
   return Boolean(
-    isRecord(value) &&
+    isRecord$1(value) &&
       value.version === RESTORE_MARKER_VERSION &&
       typeof value.token === "string" &&
       value.token &&
@@ -4322,13 +4813,13 @@ async function applyDeletions(OBR, operation, entries, journal) {
 
 function verifySelectionBoardResult(metadata, items) {
   const board = metadata[SELECTION_BOARD_KEY];
-  if (!isRecord(board)) {
+  if (!isRecord$1(board)) {
     return;
   }
 
   const ids = new Set(items.map((item) => item.id));
   for (const categories of Object.values(board.assigned || {})) {
-    if (!isRecord(categories)) {
+    if (!isRecord$1(categories)) {
       continue;
     }
     for (const itemId of Object.values(categories)) {
@@ -4580,7 +5071,17 @@ async function rollbackRestoration(OBR, operation, plan, journal) {
 }
 
 async function performRestore(OBR, preset, options, operation) {
-  const validatedPreset = validateScenePreset(preset, {
+  const resolution = resolveAssetReferences(preset);
+  if (resolution.unresolved) {
+    throw new SceneRestoreError(
+      `${resolution.unresolved} assets privados ainda não foram vinculados ao Owlbear.`,
+      {
+        code: "PRIVATE_ASSETS_NOT_LINKED",
+        stage: "validation",
+      },
+    );
+  }
+  const validatedPreset = validateScenePreset(resolution.value, {
     publicMode: options.publicMode ?? isPublicRuntime(),
   });
   let markerAcquired = false;
@@ -4715,6 +5216,314 @@ async function restoreDefaultBoardPreset(OBR, preset, options = {}) {
   }
 }
 
+const ASSET_DESCRIPTION_PREFIX = "double-sided-cards-private-asset:";
+const UPLOAD_CHUNK_SIZE = 25;
+
+function isRecord(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function normalizePath(value) {
+  return String(value || "")
+    .replaceAll("\\", "/")
+    .replace(/^\.\//, "")
+    .replace(/^\/+/, "");
+}
+
+function normalizeName(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\.[^.]+$/, "")
+    .replace(/[^a-z0-9]+/gi, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function getFilePaths(file) {
+  const full = normalizePath(file.webkitRelativePath || file.name);
+  const paths = new Set([full]);
+  const slashIndex = full.indexOf("/");
+  if (slashIndex >= 0) {
+    paths.add(full.slice(slashIndex + 1));
+  }
+  return [...paths];
+}
+
+function buildFileIndex(files) {
+  const index = new Map();
+  for (const file of files) {
+    for (const filePath of getFilePaths(file)) {
+      const current = index.get(filePath);
+      if (current && current !== file) {
+        index.set(filePath, null);
+      } else {
+        index.set(filePath, file);
+      }
+    }
+  }
+  return index;
+}
+
+function findFile(index, requestedPath) {
+  const normalized = normalizePath(requestedPath);
+  const exact = index.get(normalized);
+  if (exact) {
+    return exact;
+  }
+
+  const matches = [...index.entries()].filter(
+    ([filePath, file]) => file && filePath.endsWith(`/${normalized}`),
+  );
+  if (matches.length === 1) {
+    return matches[0][1];
+  }
+  return null;
+}
+
+async function parseJsonFile(file, label) {
+  if (!file) {
+    throw new Error(`${label} não foi encontrado no Private Asset Pack.`);
+  }
+
+  try {
+    return JSON.parse(await file.text());
+  } catch (error) {
+    throw new Error(`${label} possui JSON inválido: ${error.message}`);
+  }
+}
+
+async function hydratePrivateAssetPackManifest(manifest, readJson) {
+  if (
+    !isRecord(manifest) ||
+    manifest.format !== PRIVATE_ASSET_PACK_FORMAT ||
+    manifest.version !== PRIVATE_ASSET_PACK_VERSION ||
+    !isRecord(manifest.presets)
+  ) {
+    throw new Error("O manifesto do Private Asset Pack é inválido.");
+  }
+
+  const cards = await readJson(manifest.presets.cards, "Manifesto de cartas");
+  const decks = await readJson(manifest.presets.decks, "Manifesto de pilhas");
+  const scenes = {};
+
+  for (const [sceneId, sceneEntry] of Object.entries(manifest.presets.scenes || {})) {
+    if (!isRecord(sceneEntry) || typeof sceneEntry.file !== "string") {
+      throw new Error(`A definição do preset ${sceneId} é inválida.`);
+    }
+
+    const preset = await readJson(sceneEntry.file, `Preset ${sceneId}`);
+    scenes[sceneId] = {
+      definition: {
+        id: sceneId,
+        name: sceneEntry.name || preset.name || sceneId,
+        label: sceneEntry.label,
+        restoreLabel:
+          sceneEntry.restoreLabel || `Restaurar ${sceneEntry.label || sceneEntry.name || preset.name || sceneId}`,
+      },
+      summary: {
+        savedAt: preset.savedAt,
+        itemCount: preset.itemCount,
+      },
+      preset,
+    };
+  }
+
+  return validatePrivateAssetPack({
+    ...manifest,
+    presets: {
+      cards,
+      decks,
+      scenes,
+    },
+  });
+}
+
+async function readPrivateAssetPackFiles(fileList) {
+  const files = [...(fileList || [])];
+  const index = buildFileIndex(files);
+  const manifestCandidates = files.filter(
+    (file) => normalizePath(file.name).toLowerCase() === "private-asset-pack.json",
+  );
+
+  if (manifestCandidates.length !== 1) {
+    throw new Error(
+      "Selecione uma pasta que contenha exatamente um private-asset-pack.json.",
+    );
+  }
+
+  const manifest = await parseJsonFile(manifestCandidates[0], "Manifesto do pack");
+  const pack = await hydratePrivateAssetPackManifest(manifest, async (filePath, label) =>
+    parseJsonFile(findFile(index, filePath), label),
+  );
+  const assetFiles = new Map();
+
+  for (const [assetId, asset] of Object.entries(pack.assets)) {
+    const file = findFile(index, asset.file);
+    if (file) {
+      assetFiles.set(assetId, file);
+    }
+  }
+
+  return {
+    pack,
+    assetFiles,
+    fileCount: files.length,
+  };
+}
+
+function getUploadType(asset) {
+  return new Set(["MAP", "PROP", "MOUNT", "CHARACTER", "ATTACHMENT", "NOTE"]).has(
+    asset.typeHint,
+  )
+    ? asset.typeHint
+    : "PROP";
+}
+
+function createUpload(buildImageUpload, file, assetId, asset) {
+  return buildImageUpload(file)
+    .name(asset.owlbearName)
+    .description(`${ASSET_DESCRIPTION_PREFIX}${encodeURIComponent(assetId)}`)
+    .build();
+}
+
+async function uploadPrivateAssetPack(
+  OBR,
+  buildImageUpload,
+  importedPack,
+  onProgress = () => {},
+) {
+  if (!OBR?.assets?.uploadImages || typeof buildImageUpload !== "function") {
+    throw new Error("A API de assets do Owlbear não está disponível.");
+  }
+
+  const entries = Object.entries(importedPack?.pack?.assets || {}).filter(([assetId]) =>
+    importedPack.assetFiles?.has(assetId),
+  );
+  if (!entries.length) {
+    throw new Error("O pack selecionado não contém os arquivos canônicos para envio.");
+  }
+
+  let uploaded = 0;
+  const groups = new Map();
+  for (const entry of entries) {
+    const type = getUploadType(entry[1]);
+    const values = groups.get(type) || [];
+    values.push(entry);
+    groups.set(type, values);
+  }
+
+  for (const [type, group] of groups) {
+    for (let index = 0; index < group.length; index += UPLOAD_CHUNK_SIZE) {
+      const chunk = group.slice(index, index + UPLOAD_CHUNK_SIZE);
+      const uploads = chunk.map(([assetId, asset]) =>
+        createUpload(buildImageUpload, importedPack.assetFiles.get(assetId), assetId, asset),
+      );
+      await OBR.assets.uploadImages(uploads, type);
+      uploaded += chunk.length;
+      onProgress({ uploaded, total: entries.length });
+    }
+  }
+
+  return {
+    uploaded,
+    missingFiles: Object.keys(importedPack.pack.assets).length - entries.length,
+  };
+}
+
+function getAssetIdFromDescription(description, pack) {
+  if (typeof description !== "string" || !description.startsWith(ASSET_DESCRIPTION_PREFIX)) {
+    return null;
+  }
+
+  try {
+    const assetId = decodeURIComponent(description.slice(ASSET_DESCRIPTION_PREFIX.length));
+    return pack.assets[assetId] ? assetId : null;
+  } catch {
+    return null;
+  }
+}
+
+function buildUniqueNameIndex(pack) {
+  const index = new Map();
+  const ambiguous = new Set();
+
+  for (const [assetId, asset] of Object.entries(pack.assets)) {
+    const names = [asset.owlbearName, asset.name, asset.file?.split("/").pop()]
+      .map(normalizeName)
+      .filter(Boolean);
+    for (const name of names) {
+      if (ambiguous.has(name)) {
+        continue;
+      }
+      const current = index.get(name);
+      if (current && current !== assetId) {
+        index.delete(name);
+        ambiguous.add(name);
+      } else {
+        index.set(name, assetId);
+      }
+    }
+  }
+
+  return index;
+}
+
+function matchOwlbearAssetBindings(pack, selectedAssets) {
+  const normalizedPack = validatePrivateAssetPack(pack);
+  const resolver = createAssetResolver(normalizedPack);
+  const nameIndex = buildUniqueNameIndex(normalizedPack);
+  const bindings = {};
+  const unmatched = [];
+
+  for (const selected of selectedAssets || []) {
+    const assetId =
+      getAssetIdFromDescription(selected?.description, normalizedPack) ||
+      nameIndex.get(normalizeName(selected?.name)) ||
+      resolver.getCanonicalId(selected?.image?.url || "");
+
+    if (!assetId || !selected?.image?.url) {
+      unmatched.push(selected?.name || "asset sem nome");
+      continue;
+    }
+
+    bindings[assetId] = {
+      ...selected.image,
+      name: selected.name,
+    };
+  }
+
+  return { bindings, unmatched };
+}
+
+async function linkPrivateAssetPackFromOwlbear(OBR, storage) {
+  if (!OBR?.assets?.downloadImages) {
+    throw new Error("A API de assets do Owlbear não está disponível.");
+  }
+
+  const pack = getConfiguredPrivateAssetPack(storage);
+  if (!pack) {
+    throw new Error("Configure o Private Asset Pack antes de vincular os assets.");
+  }
+
+  const selected = await OBR.assets.downloadImages(true, "DSC");
+  const { bindings, unmatched } = matchOwlbearAssetBindings(pack, selected);
+  if (Object.keys(bindings).length) {
+    savePrivateAssetBindings(bindings, storage);
+  }
+
+  return {
+    selected: selected.length,
+    linked: Object.keys(bindings).length,
+    unmatched,
+  };
+}
+
+function configurePrivateAssetPack(importedPack, storage) {
+  installPrivateAssetPack(importedPack.pack, storage);
+  return importedPack.pack;
+}
+
 const elements = {
   presetDeckSelect: document.querySelector("#presetDeckSelect"),
   presetDeckGridWidth: document.querySelector("#presetDeckGridWidth"),
@@ -4736,8 +5545,12 @@ const elements = {
   panelRepairButton: document.querySelector("#panelRepairButton"),
   returnOriginButton: document.querySelector("#returnOriginButton"),
   colorAssignments: document.querySelector("#colorAssignments"),
-  publicBaseUrl: document.querySelector("#publicBaseUrl"),
-  migratePublicButton: document.querySelector("#migratePublicButton"),
+  privatePackInput: document.querySelector("#privatePackInput"),
+  privatePackChooseButton: document.querySelector("#privatePackChooseButton"),
+  privatePackUploadButton: document.querySelector("#privatePackUploadButton"),
+  privatePackLinkButton: document.querySelector("#privatePackLinkButton"),
+  privatePackClearButton: document.querySelector("#privatePackClearButton"),
+  privatePackInfo: document.querySelector("#privatePackInfo"),
   createScenePresetButtons: [...document.querySelectorAll("[data-create-scene-preset]")],
   restoreScenePresetButtons: [...document.querySelectorAll("[data-restore-scene-preset]")],
   defaultBoardInfo: document.querySelector("#defaultBoardInfo"),
@@ -4747,6 +5560,7 @@ const elements = {
 
 let obr = null;
 let buildImage = null;
+let buildImageUpload = null;
 let lastCardSelection = [];
 let lastDeckSelection = [];
 let lastFlipSelection = [];
@@ -4754,7 +5568,8 @@ let presetDecks = [];
 let presetCardGroups = [];
 let scenePresetEntries = [];
 let sceneRestoreRunning = false;
-let migrationRunning = false;
+let privatePackRunning = false;
+let selectedPrivatePack = null;
 let colorAssignmentsRefreshTimer = null;
 const customSelects = new Map();
 
@@ -4795,7 +5610,7 @@ function setConnectionStatus(text, isConnected) {
   if (!isConnected) {
     renderPlayerColorAssignments([]);
   }
-  updateMigratePublicButton(isConnected);
+  updatePrivatePackControls(isConnected);
   updateDefaultBoardControls(isConnected);
   elements.panelFlipButton.disabled = !isConnected;
   elements.panelDrawButton.disabled = !isConnected;
@@ -4808,10 +5623,24 @@ function setConnectionStatus(text, isConnected) {
   updateMissionDeckControls(isConnected);
 }
 
-function updateMigratePublicButton(isConnected = Boolean(obr)) {
-  const hasValidUrl =
-    Boolean(elements.publicBaseUrl.value.trim()) && elements.publicBaseUrl.checkValidity();
-  elements.migratePublicButton.disabled = migrationRunning || !isConnected || !hasValidUrl;
+function updatePrivatePackControls(isConnected = Boolean(obr)) {
+  const status = getPrivateAssetPackStatus();
+  elements.privatePackChooseButton.disabled = privatePackRunning;
+  elements.privatePackUploadButton.disabled =
+    privatePackRunning || !isConnected || !selectedPrivatePack?.assetFiles?.size;
+  elements.privatePackLinkButton.disabled =
+    privatePackRunning || !isConnected || !status.configured;
+  elements.privatePackClearButton.disabled = privatePackRunning || !status.configured;
+
+  if (!status.configured) {
+    elements.privatePackInfo.textContent =
+      "Core público ativo. Configure um pack privado para habilitar bibliotecas e mapas pessoais.";
+    return;
+  }
+
+  elements.privatePackInfo.textContent =
+    `${status.name || status.id}: ${status.linked} de ${status.total} assets vinculados ao Owlbear` +
+    (status.missing ? `; faltam ${status.missing}.` : ".");
 }
 
 async function showNotification(text, tone) {
@@ -4995,7 +5824,8 @@ function updateDefaultBoardControls(isConnected = Boolean(obr)) {
 
   for (const button of elements.restoreScenePresetButtons) {
     const entry = entriesById.get(button.dataset.restoreScenePreset);
-    button.disabled = sceneRestoreRunning || !isConnected || !(entry?.preset || entry?.summary);
+    button.disabled =
+      sceneRestoreRunning || !isConnected || !entry?.ready || !(entry?.preset || entry?.summary);
   }
 
   if (!scenePresetEntries.length) {
@@ -5009,11 +5839,14 @@ function updateDefaultBoardControls(isConnected = Boolean(obr)) {
     return;
   }
 
-  const parts = scenePresetEntries.map(({ definition, preset, summary }) => {
+  const parts = scenePresetEntries.map(({ definition, preset, ready, summary }) => {
     const details = preset || summary;
     const displayName = definition.label || definition.name;
     if (!details) {
       return `${displayName}: não cadastrado`;
+    }
+    if (!ready) {
+      return `${displayName}: aguardando vínculo dos assets privados`;
     }
 
     const itemLabel = details.itemCount === 1 ? "1 item" : `${details.itemCount} itens`;
@@ -5367,64 +6200,54 @@ function getRepairMessage(stats) {
     parts.push(stats.decks === 1 ? "1 pilha" : `${stats.decks} pilhas`);
   }
 
-  return `Cena sincronizada: ${parts.join(" e ")}.`;
-}
-
-function imageMayHaveTransparency(blob) {
-  const mime = blob.type || "";
-  return mime === "image/png" || mime === "image/webp";
-}
-
-function imageLooksTransparent(image) {
-  const sampleSize = 64;
-  const canvas = document.createElement("canvas");
-  canvas.width = sampleSize;
-  canvas.height = sampleSize;
-  const context = canvas.getContext("2d");
-
-  if (!context) {
-    return false;
+  if (stats.assets) {
+    parts.push(
+      stats.assets === 1
+        ? "1 referência de asset migrada"
+        : `${stats.assets} referências de assets migradas`,
+    );
   }
 
-  context.clearRect(0, 0, sampleSize, sampleSize);
-  context.drawImage(image, 0, 0, sampleSize, sampleSize);
-  const pixels = context.getImageData(0, 0, sampleSize, sampleSize).data;
-
-  for (let index = 3; index < pixels.length; index += 4) {
-    if (pixels[index] < 250) {
-      return true;
-    }
-  }
-
-  return false;
+  return `Cena sincronizada: ${parts.join(", ")}.`;
 }
-
 
 async function repairSceneMetadata() {
   const items = await obr.scene.items.getItems();
   const repairableItems = [];
-  const stats = { cards: 0, decks: 0 };
+  const stats = { cards: 0, decks: 0, assets: 0 };
 
   for (const item of items) {
-    const card = normalizeCardMetadata(getCardMetadata(item), { item });
+    const resolution = resolveAssetReferences(item);
+    const resolvedItem = resolution.value;
+    const card = normalizeCardMetadata(getCardMetadata(resolvedItem), { item: resolvedItem });
 
     if (card.ok) {
       repairableItems.push(item);
       stats.cards += 1;
+      stats.assets += resolution.resolved;
       continue;
     }
 
-    const deck = normalizeDeckMetadata(getDeckMetadata(item), { item });
+    const deck = normalizeDeckMetadata(getDeckMetadata(resolvedItem), { item: resolvedItem });
 
     if (deck.ok) {
       repairableItems.push(item);
       stats.decks += 1;
+      stats.assets += resolution.resolved;
+      continue;
+    }
+
+    if (resolution.resolved) {
+      repairableItems.push(item);
+      stats.assets += resolution.resolved;
     }
   }
 
   if (repairableItems.length) {
     await obr.scene.items.updateItems(repairableItems, (draftItems) => {
       for (const item of draftItems) {
+        const resolution = resolveAssetReferences(item);
+        Object.assign(item, resolution.value);
         const cardResult = normalizeCardMetadata(getCardMetadata(item), { item });
         const cardMetadata = cardResult.ok ? cardResult.value : null;
 
@@ -5460,524 +6283,6 @@ async function repairSceneMetadata() {
   return stats;
 }
 
-function getCurrentExtensionBaseUrl() {
-  const url = new URL(window.location.href);
-  url.search = "";
-  url.hash = "";
-
-  if (url.pathname.endsWith("/index.html")) {
-    url.pathname = url.pathname.slice(0, -"index.html".length);
-  }
-
-  url.pathname = url.pathname.replace(/\/$/, "");
-  return url.toString().replace(/\/$/, "");
-}
-
-function getDefaultPublicBaseUrl() {
-  const { hostname } = window.location;
-
-  if (hostname === "localhost" || hostname === "127.0.0.1") {
-    return "";
-  }
-
-  return getCurrentExtensionBaseUrl();
-}
-
-function normalizePublicBaseUrl(value) {
-  const url = new URL(value.trim());
-
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new Error("Informe uma URL pública iniciando com http ou https.");
-  }
-
-  url.search = "";
-  url.hash = "";
-  return url.toString().replace(/\/$/, "");
-}
-
-function encodeAssetFilename(filename) {
-  return filename
-    .split("/")
-    .filter(Boolean)
-    .map((part) => encodeURIComponent(part))
-    .join("/");
-}
-
-function normalizeComparableUrl(value) {
-  try {
-    const url = new URL(value);
-    url.hash = "";
-    return url.toString();
-  } catch {
-    return value;
-  }
-}
-
-function repairNestedPublicUrl(rawUrl, stats) {
-  const value = String(rawUrl || "");
-  const matches = [...value.matchAll(/https?:\/\//g)];
-
-  if (matches.length < 2) {
-    return value;
-  }
-
-  const nextUrl = value.slice(matches[matches.length - 1].index);
-
-  if (normalizeComparableUrl(value) === normalizeComparableUrl(nextUrl)) {
-    return value;
-  }
-
-  stats.urls += 1;
-  return nextUrl;
-}
-
-function getMigratableAssetFilename(rawUrl) {
-  try {
-    const url = new URL(rawUrl);
-    const markers = ["/.local-assets/", "/assets/local-assets/"];
-
-    for (const marker of markers) {
-      const markerIndex = url.pathname.indexOf(marker);
-      if (markerIndex >= 0) {
-        return decodeURIComponent(url.pathname.slice(markerIndex + marker.length));
-      }
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function isRemoteSceneAssetUrl(rawUrl) {
-  try {
-    const url = new URL(rawUrl, window.location.origin);
-    const isLocalUrl = url.hostname === "localhost" || url.hostname === "127.0.0.1";
-
-    return !isLocalUrl && (url.protocol === "http:" || url.protocol === "https:");
-  } catch {
-    return false;
-  }
-}
-
-function shouldCachePlainSceneImage(item) {
-  if (!item.image?.url || !isRemoteSceneAssetUrl(item.image.url)) {
-    return false;
-  }
-
-  try {
-    const url = new URL(item.image.url, window.location.origin);
-
-    if (url.hostname === "images.owlbear.rodeo") {
-      return true;
-    }
-  } catch {
-    return false;
-  }
-
-  const area = (item.image.width || 0) * (item.image.height || 0);
-  const mime = item.image.mime || "";
-  const isWebp = mime === "image/webp" || /\.webp(?:$|[?#])/i.test(item.image.url);
-
-  return item.layer === "MAP" || item.layer === "NOTE" || area >= 2_000_000 || isWebp;
-}
-
-function getCachedAssetInfo(rawUrl, remoteCache) {
-  const repairedUrl = repairNestedPublicUrl(rawUrl, { urls: 0 });
-  return remoteCache.get(rawUrl) || remoteCache.get(repairedUrl) || null;
-}
-
-function getRemoteAssetName(item, mime = "image/jpeg") {
-  const fallback = item.name || getNameFromUrl(item.image?.url || "", "image");
-  const extension = mime === "image/png" ? "png" : "jpg";
-  return `${fallback}.${extension}`;
-}
-
-async function loadBlobImage(blob) {
-  const objectUrl = URL.createObjectURL(blob);
-
-  try {
-    return await new Promise((resolve, reject) => {
-      const image = new Image();
-      image.onload = () => {
-        if (!image.naturalWidth || !image.naturalHeight) {
-          reject(new Error("A imagem carregou sem dimensões válidas."));
-          return;
-        }
-
-        resolve({
-          url: objectUrl,
-          width: image.naturalWidth,
-          height: image.naturalHeight,
-          mime: blob.type || "image/png",
-        });
-      };
-      image.onerror = () => {
-        reject(new Error(`Não consegui carregar esta imagem: ${objectUrl}`));
-      };
-      image.src = objectUrl;
-    });
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
-}
-
-function canvasToBlob(canvas, mime, quality) {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => {
-        if (blob) {
-          resolve(blob);
-          return;
-        }
-
-        reject(new Error("Não consegui converter a imagem para o formato otimizado."));
-      },
-      mime,
-      quality,
-    );
-  });
-}
-
-async function optimizeSceneImageBlob(blob, info) {
-  const shouldConvertToJpeg =
-    blob.type === "image/webp" ||
-    blob.type === "image/png" ||
-    (info.width || 0) * (info.height || 0) >= 2_000_000;
-
-  if (!shouldConvertToJpeg) {
-    return { blob, mime: blob.type || info.mime || "image/png" };
-  }
-
-  const image = await createImageBitmap(blob);
-
-  try {
-    const transparent = imageMayHaveTransparency(blob) && imageLooksTransparent(image);
-    const canvas = document.createElement("canvas");
-    canvas.width = image.width;
-    canvas.height = image.height;
-    const context = canvas.getContext("2d");
-
-    if (!context) {
-      return { blob, mime: blob.type || info.mime || "image/png" };
-    }
-
-    if (!transparent) {
-      context.fillStyle = "#ffffff";
-      context.fillRect(0, 0, canvas.width, canvas.height);
-    }
-
-    context.drawImage(image, 0, 0);
-    const mime = transparent ? "image/png" : "image/jpeg";
-
-    return {
-      blob: await canvasToBlob(canvas, mime, transparent ? undefined : 0.84),
-      mime,
-    };
-  } finally {
-    image.close?.();
-  }
-}
-
-async function uploadBlobAsLocalAsset(blob, name) {
-  const response = await fetch(`./__local_asset?name=${encodeURIComponent(name)}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": blob.type || "application/octet-stream",
-    },
-    body: blob,
-  });
-
-  if (!response.ok) {
-    throw new Error("O servidor local não conseguiu salvar a imagem otimizada.");
-  }
-
-  const payload = await response.json();
-  if (!payload.url) {
-    throw new Error("O servidor local não retornou a imagem otimizada.");
-  }
-
-  return payload.url;
-}
-
-async function cachePlainSceneImage(item) {
-  const response = await fetch(item.image.url, {
-    cache: "no-store",
-    mode: "cors",
-  });
-
-  if (!response.ok) {
-    throw new Error(`Não consegui baixar "${item.name || "imagem"}" do Owlbear.`);
-  }
-
-  const originalBlob = await response.blob();
-  const info = await loadBlobImage(originalBlob);
-  const optimized = await optimizeSceneImageBlob(originalBlob, info);
-  const url = await uploadBlobAsLocalAsset(optimized.blob, getRemoteAssetName(item, optimized.mime));
-
-  return {
-    url,
-    width: info.width,
-    height: info.height,
-    mime: optimized.mime,
-  };
-}
-
-async function cachePlainRemoteSceneImages(items, stats) {
-  const cache = new Map();
-
-  if (window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
-    return cache;
-  }
-
-  const remoteItems = [];
-  const seenUrls = new Set();
-
-  for (const item of items) {
-    if (
-      item.type !== "IMAGE" ||
-      getCardMetadata(item) ||
-      getDeckMetadata(item) ||
-      !shouldCachePlainSceneImage(item) ||
-      seenUrls.has(item.image.url)
-    ) {
-      continue;
-    }
-
-    seenUrls.add(item.image.url);
-    remoteItems.push(item);
-  }
-
-  if (!remoteItems.length) {
-    return cache;
-  }
-
-  setMessage(`Otimizando ${remoteItems.length} imagens normais da cena...`, "neutral");
-
-  for (const item of remoteItems) {
-    try {
-      const info = await cachePlainSceneImage(item);
-      cache.set(item.image.url, info);
-      stats.cached += 1;
-    } catch (error) {
-      console.warn("Nao consegui otimizar imagem normal da cena", item.name, error);
-      stats.cacheErrors += 1;
-    }
-  }
-
-  return cache;
-}
-
-function migrateAssetUrl(rawUrl, publicBaseUrl, stats, remoteCache = new Map()) {
-  const repairedUrl = repairNestedPublicUrl(rawUrl, stats);
-  const cachedAsset = getCachedAssetInfo(repairedUrl, remoteCache);
-  const urlToMigrate = cachedAsset?.url || repairedUrl;
-  const filename = getMigratableAssetFilename(urlToMigrate);
-
-  if (!filename) {
-    return repairedUrl;
-  }
-
-  const nextUrl = `${publicBaseUrl}/assets/local-assets/${encodeAssetFilename(filename)}`;
-
-  if (normalizeComparableUrl(rawUrl) === normalizeComparableUrl(nextUrl)) {
-    return repairedUrl;
-  }
-
-  stats.urls += 1;
-  return nextUrl;
-}
-
-function migrateFaceUrl(face, publicBaseUrl, stats, remoteCache) {
-  const cachedAsset = getCachedAssetInfo(face.url, remoteCache);
-  const nextUrl = migrateAssetUrl(face.url, publicBaseUrl, stats, remoteCache);
-
-  if (
-    normalizeComparableUrl(face.url) === normalizeComparableUrl(nextUrl) &&
-    (!cachedAsset?.mime || face.mime === cachedAsset.mime)
-  ) {
-    return face;
-  }
-
-  return {
-    ...face,
-    url: nextUrl,
-    width: cachedAsset?.width || face.width,
-    height: cachedAsset?.height || face.height,
-    mime: cachedAsset?.mime || face.mime,
-  };
-}
-
-function migrateImageItem(item, publicBaseUrl, stats, remoteCache) {
-  if (!item.image?.url) {
-    return false;
-  }
-
-  const cachedAsset = getCachedAssetInfo(item.image.url, remoteCache);
-  const nextUrl = migrateAssetUrl(item.image.url, publicBaseUrl, stats, remoteCache);
-
-  if (
-    normalizeComparableUrl(item.image.url) === normalizeComparableUrl(nextUrl) &&
-    (!cachedAsset?.mime || item.image.mime === cachedAsset.mime)
-  ) {
-    return false;
-  }
-
-  item.image = {
-    ...item.image,
-    url: nextUrl,
-    width: cachedAsset?.width || item.image.width,
-    height: cachedAsset?.height || item.image.height,
-    mime: cachedAsset?.mime || item.image.mime,
-  };
-  return true;
-}
-
-function migrateCardItem(item, publicBaseUrl, stats, remoteCache) {
-  const result = normalizeCardMetadata(getCardMetadata(item), { item });
-  const metadata = result.ok ? result.value : null;
-
-  if (!metadata) {
-    return false;
-  }
-
-  const urlCountBefore = stats.urls;
-  const nextMetadata = {
-    ...metadata,
-    faces: {
-      front: migrateFaceUrl(metadata.faces.front, publicBaseUrl, stats, remoteCache),
-      back: migrateFaceUrl(metadata.faces.back, publicBaseUrl, stats, remoteCache),
-    },
-  };
-  nextMetadata.mirrorBack = shouldMirrorBackFace(
-    nextMetadata.faces.front,
-    nextMetadata.faces.back,
-  );
-  const currentFace = nextMetadata.faces[nextMetadata.currentFace] || nextMetadata.faces.front;
-  const urlsChanged = stats.urls !== urlCountBefore;
-  const divinitySizingChanged = needsDivinitySizing(item, currentFace);
-  const mirrorChanged = metadata.mirrorBack !== nextMetadata.mirrorBack;
-
-  if (!urlsChanged && !divinitySizingChanged && !mirrorChanged) {
-    return false;
-  }
-
-  item.image = createImageData(currentFace);
-  item.grid = createGridData(currentFace, nextMetadata.gridWidth, nextMetadata.origin);
-  applyDivinitySizing(item, currentFace);
-  applyCardFaceTransform(
-    item,
-    nextMetadata,
-    nextMetadata.currentFace === "back" ? "back" : "front",
-  );
-  if (divinitySizingChanged) {
-    stats.sized += 1;
-  }
-  setCardMetadata(item, nextMetadata);
-  return true;
-}
-
-function migrateDeckItem(item, publicBaseUrl, stats, remoteCache) {
-  const result = normalizeDeckMetadata(getDeckMetadata(item), { item });
-  const metadata = result.ok ? result.value : null;
-
-  if (!metadata) {
-    return false;
-  }
-
-  const urlCountBefore = stats.urls;
-  const nextCards = metadata.cards.map((card) => ({
-    ...card,
-    front: migrateFaceUrl(card.front, publicBaseUrl, stats, remoteCache),
-    ...(card.back
-      ? { back: migrateFaceUrl(card.back, publicBaseUrl, stats, remoteCache) }
-      : {}),
-  }));
-  const nextMetadata = {
-    ...metadata,
-    back: migrateFaceUrl(metadata.back, publicBaseUrl, stats, remoteCache),
-    cards: nextCards,
-  };
-
-  if (stats.urls === urlCountBefore) {
-    return false;
-  }
-
-  nextMetadata.cards.length;
-  applyDeckDisplay(item, nextMetadata);
-  setDeckMetadata(item, nextMetadata);
-  return true;
-}
-
-async function migrateSceneLocalAssets() {
-  if (!obr) {
-    setMessage("Abra esta extensão dentro do Owlbear para migrar os links.", "warning");
-    return;
-  }
-
-  const rawBaseUrl = elements.publicBaseUrl.value.trim();
-  if (!rawBaseUrl) {
-    throw new Error("Informe a URL pública do GitHub Pages antes de migrar.");
-  }
-
-  const publicBaseUrl = normalizePublicBaseUrl(rawBaseUrl);
-  const items = await obr.scene.items.getItems();
-  const stats = {
-    cached: 0,
-    cacheErrors: 0,
-    items: 0,
-    urls: 0,
-    sized: 0,
-  };
-  const remoteCache = await cachePlainRemoteSceneImages(items, stats);
-
-  await obr.scene.items.updateItems(items, (draftItems) => {
-    for (const item of draftItems) {
-      const changed =
-        migrateCardItem(item, publicBaseUrl, stats, remoteCache) ||
-        migrateDeckItem(item, publicBaseUrl, stats, remoteCache) ||
-        migrateImageItem(item, publicBaseUrl, stats, remoteCache);
-
-      if (changed) {
-        stats.items += 1;
-      }
-    }
-  });
-
-  if (!stats.items) {
-    setMessage("Não encontrei links locais ou divindades fora do padrão nesta cena.", "warning");
-    return;
-  }
-
-  const itemLabel = stats.items === 1 ? "1 item" : `${stats.items} itens`;
-  const urlLabel = stats.urls === 1 ? "1 imagem" : `${stats.urls} imagens`;
-  const divinityLabel =
-    stats.sized === 1 ? "1 divindade ajustada" : `${stats.sized} divindades ajustadas`;
-  const cachedLabel =
-    stats.cached === 1 ? "1 imagem normal otimizada" : `${stats.cached} imagens normais otimizadas`;
-  const cacheErrorLabel =
-    stats.cacheErrors === 1
-      ? "1 imagem normal não pode ser otimizada"
-      : `${stats.cacheErrors} imagens normais não puderam ser otimizadas`;
-  const message = stats.urls
-    ? `Migrei ${itemLabel} da cena para usar ${urlLabel} públicas${
-        stats.sized || stats.cached || stats.cacheErrors
-          ? `; ${[stats.cached ? cachedLabel : "", stats.sized ? divinityLabel : ""]
-              .filter(Boolean)
-              .concat(stats.cacheErrors ? [cacheErrorLabel] : [])
-              .join("; ")}.`
-          : "."
-      }`
-    : stats.sized
-      ? `${divinityLabel}.`
-      : cacheErrorLabel;
-
-  setMessage(message, "success");
-  await showNotification(
-    stats.urls ? "Links locais migrados para o GitHub Pages." : "Divindades ajustadas.",
-    "SUCCESS",
-  );
-}
 
 function getScenePresetEntry(presetId) {
   return scenePresetEntries.find((entry) => entry.definition.id === presetId) || null;
@@ -6029,7 +6334,7 @@ async function restoreDefaultBoard(presetId) {
 
   const entry = getScenePresetEntry(presetId);
 
-  if (!(entry?.preset || entry?.summary)) {
+  if (!(entry?.preset || entry?.summary) || !entry.ready) {
     setMessage("Esse mapa salvo ainda não foi cadastrado na extensão.", "warning");
     await showNotification("Mapa salvo não cadastrado.", "WARNING");
     return;
@@ -6097,16 +6402,6 @@ async function getViewportCenter() {
     x: width / 2,
     y: height / 2,
   });
-}
-
-function getNameFromUrl(rawUrl, fallback) {
-  try {
-    const path = new URL(rawUrl).pathname;
-    const filename = path.split("/").filter(Boolean).pop();
-    return filename ? decodeURIComponent(filename.replace(/\.[^.]+$/, "")) : fallback;
-  } catch {
-    return fallback;
-  }
 }
 
 function getSelectedPresetDeck() {
@@ -6337,6 +6632,108 @@ async function loadPresetLibrary() {
   populatePresetCardGroupSelect();
 }
 
+async function reloadPrivateContent() {
+  await Promise.all([loadPresetLibrary(), refreshDefaultBoardInfo()]);
+  updatePrivatePackControls(Boolean(obr));
+}
+
+async function configureSelectedPrivatePack(files) {
+  privatePackRunning = true;
+  updatePrivatePackControls(Boolean(obr));
+  setMessage("Lendo o Private Asset Pack...", "neutral");
+
+  try {
+    const imported = await readPrivateAssetPackFiles(files);
+    configurePrivateAssetPack(imported);
+    selectedPrivatePack = imported;
+    await reloadPrivateContent();
+    const missingFiles = imported.pack
+      ? Object.keys(imported.pack.assets).length - imported.assetFiles.size
+      : 0;
+    setMessage(
+      missingFiles
+        ? `Pack configurado, mas ${missingFiles} arquivos canônicos não estavam na pasta selecionada.`
+        : "Pack configurado. Envie os assets ao Owlbear e depois vincule a seleção.",
+      missingFiles ? "warning" : "success",
+    );
+  } finally {
+    privatePackRunning = false;
+    elements.privatePackInput.value = "";
+    updatePrivatePackControls(Boolean(obr));
+  }
+}
+
+async function uploadSelectedPrivatePack() {
+  if (!obr || !buildImageUpload || !selectedPrivatePack) {
+    throw new Error("Selecione o Private Asset Pack antes de enviar os assets.");
+  }
+
+  const confirmed = window.confirm(
+    `Enviar ${selectedPrivatePack.assetFiles.size} assets canônicos para a biblioteca privada do Owlbear?`,
+  );
+  if (!confirmed) {
+    return;
+  }
+
+  privatePackRunning = true;
+  updatePrivatePackControls(true);
+  try {
+    const result = await uploadPrivateAssetPack(
+      obr,
+      buildImageUpload,
+      selectedPrivatePack,
+      ({ uploaded, total }) => {
+        setMessage(`Enviando assets privados ao Owlbear: ${uploaded} de ${total}...`, "neutral");
+      },
+    );
+    setMessage(
+      `${result.uploaded} assets enviados ao Owlbear. Agora vincule os assets pelo seletor.`,
+      result.missingFiles ? "warning" : "success",
+    );
+  } finally {
+    privatePackRunning = false;
+    updatePrivatePackControls(Boolean(obr));
+  }
+}
+
+async function linkConfiguredPrivatePack() {
+  if (!obr) {
+    throw new Error("Abra a extensão dentro do Owlbear para vincular os assets.");
+  }
+
+  privatePackRunning = true;
+  updatePrivatePackControls(true);
+  setMessage("Selecione no Owlbear os assets do pack que deseja vincular...", "neutral");
+  try {
+    const result = await linkPrivateAssetPackFromOwlbear(obr);
+    await reloadPrivateContent();
+    const stats = await repairSceneMetadata();
+    const suffix = stats.assets
+      ? ` ${stats.assets} referências da cena atual foram migradas.`
+      : "";
+    setMessage(
+      result.linked
+        ? `${result.linked} assets vinculados de ${result.selected} selecionados.${suffix}`
+        : "Nenhum asset selecionado correspondeu ao manifesto do pack.",
+      result.linked ? (result.unmatched.length ? "warning" : "success") : "warning",
+    );
+  } finally {
+    privatePackRunning = false;
+    updatePrivatePackControls(Boolean(obr));
+  }
+}
+
+async function removeConfiguredPrivatePack() {
+  if (!window.confirm("Remover deste navegador a configuração e os vínculos do pack privado?")) {
+    return;
+  }
+
+  clearPrivateAssetPack();
+  selectedPrivatePack = null;
+  await reloadPrivateContent();
+  setMessage("Configuração local do Private Asset Pack removida. O Core público continua ativo.", "success");
+}
+
 function getPresetDeckGridWidth() {
   const gridWidth = Number.parseFloat(elements.presetDeckGridWidth.value);
 
@@ -6562,9 +6959,34 @@ async function init() {
     elements.presetCardInfo.textContent =
       getErrorMessage(error, "Não consegui carregar a biblioteca de cartas.");
   });
-  elements.publicBaseUrl.value = getDefaultPublicBaseUrl();
-  elements.publicBaseUrl.addEventListener("input", () => updateMigratePublicButton(Boolean(obr)));
-  updateMigratePublicButton(false);
+  elements.privatePackChooseButton.addEventListener("click", () =>
+    elements.privatePackInput.click(),
+  );
+  elements.privatePackInput.addEventListener("change", () => {
+    configureSelectedPrivatePack(elements.privatePackInput.files).catch((error) => {
+      console.error(error);
+      setMessage(getErrorMessage(error, "Não consegui configurar o Private Asset Pack."), "error");
+    });
+  });
+  elements.privatePackUploadButton.addEventListener("click", () => {
+    uploadSelectedPrivatePack().catch((error) => {
+      console.error(error);
+      setMessage(getErrorMessage(error, "Não consegui enviar os assets ao Owlbear."), "error");
+    });
+  });
+  elements.privatePackLinkButton.addEventListener("click", () => {
+    linkConfiguredPrivatePack().catch((error) => {
+      console.error(error);
+      setMessage(getErrorMessage(error, "Não consegui vincular os assets do Owlbear."), "error");
+    });
+  });
+  elements.privatePackClearButton.addEventListener("click", () => {
+    removeConfiguredPrivatePack().catch((error) => {
+      console.error(error);
+      setMessage(getErrorMessage(error, "Não consegui remover a configuração do pack."), "error");
+    });
+  });
+  updatePrivatePackControls(false);
   elements.panelFlipButton.addEventListener("click", () =>
     runPanelAction(elements.panelFlipButton, async () => {
       const fallbackSelection = lastFlipSelection.length
@@ -6651,20 +7073,6 @@ async function init() {
       await showNotification(message, "SUCCESS");
     }, "Sincronizando a cena..."),
   );
-  elements.migratePublicButton.addEventListener("click", () => {
-    migrationRunning = true;
-    updateMigratePublicButton(Boolean(obr));
-    setMessage("Migrando links locais da cena...", "neutral");
-    migrateSceneLocalAssets()
-      .catch((error) => {
-        console.error(error);
-        setMessage(getErrorMessage(error, "Não consegui migrar os links locais."), "error");
-      })
-      .finally(() => {
-        migrationRunning = false;
-        updateMigratePublicButton(Boolean(obr));
-      });
-  });
   for (const button of elements.createScenePresetButtons) {
     button.addEventListener("click", () =>
       runPanelAction(button, () => createDefaultBoardFromCurrentScene(button.dataset.createScenePreset)),
@@ -6686,7 +7094,7 @@ async function init() {
   try {
     loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=65").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=100").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
   } catch (error) {
@@ -6706,6 +7114,7 @@ async function init() {
 
   obr = loaded.OBR;
   buildImage = loaded.sdk.buildImage;
+  buildImageUpload = loaded.sdk.buildImageUpload;
   obr.broadcast
     .sendMessage(COMMANDS_CHANNEL, { type: "register-commands" }, { destination: "LOCAL" })
     .catch((error) => {

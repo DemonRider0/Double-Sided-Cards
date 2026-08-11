@@ -1,19 +1,38 @@
-import { access, readdir, readFile } from "node:fs/promises";
+import { access, readFile, readdir } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readImageMetadata } from "./image-metadata.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const codeExtensions = new Set([".js", ".mjs"]);
+const forbiddenPublicDirectories = [
+  "assets/preset-cards",
+  "assets/preset-decks",
+  "assets/scene-presets",
+  "assets/local-assets",
+];
+const obsoleteScripts = [
+  "scripts/prepare-github-assets.mjs",
+  "scripts/build-preset-cards.mjs",
+  "scripts/build-preset-decks.mjs",
+  "scripts/build-scene-preset-index.mjs",
+];
 
 function displayPath(filePath) {
   return path.relative(root, filePath).replaceAll("\\", "/");
 }
 
+async function exists(filePath) {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function collectFiles(directory, extensions) {
   const files = [];
-
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const entryPath = path.join(directory, entry.name);
     if (entry.isDirectory()) {
@@ -22,15 +41,14 @@ async function collectFiles(directory, extensions) {
       files.push(entryPath);
     }
   }
-
   return files;
 }
 
-async function parseJson(filePath) {
+async function parseJson(relativePath) {
   try {
-    return JSON.parse(await readFile(filePath, "utf8"));
+    return JSON.parse(await readFile(path.join(root, relativePath), "utf8"));
   } catch (error) {
-    throw new Error(`JSON invalido em ${displayPath(filePath)}: ${error.message}`);
+    throw new Error(`JSON inválido em ${relativePath}: ${error.message}`);
   }
 }
 
@@ -39,90 +57,36 @@ function checkSyntax(filePath) {
     encoding: "utf8",
     windowsHide: true,
   });
-
   if (result.status !== 0) {
     throw new Error(
-      `Sintaxe invalida em ${displayPath(filePath)}:\n${(result.stderr || result.stdout).trim()}`,
+      `Sintaxe inválida em ${displayPath(filePath)}:\n${(result.stderr || result.stdout).trim()}`,
     );
   }
 }
 
 function normalizedRecord(value) {
-  return JSON.stringify(Object.entries(value ?? {}).sort(([left], [right]) =>
-    left < right ? -1 : left > right ? 1 : 0,
-  ));
+  return JSON.stringify(
+    Object.entries(value ?? {}).sort(([left], [right]) => left.localeCompare(right)),
+  );
 }
 
-function getAssetPath(value) {
-  return typeof value === "string" ? value : value?.path || value?.url || "";
-}
-
-function addAssetReference(references, value, label) {
-  const assetPath = getAssetPath(value);
-  if (assetPath && !/^(?:https?:|data:|blob:)/i.test(assetPath)) {
-    references.push({ assetPath, label, metadata: value });
-  }
-}
-
-async function checkAsset({ assetPath, label, metadata }) {
-  const absolutePath = path.resolve(root, assetPath.replace(/^[/\\]+/, ""));
-  if (absolutePath !== root && !absolutePath.startsWith(`${root}${path.sep}`)) {
-    throw new Error(`${label} aponta para fora do repositorio: ${assetPath}`);
-  }
-
-  try {
-    await access(absolutePath);
-  } catch {
-    throw new Error(`${label} aponta para um arquivo ausente: ${assetPath}`);
-  }
-
-  if (metadata !== undefined) {
-    const actualMetadata = await readImageMetadata(absolutePath);
-    if (actualMetadata.width === undefined) return;
-
-    if (
-      metadata?.width !== actualMetadata.width ||
-      metadata?.height !== actualMetadata.height ||
-      metadata?.mime !== actualMetadata.mime
-    ) {
-      throw new Error(`${label} possui dimensoes ou MIME desatualizados: ${assetPath}`);
-    }
-  }
-}
-
-function visit(value, callback) {
-  if (Array.isArray(value)) {
-    value.forEach((item) => visit(item, callback));
-  } else if (value && typeof value === "object") {
-    for (const [key, item] of Object.entries(value)) {
-      callback(key, item);
-      visit(item, callback);
-    }
-  }
-}
-
-const jsonFiles = [
-  path.join(root, "package.json"),
-  path.join(root, "package-lock.json"),
-  path.join(root, "manifest.json"),
-  ...(await collectFiles(path.join(root, "assets"), new Set([".json"]))),
-];
-const jsonByPath = new Map();
-
-for (const filePath of jsonFiles) {
-  jsonByPath.set(filePath, await parseJson(filePath));
-}
-
-const packageJson = jsonByPath.get(path.join(root, "package.json"));
-const packageLock = jsonByPath.get(path.join(root, "package-lock.json"));
+const packageJson = await parseJson("package.json");
+const packageLock = await parseJson("package-lock.json");
+await parseJson("manifest.json");
 const lockRoot = packageLock.packages?.[""];
 
 if (!lockRoot || packageJson.name !== lockRoot.name || packageJson.version !== lockRoot.version) {
-  throw new Error("A raiz de package-lock.json nao corresponde a package.json.");
+  throw new Error("A raiz de package-lock.json não corresponde a package.json.");
 }
 for (const field of ["dependencies", "devDependencies"]) {
   if (normalizedRecord(packageJson[field]) !== normalizedRecord(lockRoot[field])) {
-    throw new Error(`${field} de package.json e package-lock.json nao correspondem.`);
+    throw new Error(`${field} de package.json e package-lock.json não correspondem.`);
+  }
+}
+
+for (const relativePath of [...forbiddenPublicDirectories, ...obsoleteScripts]) {
+  if (await exists(path.join(root, relativePath))) {
+    throw new Error(`Conteúdo privado/obsoleto permaneceu no Core: ${relativePath}`);
   }
 }
 
@@ -139,73 +103,48 @@ codeFiles.forEach(checkSyntax);
 const expectedDist = ["app.js", "background.js", "sdk-boot.js", "sdk-client.js"].sort();
 const actualDist = (await readdir(path.join(root, "dist"))).sort();
 if (JSON.stringify(actualDist) !== JSON.stringify(expectedDist)) {
-  throw new Error(`Conteudo inesperado em dist/: ${actualDist.join(", ") || "pasta vazia"}.`);
+  throw new Error(`Conteúdo inesperado em dist/: ${actualDist.join(", ") || "pasta vazia"}.`);
 }
 
-const libraryReferences = [];
-const decks = jsonByPath.get(path.join(root, "assets", "preset-decks", "decks.json")).decks ?? [];
-const groups = jsonByPath.get(path.join(root, "assets", "preset-cards", "cards.json")).groups ?? [];
-
-for (const deck of decks) {
-  addAssetReference(libraryReferences, deck.back, `Verso da pilha ${deck.name || deck.id}`);
-  for (const card of deck.cards ?? []) {
-    addAssetReference(libraryReferences, card.front, `Carta ${card.name || "sem nome"}`);
+const runtimeFiles = [
+  "src/app.js",
+  "src/background.js",
+  "src/preset-assets.js",
+  "src/preset-cards.js",
+  "src/preset-decks.js",
+  "src/scene-preset.js",
+  "index.html",
+];
+const forbiddenRuntimePatterns = [
+  /assets\/preset-cards/i,
+  /assets\/preset-decks/i,
+  /assets\/scene-presets/i,
+  /assets\/local-assets/i,
+  /prepare:github-assets/i,
+  /migratePublicButton/i,
+];
+for (const relativePath of runtimeFiles) {
+  const source = await readFile(path.join(root, relativePath), "utf8");
+  for (const pattern of forbiddenRuntimePatterns) {
+    if (pattern.test(source)) {
+      throw new Error(`${relativePath} ainda depende de um caminho privado público: ${pattern}`);
+    }
   }
 }
-for (const group of groups) {
-  addAssetReference(libraryReferences, group.back, `Verso do grupo ${group.name || group.id}`);
-  for (const card of group.cards ?? []) {
-    addAssetReference(libraryReferences, card.front, `Frente de ${card.name || card.id}`);
-    addAssetReference(libraryReferences, card.back, `Verso de ${card.name || card.id}`);
+
+const html = await readFile(path.join(root, "index.html"), "utf8");
+for (const id of [
+  "privatePackInput",
+  "privatePackChooseButton",
+  "privatePackUploadButton",
+  "privatePackLinkButton",
+  "privatePackClearButton",
+]) {
+  if (!html.includes(`id="${id}"`)) {
+    throw new Error(`Controle do Private Asset Pack ausente: ${id}`);
   }
 }
 
-const sceneReferences = [];
-const sceneIndex = jsonByPath.get(path.join(root, "assets", "scene-presets", "index.json"));
-if (sceneIndex?.version !== 1 || !Array.isArray(sceneIndex.presets)) {
-  throw new Error("assets/scene-presets/index.json possui estrutura invalida.");
-}
-
-for (const filename of ["tutorial.json", "missao-0-5.json"]) {
-  const presetPath = path.join(root, "assets", "scene-presets", filename);
-  const preset = jsonByPath.get(presetPath);
-  const summary = sceneIndex.presets.find((entry) => entry?.id === preset.id);
-  const expectedUrl = `assets/scene-presets/${filename}`;
-
-  if (
-    !summary ||
-    summary.name !== preset.name ||
-    summary.savedAt !== preset.savedAt ||
-    summary.itemCount !== preset.itemCount ||
-    summary.itemCount !== preset.items?.length ||
-    summary.url !== expectedUrl
-  ) {
-    throw new Error(`Resumo desatualizado para ${displayPath(presetPath)}.`);
-  }
-
-  visit(preset, (key, item) => {
-    if (typeof item !== "string") return;
-    if (/^[a-z]:[\\/]/i.test(item) || /^file:/i.test(item)) {
-      throw new Error(`${displayPath(presetPath)} contem caminho local: ${item}`);
-    }
-    if (key !== "url") return;
-
-    const url = new URL(item);
-    if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
-      throw new Error(`${displayPath(presetPath)} contem URL local: ${item}`);
-    }
-
-    const prefix = "/Double-Sided-Cards/";
-    if (url.hostname === "demonrider0.github.io" && url.pathname.startsWith(prefix)) {
-      sceneReferences.push({
-        assetPath: decodeURIComponent(url.pathname.slice(prefix.length)),
-        label: `URL em ${displayPath(presetPath)}`,
-      });
-    }
-  });
-}
-
-await Promise.all([...libraryReferences, ...sceneReferences].map(checkAsset));
 console.log(
-  `${jsonFiles.length} JSONs, ${codeFiles.length} arquivos JS/MJS, ${libraryReferences.length} assets de biblioteca e ${sceneReferences.length} referencias de mapas validados.`,
+  `Core validado: ${codeFiles.length} arquivos JS/MJS, sem diretórios privados públicos e com fluxo de Private Asset Pack.`,
 );

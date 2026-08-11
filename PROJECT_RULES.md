@@ -23,7 +23,8 @@ Este arquivo registra as regras permanentes do projeto. Qualquer alteração fut
 ## Diferencas que devem ser preservadas
 
 - A versao publica nao deve depender de `localhost`, arquivos locais do computador ou caminhos absolutos do Windows.
-- A versao publica deve funcionar por GitHub Pages, com assets em caminhos publicos do repositorio.
+- A versao publica deve funcionar por GitHub Pages sem depender de assets protegidos ou pessoais no repositorio.
+- Bibliotecas, presets e imagens pessoais pertencem a um Private Asset Pack local e a assets do usuario no Owlbear Rodeo.
 - A versao local pode manter recursos de importacao e marcacao usados para preparar cenas, backups e testes.
 - A versao publica deve ser mais limpa para jogadores: nao reintroduzir menus locais de importacao ou marcacao se eles tiverem sido removidos.
 - A versao local pode ter botoes administrativos, como marcar identificadores de cor, marcar raca, marcar classe, marcar divindade e importar cartas/pilhas.
@@ -55,7 +56,7 @@ Este arquivo registra as regras permanentes do projeto. Qualquer alteração fut
   - `R`: devolver carta para pilha.
 - Nao usar teclas que conflitem com atalhos nativos importantes do Owlbear.
 - Mobile deve continuar sendo prioridade: comandos essenciais precisam funcionar sem depender de teclado.
-- A extensao nao deve exigir que jogadores comuns importem cartas ou criem configuracoes locais para jogar na versao publica.
+- A extensao nao deve exigir um Private Asset Pack para carregar ou manipular cartas e pilhas ja existentes; o pack e opcional para bibliotecas e mapas pessoais.
 
 ## Cartas
 
@@ -115,7 +116,7 @@ Este arquivo registra as regras permanentes do projeto. Qualquer alteração fut
 ## Biblioteca de cartas
 
 - As cartas de biblioteca tambem sao backups infinitos: criar uma carta da biblioteca nao deve consumir a biblioteca.
-- Cartas de biblioteca devem ficar em `assets/preset-cards/`.
+- Cartas de biblioteca devem ficar no manifest `presets/cards.json` do Private Asset Pack e referenciar assets canonicos por `assetId`.
 - Grupos conhecidos:
   - Classes
   - Racas
@@ -134,7 +135,7 @@ Este arquivo registra as regras permanentes do projeto. Qualquer alteração fut
   - Reacoes Heroicas: largura 1.25, camada Mount.
   - Herois: largura 6, camada Mount, origin X 885.00 e origin Y 531.50.
   - Herois Montaria: largura 1, camada Mount.
-- A versao publica deve criar essas cartas a partir de imagens publicas do GitHub Pages, nao de assets crus do Owlbear.
+- Depois do vinculo do pack, a versao publica deve criar essas cartas a partir de assets pertencentes ao usuario no Owlbear, nunca de binarios protegidos no GitHub Pages.
 
 ## Camadas
 
@@ -179,22 +180,24 @@ Este arquivo registra as regras permanentes do projeto. Qualquer alteração fut
 
 ## Mapas salvos
 
-- Mapas salvos sao parte essencial da versao publica.
+- O mecanismo de restauracao de mapas e parte essencial do Core; os presets pessoais ficam no Private Asset Pack.
 - Mapas atuais:
   - Tutorial
   - Missao 0.5 (nao oficial)
 - Restaurar mapa salvo deve reconstruir a cena de forma jogavel para quem instalar a extensao publica.
 - Nao apagar, renomear ou substituir presets de cena sem pedido explicito.
-- Nao exigir que outros usuarios criem backups manualmente para usar a versao publica.
-- Ao alterar mapas salvos, verificar se links locais foram migrados para assets publicos antes de subir para GitHub.
+- Sem Private Asset Pack, a extensao deve carregar normalmente e apenas informar que nao ha mapas privados cadastrados.
+- Ao alterar mapas privados, preservar IDs e transformar caminhos/URLs historicos em aliases para assets canonicos.
 
 ## Publicacao e assets
 
 - O GitHub Pages e a plataforma publica escolhida para esta extensao.
-- Assets usados pela versao publica devem estar em `assets/` e serem acessiveis por URL publica.
-- A funcao de migrar links locais deve trocar `localhost/.local-assets/...` ou equivalentes para `assets/local-assets/...` quando necessario.
-- Nao deixar caminhos como `C:\Users\...`, `localhost`, `127.0.0.1` ou `.local-assets` em mapas/itens destinados ao publico.
-- Depois de migrar, conferir visualmente se cartas e pilhas nao ficaram com `Image Unavailable`.
+- O Core publico nao deve conter `assets/preset-cards`, `assets/preset-decks`, `assets/scene-presets` nem `assets/local-assets`.
+- O Private Asset Pack deve ficar fora do repositorio publico, manter os binarios originais e usar um unico arquivo por hash SHA-256.
+- Caminhos, URLs e IDs historicos conhecidos devem ser preservados como aliases; nao remover compatibilidade porque uma referencia parece inativa.
+- O resolvedor central deve converter `assetId` ou alias para a URL retornada pela biblioteca privada do usuario no Owlbear.
+- A configuracao do pack e seus vinculos devem persistir por origem do navegador; nao incluir URLs privadas no repositorio.
+- Nao reintroduzir o fluxo que copia `.local-assets` para `assets/local-assets` para publicacao.
 
 ## Interface visual
 
@@ -210,7 +213,7 @@ Este arquivo registra as regras permanentes do projeto. Qualquer alteração fut
 - Nao reintroduzir seletores manuais de objetivo para criar pilha de missao.
 - Nao reintroduzir botoes redundantes de `usar essa cor` ou comandos de marcar no publico se eles foram removidos.
 - Nao transformar a versao publica em ferramenta de importacao local.
-- Nao apagar mapas salvos, assets publicos, bibliotecas de pilhas ou metadados de cartas para "limpar" o projeto.
+- Nao apagar presets, aliases legados ou metadados de cartas para "limpar" o projeto; mova conteudo privado para o pack e preserve a compatibilidade logica.
 
 ## Checklist antes de publicar
 
@@ -218,7 +221,9 @@ Este arquivo registra as regras permanentes do projeto. Qualquer alteração fut
 - Confirmar que `dist` foi atualizado.
 - Confirmar que `manifest.json` esta valido.
 - Confirmar que o cache `?v=...` foi incrementado.
-- Confirmar que nao ha referencias indevidas a `localhost` na versao publica.
+- Confirmar que nao ha binarios ou manifests privados no Core publico.
+- Confirmar que a instalacao sem pack carrega sem erro e deixa bibliotecas/mapas pessoais indisponiveis.
+- Confirmar que o pack privado vincula assets do Owlbear e restaura aliases antigos sem `Image Unavailable`.
 - Confirmar que cartas, pilhas, mapas salvos, atalhos e botoes principais continuam funcionando.
 - Testar pelo menos:
   - virar carta

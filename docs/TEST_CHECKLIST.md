@@ -9,7 +9,7 @@ Este checklist deve ser usado antes de publicar mudanças no GitHub Pages e tamb
 - Testar com pelo menos duas contas quando a mudanca envolver cor, slots, pilha ou mapa.
 - Confirmar que o manifesto aponta para a versao correta.
 - Confirmar que nao ha `Image Unavailable`.
-- Confirmar que nao ha referencia publica a `localhost`, `127.0.0.1` ou caminho `C:\Users\...`.
+- Confirmar que o Core publicado nao contem `assets/preset-*`, `assets/scene-presets` nem `assets/local-assets`.
 
 ## Instalacao e carregamento
 
@@ -21,6 +21,21 @@ Este checklist deve ser usado antes de publicar mudanças no GitHub Pages e tamb
 - Dar F5 e confirmar que comandos continuam aparecendo.
 - Testar em segunda conta.
 - Testar no celular.
+- Sem configurar um pack, confirmar que o painel carrega, as acoes/atalhos funcionam e bibliotecas/mapas pessoais aparecem indisponiveis sem erro global.
+
+## Private Asset Pack
+
+- Selecionar a pasta que contem `private-asset-pack.json`.
+- Confirmar a contagem de assets canônicos e pendentes exibida no painel.
+- Usar **Enviar ao Owlbear** e confirmar que os assets aparecem na biblioteca privada da conta.
+- Usar **Vincular assets**, selecionar os itens enviados e confirmar que a contagem pendente chega a zero.
+- Fechar e reabrir o painel; confirmar que pack e vínculos continuam configurados.
+- Dar F5 na sala; confirmar que nao e necessario selecionar o pack novamente.
+- Criar uma carta e uma pilha de cada biblioteca relevante e confirmar frente, verso, tamanho, camada e ordem.
+- Abrir uma cena antiga com URL de GitHub Pages, `localhost/.local-assets` ou ID Owlbear conhecido; usar **Sincronizar cena** e confirmar migracao para o asset privado correto.
+- Confirmar que duas referencias aliases do mesmo conteudo usam a mesma imagem canônica.
+- Remover apenas a configuracao local do pack; confirmar que o Core continua carregando e que os assets enviados permanecem na conta do Owlbear.
+- Em outro navegador/perfil, confirmar a limitacao esperada: o pack ou os assets precisam ser vinculados novamente porque o SDK nao oferece armazenamento global da extensao.
 
 ## Carta dupla
 
@@ -210,6 +225,8 @@ Checklist:
 - Confirmar URLs `/Double-Sided-Cards/...`.
 - Confirmar `.nojekyll`.
 - Confirmar ausencia de caminhos locais.
+- Confirmar ausencia dos quatro diretorios privados e de binarios protegidos no artefato do Pages.
+- Validar o Private Asset Pack separadamente com `npm run check:private-asset-pack -- --pack <diretorio>`.
 - Commitar.
 - Fazer push.
 - Esperar GitHub Pages publicar.
