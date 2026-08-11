@@ -22,6 +22,8 @@ import { loadScenePresetEntries } from "../src/scene-preset.js";
 import {
   hydratePrivateAssetPackManifest,
   matchOwlbearAssetBindings,
+  preparePrivateAssetUpload,
+  uploadPrivateAssetPack,
 } from "../src/private-asset-pack.js";
 
 const RETURNED_SCENE_ITEM_ID_FIELD = "returnedSceneItemId";
@@ -421,7 +423,200 @@ async function testPrivateAssetArchitecture() {
   assert.equal(hydrated.presets.scenes.tutorial.preset.id, "tutorial");
 }
 
+function createImageUploadBuilderRecorder(record) {
+  return (file) => {
+    const upload = { file };
+    const builder = {
+      name(value) {
+        upload.name = value;
+        return builder;
+      },
+      description(value) {
+        upload.description = value;
+        return builder;
+      },
+      build() {
+        record.push(upload);
+        return upload;
+      },
+    };
+    return builder;
+  };
+}
+
+async function testPrivateAssetUploadPreparation() {
+  const firstId = `sha256:${"c".repeat(64)}`;
+  const secondId = `sha256:${"d".repeat(64)}`;
+  const firstName = `${"c".repeat(64)}.png`;
+  const secondName = `${"d".repeat(64)}.webp`;
+  const firstBytes = Uint8Array.from([1, 2, 3, 4]);
+  const secondBytes = Uint8Array.from([5, 6, 7]);
+  const firstFile = new File([firstBytes], firstName, { type: "image/png" });
+  const secondFile = new File([secondBytes], secondName, { type: "image/webp" });
+  const pack = {
+    assets: {
+      [firstId]: {
+        file: `assets/${firstName}`,
+        owlbearName: "DSC first",
+        mime: "image/png",
+        size: firstBytes.byteLength,
+        typeHint: "PROP",
+      },
+      [secondId]: {
+        file: `assets/${secondName}`,
+        owlbearName: "DSC second",
+        mime: "image/webp",
+        size: secondBytes.byteLength,
+        typeHint: "PROP",
+      },
+    },
+  };
+  const built = [];
+  const buildImageUpload = createImageUploadBuilderRecorder(built);
+
+  const prepared = await preparePrivateAssetUpload(
+    buildImageUpload,
+    firstFile,
+    firstId,
+    pack.assets[firstId],
+  );
+  assert.ok(prepared.file instanceof File);
+  assert.notEqual(prepared.file, firstFile);
+  assert.equal(prepared.file.name, firstName);
+  assert.equal(prepared.file.type, "image/png");
+  assert.deepEqual(new Uint8Array(await prepared.file.arrayBuffer()), firstBytes);
+  assert.equal(prepared.name, "DSC first");
+  assert.equal(
+    prepared.description,
+    `double-sided-cards-private-asset:${encodeURIComponent(firstId)}`,
+  );
+
+  const calls = [];
+  const progress = [];
+  const result = await uploadPrivateAssetPack(
+    {
+      assets: {
+        async uploadImages(uploads, type) {
+          calls.push({ uploads, type });
+        },
+      },
+    },
+    buildImageUpload,
+    {
+      pack,
+      assetFiles: new Map([
+        [firstId, firstFile],
+        [secondId, secondFile],
+      ]),
+    },
+    (event) => progress.push(event),
+  );
+  assert.deepEqual(result, { uploaded: 2, missingFiles: 0 });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].uploads.length, 2);
+  assert.equal(calls[0].type, "PROP");
+  assert.notEqual(calls[0].uploads[0].file, firstFile);
+  assert.notEqual(calls[0].uploads[1].file, secondFile);
+  assert.equal(calls[0].uploads[1].file.name, secondName);
+  assert.equal(calls[0].uploads[1].file.type, "image/webp");
+  assert.deepEqual(new Uint8Array(await calls[0].uploads[1].file.arrayBuffer()), secondBytes);
+  assert.equal(progress.at(-1).stage, "uploaded");
+  assert.equal(progress.at(-1).processed, 2);
+
+  let apiCalls = 0;
+  await assert.rejects(
+    () =>
+      uploadPrivateAssetPack(
+        {
+          assets: {
+            async uploadImages() {
+              apiCalls += 1;
+            },
+          },
+        },
+        buildImageUpload,
+        {
+          pack: {
+            assets: {
+              [firstId]: {
+                ...pack.assets[firstId],
+                size: 0,
+              },
+            },
+          },
+          assetFiles: new Map([[firstId, new File([], firstName, { type: "image/png" })]]),
+        },
+      ),
+    (error) => {
+      assert.equal(error.name, "PrivateAssetUploadError");
+      assert.equal(error.category, "invalid-file");
+      assert.equal(error.assetId, firstId);
+      assert.equal(error.prepared, 0);
+      assert.equal(error.uploaded, 0);
+      assert.match(error.message, /está vazio|ArrayBuffer válido/);
+      return true;
+    },
+  );
+  assert.equal(apiCalls, 0);
+
+  const storageRejection = { code: "STORAGE_QUOTA", error: "Storage quota exceeded" };
+  await assert.rejects(
+    () =>
+      uploadPrivateAssetPack(
+        {
+          assets: {
+            async uploadImages() {
+              throw storageRejection;
+            },
+          },
+        },
+        buildImageUpload,
+        {
+          pack: { assets: { [firstId]: pack.assets[firstId] } },
+          assetFiles: new Map([[firstId, firstFile]]),
+        },
+      ),
+    (error) => {
+      assert.equal(error.cause, storageRejection);
+      assert.equal(error.category, "storage");
+      assert.equal(error.possibleStorageIssue, true);
+      assert.equal(error.prepared, 1);
+      assert.equal(error.uploaded, 0);
+      assert.match(error.message, /Storage quota exceeded/);
+      assert.match(error.message, /possível problema de armazenamento\/cota/);
+      return true;
+    },
+  );
+
+  const cancellation = new DOMException("The user aborted the upload", "AbortError");
+  await assert.rejects(
+    () =>
+      uploadPrivateAssetPack(
+        {
+          assets: {
+            async uploadImages() {
+              throw cancellation;
+            },
+          },
+        },
+        buildImageUpload,
+        {
+          pack: { assets: { [firstId]: pack.assets[firstId] } },
+          assetFiles: new Map([[firstId, firstFile]]),
+        },
+      ),
+    (error) => {
+      assert.equal(error.cause, cancellation);
+      assert.equal(error.category, "cancelled");
+      assert.equal(error.cancelled, true);
+      assert.match(error.message, /cancelado pelo usuário/);
+      return true;
+    },
+  );
+}
+
 await testConcurrentReturnIdempotency();
 await testPrivateAssetArchitecture();
+await testPrivateAssetUploadPreparation();
 
 console.log("Regressões de pilhas e arquitetura privada de assets validadas.");

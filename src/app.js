@@ -1221,7 +1221,11 @@ async function uploadSelectedPrivatePack() {
     `Enviar ${selectedPrivatePack.assetFiles.size} assets canônicos para a biblioteca privada do Owlbear?`,
   );
   if (!confirmed) {
-    return;
+    setMessage(
+      `Envio cancelado pelo usuário antes de iniciar: 0 de ${selectedPrivatePack.assetFiles.size} assets processados.`,
+      "warning",
+    );
+    return { cancelled: true };
   }
 
   privatePackRunning = true;
@@ -1231,8 +1235,24 @@ async function uploadSelectedPrivatePack() {
       obr,
       buildImageUpload,
       selectedPrivatePack,
-      ({ uploaded, total }) => {
-        setMessage(`Enviando assets privados ao Owlbear: ${uploaded} de ${total}...`, "neutral");
+      ({ stage, processed, total, groupSize, assetId, assetName }) => {
+        if (stage === "preparing") {
+          setMessage(
+            `Preparando arquivos para o Owlbear: ${processed} de ${total}. ` +
+              `${assetName || "Asset sem nome"}${assetId ? ` (${assetId})` : ""}.`,
+            "neutral",
+          );
+          return;
+        }
+        if (stage === "uploading") {
+          setMessage(
+            `Enviando à API do Owlbear: ${processed} de ${total} uploads confirmados; ` +
+              `aguardando a operação com ${groupSize} assets.`,
+            "neutral",
+          );
+          return;
+        }
+        setMessage(`Envio confirmado pelo Owlbear: ${processed} de ${total} assets.`, "neutral");
       },
     );
     setMessage(
