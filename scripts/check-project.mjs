@@ -2,6 +2,7 @@ import { access, readdir, readFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readImageMetadata } from "./image-metadata.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const codeExtensions = new Set([".js", ".mjs"]);
@@ -59,11 +60,11 @@ function getAssetPath(value) {
 function addAssetReference(references, value, label) {
   const assetPath = getAssetPath(value);
   if (assetPath && !/^(?:https?:|data:|blob:)/i.test(assetPath)) {
-    references.push({ assetPath, label });
+    references.push({ assetPath, label, metadata: value });
   }
 }
 
-async function checkAsset({ assetPath, label }) {
+async function checkAsset({ assetPath, label, metadata }) {
   const absolutePath = path.resolve(root, assetPath.replace(/^[/\\]+/, ""));
   if (absolutePath !== root && !absolutePath.startsWith(`${root}${path.sep}`)) {
     throw new Error(`${label} aponta para fora do repositorio: ${assetPath}`);
@@ -73,6 +74,19 @@ async function checkAsset({ assetPath, label }) {
     await access(absolutePath);
   } catch {
     throw new Error(`${label} aponta para um arquivo ausente: ${assetPath}`);
+  }
+
+  if (metadata !== undefined) {
+    const actualMetadata = await readImageMetadata(absolutePath);
+    if (actualMetadata.width === undefined) return;
+
+    if (
+      metadata?.width !== actualMetadata.width ||
+      metadata?.height !== actualMetadata.height ||
+      metadata?.mime !== actualMetadata.mime
+    ) {
+      throw new Error(`${label} possui dimensoes ou MIME desatualizados: ${assetPath}`);
+    }
   }
 }
 
@@ -147,9 +161,29 @@ for (const group of groups) {
 }
 
 const sceneReferences = [];
+const sceneIndex = jsonByPath.get(path.join(root, "assets", "scene-presets", "index.json"));
+if (sceneIndex?.version !== 1 || !Array.isArray(sceneIndex.presets)) {
+  throw new Error("assets/scene-presets/index.json possui estrutura invalida.");
+}
+
 for (const filename of ["tutorial.json", "missao-0-5.json"]) {
   const presetPath = path.join(root, "assets", "scene-presets", filename);
-  visit(jsonByPath.get(presetPath), (key, item) => {
+  const preset = jsonByPath.get(presetPath);
+  const summary = sceneIndex.presets.find((entry) => entry?.id === preset.id);
+  const expectedUrl = `assets/scene-presets/${filename}`;
+
+  if (
+    !summary ||
+    summary.name !== preset.name ||
+    summary.savedAt !== preset.savedAt ||
+    summary.itemCount !== preset.itemCount ||
+    summary.itemCount !== preset.items?.length ||
+    summary.url !== expectedUrl
+  ) {
+    throw new Error(`Resumo desatualizado para ${displayPath(presetPath)}.`);
+  }
+
+  visit(preset, (key, item) => {
     if (typeof item !== "string") return;
     if (/^[a-z]:[\\/]/i.test(item) || /^file:/i.test(item)) {
       throw new Error(`${displayPath(presetPath)} contem caminho local: ${item}`);

@@ -1,154 +1,58 @@
 # Cartas Duplas para Owlbear Rodeo
 
-Extensao para Owlbear Rodeo criada por DemonRider. Ela adiciona cartas 2D com frente e verso, pilhas compraveis, atalhos de teclado, selecao de personagem por cor e restauracao de tabuleiro padrao.
+Extensão para manipular cartas 2D com frente e verso dentro do Owlbear Rodeo. O projeto reúne cartas individuais, pilhas reutilizáveis, mapas preparados e controles para partidas em desktop e mobile.
 
-## Link publico
+## Principais funcionalidades
 
-Depois que o GitHub Pages publicar este repositorio, use este link no Owlbear:
+- cartas com frente e verso, incluindo suporte a verso espelhado;
+- compra, embaralhamento e devolução de cartas para a pilha de origem;
+- bibliotecas prontas de cartas e pilhas;
+- criação de pilha temporária a partir de cinco cartas selecionadas;
+- restauração dos mapas Tutorial e Missão 0.5 (não oficial);
+- seleção de jogador por cor e slots de raça, classe e divindade;
+- ações pelo painel, pelos comandos do tabuleiro e por atalhos de teclado.
+
+## Instalação
+
+No Owlbear Rodeo, adicione uma extensão personalizada usando este manifesto público:
 
 ```text
 https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=69
 ```
 
-Se o usuario ou o nome do repositorio mudar, tambem sera necessario trocar os caminhos de `manifest.json` e as URLs dentro dos arquivos em `assets/scene-presets/`.
+A extensão e seus assets são carregados pelo GitHub Pages, portanto é necessário acesso à internet durante o uso.
 
-## Publicar no GitHub Pages
+## Uso básico
 
-1. Confirme que o build esta atualizado:
+1. Abra o painel **Cartas** dentro de uma sala do Owlbear Rodeo.
+2. Para começar por um tabuleiro pronto, use **Restaurar o Tutorial** ou **Restaurar a Missão 0.5 (não oficial)**. A restauração pede confirmação e altera a cena atual.
+3. Quando o mapa utilizar seleção por jogador, escolha sua cor pelo identificador correspondente no tabuleiro.
+4. Use a seção **Biblioteca** para criar uma cópia de uma pilha ou carta cadastrada. As bibliotecas não são consumidas durante a partida.
+5. Selecione uma carta ou pilha e use as ações do painel ou do próprio tabuleiro para virar, comprar, embaralhar ou devolver.
 
-   ```powershell
-   npm run build
-   ```
-
-2. Suba estes arquivos e pastas para o repositorio:
-   - `manifest.json`
-   - `index.html`
-   - `background.html`
-   - `dist/`
-   - `icons/`
-   - `src/`
-   - `vendor/`
-   - `assets/preset-decks/`
-   - `assets/preset-cards/`
-   - `assets/local-assets/`
-   - `assets/scene-presets/`
-   - `.nojekyll`
-   - `package.json`
-   - `package-lock.json`
-
-3. No GitHub, va em `Settings > Pages`.
-4. Escolha `Deploy from a branch`.
-5. Use a branch principal e a pasta `/`.
-6. Aguarde a publicacao terminar antes de testar no Owlbear.
-
-## Tabuleiro padrao
-
-Os arquivos em `assets/scene-presets/` guardam os mapas salvos que podem ser recriados pelos botoes de restauracao.
-
-Na versao publica, os botoes de salvar mapas ficam ocultos. Isso e intencional: GitHub Pages nao salva arquivos novos. O fluxo publico e commitar os arquivos JSON prontos em `assets/scene-presets/` e usar apenas os botoes de restauracao dentro do Owlbear.
-
-Mapas salvos atuais:
-
-- Tutorial: `assets/scene-presets/tutorial.json`
-- Missao 0.5 (nao oficial): `assets/scene-presets/missao-0-5.json` depois de salvar pelo localhost
-
-## Biblioteca de pilhas
-
-As pilhas padrao ficam em `assets/preset-decks/`.
-
-Para mudar cartas de uma pilha:
-
-1. Coloque as imagens na pasta da pilha.
-2. Mantenha o verso como `Verso.png`.
-3. Rode:
-
-   ```powershell
-   npm run build:preset-decks
-   npm run build
-   ```
-
-Os tamanhos padrao atuais sao:
-
-- Ameacas Elite: `4.5`
-- Armas: `2.25`
-- Salas: `1.5`
-- Salas-Refugiados, Salas-Objetivos e Salas-Normais: `1.5`
-- Poderes da Tormenta Nivel 1, 2 e 3: `2`
-- Eventos: `2.25`
-
-## Biblioteca de cartas
-
-As cartas individuais ficam em `assets/preset-cards/`.
-
-Pastas atuais:
-
-- `classes`
-- `racas`
-- `divindades`
-- `reacoes-heroicas`
-- `herois`
-- `herois-montaria`
-
-Para mudar cartas individuais:
-
-1. Coloque as imagens na pasta do grupo.
-2. Mantenha o verso do grupo como `Verso.png`, ou use um verso especifico com o mesmo nome da frente seguido de `verso`.
-3. Rode:
-
-   ```powershell
-   npm run build:preset-decks
-   npm run build
-   ```
-
-Classes, racas e divindades ja entram com a marcacao usada pelo sistema de selecao de personagem.
-Reacoes Heroicas e Herois entram como cartas duplas comuns.
-
-Tamanhos padrao das cartas individuais:
-
-- Classes: `3`, camada `Mount`
-- Racas: `3`, camada `Mount`
-- Reacoes Heroicas: `1.25`, camada `Mount`
-- Herois: `6`, camada `Mount`, origin `885 x 531.5`
-- Herois Montaria: `1`, camada `Mount`
-
-Exemplo de verso especifico:
-
-- `Thwor.png`
-- `Thwor verso.png`
-
-Quando uma carta tem verso especifico, ele substitui o `Verso.png` do grupo apenas para essa carta.
-
-## Migrar imagens locais
-
-Os assets locais usados pelo tabuleiro padrao ja foram copiados para `assets/local-assets/`.
-
-Se novas imagens forem importadas pelo localhost e precisarem ir para o GitHub Pages, rode:
-
-```powershell
-npm run prepare:github-assets
-```
-
-Depois use `npm run build` e suba novamente o repositorio.
+Para criar uma pilha temporária de missão, selecione exatamente cinco cartas já sacadas e use **Criar pilha com seleção**. A pilha é embaralhada e desaparece quando a última carta é comprada.
 
 ## Atalhos
 
-- `V`: virar carta selecionada
-- `C`: comprar da pilha selecionada
-- `E`: embaralhar pilha selecionada
-- `R`: devolver carta comprada para a pilha
+| Tecla | Ação |
+| --- | --- |
+| `V` | Virar a carta selecionada ou o topo da pilha. |
+| `C` | Comprar uma carta da pilha selecionada. |
+| `E` | Embaralhar a pilha selecionada. |
+| `R` | Devolver a carta comprada para o fundo da pilha de origem. |
 
-## Teste local
+No mobile, as ações essenciais também estão disponíveis por botões; o uso do teclado não é obrigatório.
 
-Para testar esta pasta antes de subir:
+## Observações importantes
 
-```powershell
-node dev-server.mjs 5180
-```
+- A carta comprada respeita a face atual da pilha.
+- A devolução envia a carta para o fundo da pilha.
+- Compra e devolução por arrasto não fazem parte do fluxo atual.
+- A restauração de mapas deve ser feita na cena que pode receber o tabuleiro preparado.
+- Algumas ações dependem das permissões concedidas ao jogador na sala do Owlbear Rodeo.
 
-Abra no Owlbear:
+## Autoria
 
-```text
-http://localhost:5180/manifest.json?v=69
-```
+Criado e mantido por **DemonRider**.
 
-Para testar a versao local separada sem mexer na pasta do Git, use a pasta local de testes.
+Informações para desenvolvimento e manutenção estão em [DEVELOPMENT.md](DEVELOPMENT.md).

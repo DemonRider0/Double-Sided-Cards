@@ -12,6 +12,7 @@ import {
 const PRESET_VERSION = 1;
 const ITEM_CHUNK_SIZE = 80;
 const RESTORE_MARKER_VERSION = 1;
+const SCENE_PRESET_INDEX_URL = "./assets/scene-presets/index.json";
 export const SCENE_RESTORE_MARKER_KEY = `${EXTENSION_ID}/scene-restore`;
 export const SCENE_PRESETS = [
   {
@@ -23,7 +24,8 @@ export const SCENE_PRESETS = [
   {
     id: "missao-0-5",
     name: "Missao 0.5 (nao oficial)",
-    restoreLabel: "Restaurar a Missao 0.5 (nao oficial)",
+    label: "Missão 0.5 (não oficial)",
+    restoreLabel: "Restaurar a Missão 0.5 (não oficial)",
     url: "./assets/scene-presets/missao-0-5.json",
   },
 ];
@@ -123,17 +125,17 @@ function assertSerializable(value, path = "preset", ancestors = new Set()) {
 
   if (typeof value === "number") {
     if (!Number.isFinite(value)) {
-      throw new Error(`${path} possui um numero nao finito.`);
+      throw new Error(`${path} possui um número não finito.`);
     }
     return;
   }
 
   if (typeof value !== "object") {
-    throw new Error(`${path} possui um valor nao serializavel.`);
+    throw new Error(`${path} possui um valor não serializável.`);
   }
 
   if (ancestors.has(value)) {
-    throw new Error(`${path} possui uma referencia circular.`);
+    throw new Error(`${path} possui uma referência circular.`);
   }
 
   const prototype = Object.getPrototypeOf(value);
@@ -142,7 +144,7 @@ function assertSerializable(value, path = "preset", ancestors = new Set()) {
   }
 
   if (Object.getOwnPropertySymbols(value).length) {
-    throw new Error(`${path} possui chaves nao serializaveis.`);
+    throw new Error(`${path} possui chaves não serializáveis.`);
   }
 
   ancestors.add(value);
@@ -150,7 +152,7 @@ function assertSerializable(value, path = "preset", ancestors = new Set()) {
     if (Array.isArray(value)) {
       for (let index = 0; index < value.length; index += 1) {
         if (!(index in value)) {
-          throw new Error(`${path}[${index}] esta ausente.`);
+          throw new Error(`${path}[${index}] está ausente.`);
         }
         assertSerializable(value[index], `${path}[${index}]`, ancestors);
       }
@@ -158,6 +160,10 @@ function assertSerializable(value, path = "preset", ancestors = new Set()) {
     }
 
     for (const [key, entry] of Object.entries(value)) {
+      if (key === "__proto__") {
+        throw new Error(`${path} possui uma chave que pode alterar prototipos.`);
+      }
+
       assertSerializable(entry, `${path}.${key}`, ancestors);
     }
   } finally {
@@ -187,11 +193,11 @@ function isForbiddenLocalReference(value) {
 function validatePublicReferences(value, path = "preset", key = "") {
   if (typeof value === "string") {
     if (isForbiddenLocalReference(value)) {
-      throw new Error(`${path} aponta para um endereco local.`);
+      throw new Error(`${path} aponta para um endereço local.`);
     }
 
     if (key.toLowerCase() === "url" && !/^https?:\/\//i.test(value)) {
-      throw new Error(`${path} nao possui uma URL publica valida.`);
+      throw new Error(`${path} não possui uma URL pública válida.`);
     }
     return;
   }
@@ -215,7 +221,7 @@ function validatePresetBoardIntegrity(preset, itemIds) {
   }
 
   if (!isRecord(board)) {
-    throw new Error("A metadata de selecao do mapa e invalida.");
+    throw new Error("A metadata de seleção do mapa é inválida.");
   }
 
   for (const categories of Object.values(board.assigned || {})) {
@@ -240,7 +246,7 @@ function validatePresetBoardIntegrity(preset, itemIds) {
 
   for (const color of PLAYER_COLORS) {
     if (!explicitColors.has(color.id)) {
-      throw new Error(`O mapa nao possui identificador explicito para ${color.label}.`);
+      throw new Error(`O mapa não possui identificador explícito para ${color.label}.`);
     }
   }
 }
@@ -253,7 +259,7 @@ function validateCardAndDeckMetadata(item) {
       key.endsWith("/card") ||
       key.endsWith("/deck");
     if (isCardOrDeck && !isRecord(value)) {
-      throw new Error(`O item ${item.id} possui metadata de carta ou pilha invalida.`);
+      throw new Error(`O item ${item.id} possui metadata de carta ou pilha inválida.`);
     }
   }
 }
@@ -265,7 +271,7 @@ export function validateScenePreset(
   try {
     assertSerializable(value);
   } catch (error) {
-    throw new SceneRestoreError("O mapa salvo possui dados nao serializaveis.", {
+    throw new SceneRestoreError("O mapa salvo possui dados não serializáveis.", {
       code: "INVALID_PRESET",
       stage: "validation",
       cause: error,
@@ -279,14 +285,14 @@ export function validateScenePreset(
     !value.items.length ||
     !isRecord(value.metadata)
   ) {
-    throw new SceneRestoreError("O mapa salvo possui uma estrutura invalida.", {
+    throw new SceneRestoreError("O mapa salvo possui uma estrutura inválida.", {
       code: "INVALID_PRESET",
       stage: "validation",
     });
   }
 
   if (Object.prototype.hasOwnProperty.call(value.metadata, SCENE_RESTORE_MARKER_KEY)) {
-    throw new SceneRestoreError("O mapa salvo contem metadata interna de restauracao.", {
+    throw new SceneRestoreError("O mapa salvo contém metadata interna de restauração.", {
       code: "INVALID_PRESET",
       stage: "validation",
     });
@@ -296,7 +302,7 @@ export function validateScenePreset(
     value.itemCount !== undefined &&
     (!Number.isInteger(value.itemCount) || value.itemCount !== value.items.length)
   ) {
-    throw new SceneRestoreError("A contagem do mapa salvo nao corresponde aos itens.", {
+    throw new SceneRestoreError("A contagem do mapa salvo não corresponde aos itens.", {
       code: "INVALID_PRESET",
       stage: "validation",
     });
@@ -305,7 +311,7 @@ export function validateScenePreset(
   const ids = new Set();
   for (const [index, item] of value.items.entries()) {
     if (!isRecord(item) || typeof item.id !== "string" || !item.id.trim()) {
-      throw new SceneRestoreError(`O item ${index + 1} do mapa nao possui ID valido.`, {
+      throw new SceneRestoreError(`O item ${index + 1} do mapa não possui ID válido.`, {
         code: "INVALID_PRESET",
         stage: "validation",
       });
@@ -317,7 +323,7 @@ export function validateScenePreset(
       });
     }
     if (typeof item.type !== "string" || !item.type.trim() || !isRecord(item.metadata)) {
-      throw new SceneRestoreError(`O item ${item.id} possui estrutura invalida.`, {
+      throw new SceneRestoreError(`O item ${item.id} possui estrutura inválida.`, {
         code: "INVALID_PRESET",
         stage: "validation",
       });
@@ -333,7 +339,7 @@ export function validateScenePreset(
       validatePublicReferences(value);
     }
   } catch (error) {
-    throw new SceneRestoreError(error.message || "O mapa salvo nao passou pela validacao.", {
+    throw new SceneRestoreError(error.message || "O mapa salvo não passou pela validação.", {
       code: "INVALID_PRESET",
       stage: "validation",
       cause: error,
@@ -422,12 +428,49 @@ export async function loadScenePreset(definition) {
 }
 
 export async function loadScenePresetEntries() {
-  return Promise.all(
-    SCENE_PRESETS.map(async (definition) => ({
+  let summaries = [];
+  let loadError = null;
+
+  try {
+    const response = await fetch(`${SCENE_PRESET_INDEX_URL}?v=${Date.now()}`, {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      throw new Error(`Resposta HTTP ${response.status}.`);
+    }
+
+    const index = await response.json();
+    if (index?.version !== PRESET_VERSION || !Array.isArray(index.presets)) {
+      throw new Error("Índice de mapas inválido.");
+    }
+    summaries = index.presets;
+  } catch (error) {
+    console.error("[scene-preset] Falha ao carregar o indice de mapas.", error);
+    loadError = "Não consegui carregar os mapas salvos. Reabra o painel para tentar novamente.";
+  }
+
+  return SCENE_PRESETS.map((definition) => {
+    const summary = summaries.find(
+      (entry) =>
+        entry?.id === definition.id &&
+        entry.name === definition.name &&
+        typeof entry.savedAt === "string" &&
+        Number.isInteger(entry.itemCount) &&
+        entry.itemCount > 0,
+    );
+
+    return {
       definition,
-      preset: await loadScenePreset(definition),
-    })),
-  );
+      loadError,
+      summary: summary
+        ? {
+            savedAt: summary.savedAt,
+            itemCount: summary.itemCount,
+          }
+        : null,
+      preset: null,
+    };
+  });
 }
 
 export async function loadDefaultBoardPreset() {
@@ -451,7 +494,7 @@ export async function saveScenePreset(OBR, presetId) {
 
   if (!response.ok) {
     throw new Error(
-      "Nao consegui criar o mapa salvo. Essa acao precisa do servidor localhost.",
+      "Não consegui criar o mapa salvo. Essa ação precisa do servidor localhost.",
     );
   }
 
@@ -492,7 +535,7 @@ async function getRestoreIdentity(OBR) {
   ]);
 
   if (!playerId) {
-    throw new SceneRestoreError("Nao consegui identificar o jogador atual.", {
+    throw new SceneRestoreError("Não consegui identificar o jogador atual.", {
       code: "PLAYER_UNAVAILABLE",
       stage: "marker",
     });
@@ -555,14 +598,14 @@ async function acquireRestoreMarker(OBR, operation, allowOrphanRecovery) {
   const status = await classifyExistingMarker(OBR, existing, { includeLocalLock: false });
 
   if (status.state === "active") {
-    throw new SceneRestoreError("Ja existe uma restauracao em andamento nesta cena.", {
+    throw new SceneRestoreError("Já existe uma restauração em andamento nesta cena.", {
       code: "RESTORE_ACTIVE",
       stage: "marker",
     });
   }
   if (status.state === "orphan" && !allowOrphanRecovery) {
     throw new SceneRestoreError(
-      "Existe uma restauracao interrompida. Confirme a recuperacao antes de continuar.",
+      "Existe uma restauração interrompida. Confirme a recuperação antes de continuar.",
       {
         code: "ORPHAN_RESTORE",
         stage: "marker",
@@ -585,7 +628,7 @@ async function acquireRestoreMarker(OBR, operation, allowOrphanRecovery) {
   });
   const observed = (await OBR.scene.getMetadata())[SCENE_RESTORE_MARKER_KEY];
   if (!isRestoreMarker(observed) || observed.token !== operation.token) {
-    throw new SceneRestoreError("Outra restauracao assumiu a cena.", {
+    throw new SceneRestoreError("Outra restauração assumiu a cena.", {
       code: "RESTORE_CONFLICT",
       stage: "marker",
     });
@@ -597,7 +640,7 @@ async function acquireRestoreMarker(OBR, operation, allowOrphanRecovery) {
 async function requireRestoreOwnership(OBR, operation) {
   const marker = (await OBR.scene.getMetadata())[SCENE_RESTORE_MARKER_KEY];
   if (!isRestoreMarker(marker) || marker.token !== operation.token) {
-    throw new SceneRestoreError("A restauracao perdeu o controle da cena.", {
+    throw new SceneRestoreError("A restauração perdeu o controle da cena.", {
       code: "RESTORE_MARKER_LOST",
       stage: operation.phase,
       partial: true,
@@ -617,7 +660,7 @@ async function setRestorePhase(OBR, operation, phase) {
   operation.phase = phase;
   const observed = await requireRestoreOwnership(OBR, operation);
   if (observed.phase !== phase) {
-    throw new SceneRestoreError("Nao consegui confirmar a fase da restauracao.", {
+    throw new SceneRestoreError("Não consegui confirmar a fase da restauração.", {
       code: "RESTORE_MARKER_UPDATE_FAILED",
       stage: phase,
       partial: true,
@@ -644,7 +687,7 @@ function createRestorationPlan(preset, currentItems, currentMetadata) {
     assertSerializable(currentMetadata, "metadata atual");
   } catch (error) {
     throw stageError(
-      "A cena atual possui dados que nao podem ser restaurados com seguranca.",
+      "A cena atual possui dados que não podem ser restaurados com segurança.",
       "INVALID_CURRENT_SCENE",
       "planning",
       error,
@@ -783,7 +826,7 @@ async function applyAdditions(OBR, operation, entries, journal) {
         missing.push(target);
       } else if (!itemMatchesTarget(current, target)) {
         throw stageError(
-          `O item ${target.id} apareceu com outro estado durante a restauracao.`,
+          `O item ${target.id} apareceu com outro estado durante a restauração.`,
           "ADD_CONFLICT",
           "adding",
           null,
@@ -858,7 +901,7 @@ async function applyUpdates(OBR, operation, entries, journal) {
     for (const entry of group) {
       if (!valuesEqual(currentById.get(entry.before.id), entry.before)) {
         throw stageError(
-          `O item ${entry.before.id} mudou durante a restauracao.`,
+          `O item ${entry.before.id} mudou durante a restauração.`,
           "UPDATE_CONFLICT",
           "updating",
           null,
@@ -1098,7 +1141,7 @@ async function applyTargetMetadata(OBR, operation, plan, journal) {
   }
   if (targetEntries.some(([key, target]) => !valuesEqual(after[key], target))) {
     throw stageError(
-      "A metadata da cena nao foi confirmada.",
+      "A metadata da cena não foi confirmada.",
       "METADATA_VERIFY_FAILED",
       "metadata",
     );
@@ -1124,7 +1167,7 @@ async function applyDeletions(OBR, operation, entries, journal) {
       }
       if (!valuesEqual(current, target)) {
         throw stageError(
-          `O item extra ${target.id} mudou durante a restauracao.`,
+          `O item extra ${target.id} mudou durante a restauração.`,
           "DELETE_CONFLICT",
           "deleting",
           null,
@@ -1212,7 +1255,7 @@ function verifySelectionBoardResult(metadata, items) {
   );
   for (const color of PLAYER_COLORS) {
     if (!colors.has(color.id)) {
-      throw new Error(`O identificador ${color.label} nao foi restaurado.`);
+      throw new Error(`O identificador ${color.label} não foi restaurado.`);
     }
   }
 }
@@ -1233,7 +1276,7 @@ async function verifyRestoration(OBR, operation, plan) {
   }
   if (items.length !== plan.targetItems.length) {
     throw stageError(
-      "A quantidade final de itens nao corresponde ao mapa salvo.",
+      "A quantidade final de itens não corresponde ao mapa salvo.",
       "FINAL_VERIFY_FAILED",
       "verifying",
     );
@@ -1243,7 +1286,7 @@ async function verifyRestoration(OBR, operation, plan) {
   for (const target of plan.targetItems) {
     if (!itemMatchesTarget(currentById.get(target.id), target)) {
       throw stageError(
-        `O item ${target.id} nao corresponde ao mapa salvo.`,
+        `O item ${target.id} não corresponde ao mapa salvo.`,
         "FINAL_VERIFY_FAILED",
         "verifying",
       );
@@ -1253,7 +1296,7 @@ async function verifyRestoration(OBR, operation, plan) {
   for (const [key, target] of Object.entries(plan.targetMetadata)) {
     if (!valuesEqual(metadata[key], target)) {
       throw stageError(
-        `A metadata ${key} nao corresponde ao mapa salvo.`,
+        `A metadata ${key} não corresponde ao mapa salvo.`,
         "FINAL_VERIFY_FAILED",
         "verifying",
       );
@@ -1284,7 +1327,7 @@ async function rollbackRestoration(OBR, operation, plan, journal) {
   try {
     await setRestorePhase(OBR, operation, "rolling-back");
   } catch (error) {
-    fail("marcador indisponivel; rollback recusado", error);
+    fail("marcador indisponível; rollback recusado", error);
     return { complete: false, refused: true, errors };
   }
 
@@ -1303,7 +1346,7 @@ async function rollbackRestoration(OBR, operation, plan, journal) {
           continue;
         }
         if (!itemMatchesTarget(current, target)) {
-          throw new Error(`O item ${target.id} foi alterado depois da restauracao.`);
+          throw new Error(`O item ${target.id} foi alterado depois da restauração.`);
         }
         safeIds.push(target.id);
       }
@@ -1315,7 +1358,7 @@ async function rollbackRestoration(OBR, operation, plan, journal) {
         }
       }
     } catch (error) {
-      fail("nao foi possivel remover itens adicionados", error);
+      fail("não foi possível remover itens adicionados", error);
     }
   }
 
@@ -1340,11 +1383,11 @@ async function rollbackRestoration(OBR, operation, plan, journal) {
         await OBR.scene.items.addItems(clone(missing));
         const restored = mapItems(await getItemsByIds(OBR, missing.map((item) => item.id)));
         if (missing.some((item) => !itemMatchesTarget(restored.get(item.id), item))) {
-          throw new Error("Alguns itens apagados nao foram restaurados.");
+          throw new Error("Alguns itens apagados não foram restaurados.");
         }
       }
     } catch (error) {
-      fail("nao foi possivel readicionar itens apagados", error);
+      fail("não foi possível readicionar itens apagados", error);
     }
   }
 
@@ -1361,7 +1404,7 @@ async function rollbackRestoration(OBR, operation, plan, journal) {
           continue;
         }
         if (!itemMatchesTarget(current, entry.target)) {
-          throw new Error(`O item ${entry.target.id} mudou depois da atualizacao.`);
+          throw new Error(`O item ${entry.target.id} mudou depois da atualização.`);
         }
         toRestore.push(current);
       }
@@ -1380,11 +1423,11 @@ async function rollbackRestoration(OBR, operation, plan, journal) {
             (entry) => !itemMatchesTarget(restored.get(entry.before.id), entry.before),
           )
         ) {
-          throw new Error("Alguns itens atualizados nao voltaram ao estado anterior.");
+          throw new Error("Alguns itens atualizados não voltaram ao estado anterior.");
         }
       }
     } catch (error) {
-      fail("nao foi possivel restaurar itens atualizados", error);
+      fail("não foi possível restaurar itens atualizados", error);
     }
   }
 
@@ -1400,7 +1443,7 @@ async function rollbackRestoration(OBR, operation, plan, journal) {
           continue;
         }
         if (!valuesEqual(currentMetadata[key], target)) {
-          throw new Error(`A metadata ${key} mudou depois da restauracao.`);
+          throw new Error(`A metadata ${key} mudou depois da restauração.`);
         }
         patch[key] = previous.exists ? clone(previous.value) : null;
       }
@@ -1414,12 +1457,12 @@ async function rollbackRestoration(OBR, operation, plan, journal) {
             : !Object.prototype.hasOwnProperty.call(restoredMetadata, key) ||
               restoredMetadata[key] === null;
           if (!restored) {
-            throw new Error(`A metadata ${key} nao voltou ao estado anterior.`);
+            throw new Error(`A metadata ${key} não voltou ao estado anterior.`);
           }
         }
       }
     } catch (error) {
-      fail("nao foi possivel restaurar metadata", error);
+      fail("não foi possível restaurar metadata", error);
     }
   }
 
@@ -1427,7 +1470,7 @@ async function rollbackRestoration(OBR, operation, plan, journal) {
     try {
       await setRestorePhase(OBR, operation, "recovery-required");
     } catch (error) {
-      fail("nao foi possivel manter o marcador de recuperacao", error);
+      fail("não foi possível manter o marcador de recuperação", error);
     }
     return { complete: false, refused: false, errors };
   }
@@ -1435,10 +1478,10 @@ async function rollbackRestoration(OBR, operation, plan, journal) {
   try {
     const released = await releaseRestoreMarker(OBR, operation);
     if (!released) {
-      throw new Error("O marcador nao pertence mais a esta operacao.");
+      throw new Error("O marcador não pertence mais a esta operação.");
     }
   } catch (error) {
-    fail("nao foi possivel limpar o marcador", error);
+    fail("não foi possível limpar o marcador", error);
     return { complete: false, refused: false, errors };
   }
 
@@ -1477,7 +1520,7 @@ async function performRestore(OBR, preset, options, operation) {
     const released = await releaseRestoreMarker(OBR, operation);
     if (!released) {
       throw stageError(
-        "O mapa foi restaurado, mas o controle da operacao mudou antes da limpeza.",
+        "O mapa foi restaurado, mas o controle da operação mudou antes da limpeza.",
         "MARKER_RELEASE_FAILED",
         "completed",
         null,
@@ -1515,7 +1558,7 @@ async function performRestore(OBR, preset, options, operation) {
 
     if (error.code === "RESTORE_MARKER_LOST") {
       throw new SceneRestoreError(
-        "A restauracao foi interrompida por outra operacao. Confira a cena antes de tentar novamente.",
+        "A restauração foi interrompida por outra operação. Confira a cena antes de tentar novamente.",
         {
           code: error.code,
           stage: error.stage,
@@ -1529,7 +1572,7 @@ async function performRestore(OBR, preset, options, operation) {
     const rollback = await rollbackRestoration(OBR, operation, plan, journal);
     if (rollback.complete) {
       throw new SceneRestoreError(
-        "Nao consegui restaurar o mapa; as mudancas seguras foram desfeitas.",
+        "Não consegui restaurar o mapa; as mudanças seguras foram desfeitas.",
         {
           code: error.code,
           stage: error.stage,
@@ -1540,7 +1583,7 @@ async function performRestore(OBR, preset, options, operation) {
     }
 
     throw new SceneRestoreError(
-      "A restauracao falhou parcialmente. Confira a cena antes de tentar novamente.",
+      "A restauração falhou parcialmente. Confira a cena antes de tentar novamente.",
       {
         code: error.code,
         stage: error.stage,
@@ -1553,7 +1596,7 @@ async function performRestore(OBR, preset, options, operation) {
 
 export async function restoreDefaultBoardPreset(OBR, preset, options = {}) {
   if (activeRestorePromise) {
-    throw new SceneRestoreError("Uma restauracao ja esta em andamento neste painel.", {
+    throw new SceneRestoreError("Uma restauração já está em andamento neste painel.", {
       code: "LOCAL_RESTORE_ACTIVE",
       stage: "local-lock",
     });

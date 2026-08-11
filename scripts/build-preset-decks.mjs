@@ -1,6 +1,7 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createManifestAsset } from "./image-metadata.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const presetRoot = path.join(root, "assets", "preset-decks");
@@ -89,7 +90,14 @@ async function readDeckFiles(deckId) {
     .sort(filenameCollator.compare);
 }
 
-function mergeDeck(defaultDeck, existingDeck, files) {
+async function getManifestAsset(deckId, filename) {
+  return createManifestAsset(
+    path.join(presetRoot, deckId, filename),
+    publicPath(deckId, filename),
+  );
+}
+
+async function mergeDeck(defaultDeck, existingDeck, files) {
   const backFile = files.find(isBackImage);
   const cardFiles = files.filter((file) => file !== backFile);
 
@@ -98,12 +106,12 @@ function mergeDeck(defaultDeck, existingDeck, files) {
     name: existingDeck?.name || defaultDeck.name,
     gridWidth: getDefaultGridWidth(defaultDeck, existingDeck),
     layer: getDefaultLayer(defaultDeck, existingDeck),
-    back: backFile ? publicPath(defaultDeck.id, backFile) : existingDeck?.back || "",
+    back: backFile ? await getManifestAsset(defaultDeck.id, backFile) : existingDeck?.back || "",
     cards: cardFiles.length
-      ? cardFiles.map((file, index) => ({
+      ? await Promise.all(cardFiles.map(async (file, index) => ({
           name: displayName(file, `Carta ${index + 1}`),
-          front: publicPath(defaultDeck.id, file),
-        }))
+          front: await getManifestAsset(defaultDeck.id, file),
+        })))
       : existingDeck?.cards || [],
   };
 }
@@ -114,7 +122,7 @@ const decks = [];
 
 for (const defaultDeck of deckDefaults) {
   const files = await readDeckFiles(defaultDeck.id);
-  decks.push(mergeDeck(defaultDeck, existingById.get(defaultDeck.id), files));
+  decks.push(await mergeDeck(defaultDeck, existingById.get(defaultDeck.id), files));
 }
 
 await writeFile(manifestPath, `${JSON.stringify({ version: 1, decks }, null, 2)}\n`);

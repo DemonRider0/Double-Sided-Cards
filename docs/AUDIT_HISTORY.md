@@ -1,6 +1,298 @@
-# Audit History - Cartas Duplas
+# Histórico de auditorias — Cartas Duplas
 
-Este arquivo consolida auditorias realizadas durante o desenvolvimento. Use-o como historico tecnico e como entrada para planos de correcao.
+Este arquivo consolida auditorias realizadas durante o desenvolvimento. Use-o como histórico técnico e como entrada para planos de correção.
+
+## 2026-08-10 - Consolidação automática final
+
+- O diff acumulado foi confrontado com fontes, bundles e documentação. A instalação limpa com `npm ci`, `npm ls --all`, `npm run check` antes e depois do build, geradores, duas reconstruções de `dist/`, `node --check`, parsing dos JSONs, auditoria de assets, testes hostis de metadata/presets, verificações focadas do servidor e `git diff --check` passaram.
+- Não foram encontradas regressões, conflitos entre etapas nem arquivos gerados desatualizados. Geradores e build reproduziram os mesmos hashes em execuções consecutivas; permaneceram somente os avisos transitivos conhecidos de `uuid` e do SDK no Rollup.
+- Os hashes de manifesto, package/lockfile, bibliotecas, índice, presets e bundles permaneceram iguais ao baseline. IDs, formatos de metadata e presets, URLs persistidas, ordem/defaults das bibliotecas, 953 assets binários, versão pública e parâmetros de cache não foram alterados.
+- Estado: pronto para uma rodada manual consolidada no Owlbear Rodeo. Nenhum teste manual foi considerado realizado nesta consolidação.
+
+### Áreas deduplicadas que ainda dependem do Owlbear real
+
+- carregamento da extensão, background, comandos, permissões da sala e estados de conexão/erro;
+- virar, comprar, embaralhar, devolver e sincronizar cartas/pilhas, inclusive concorrência, repetição rápida e metadata antiga;
+- criação da pilha temporária de missão e seus caminhos de falha;
+- cores, identificadores, slots, troca/devolução de cartas e uso simultâneo por duas contas;
+- restauração dos dois mapas em cenas vazias e ocupadas, repetição, concorrência, interrupção, marcador órfão e rollback;
+- teclado, foco, leitor de tela, toque, confirmações, feedback assíncrono e layout em desktop/mobile;
+- carregamento/renderização real de assets (latência, cache, CORS e redirects) e integração do iframe com o servidor administrativo local.
+
+## 2026-08-10 - Organização e apresentação do repositório
+
+### Escopo e resultado
+
+- A documentação foi separada por público: `README.md` passou a orientar o usuário da extensão, enquanto `DEVELOPMENT.md` concentra desenvolvimento, manutenção, build, assets, mapas e publicação futura.
+- O histórico de mudanças foi preservado como `CHANGELOG.md`. O conteúdo técnico útil dos antigos documentos de contexto e operação foi consolidado em `DEVELOPMENT.md`, `PROJECT_RULES.md`, arquitetura, decisões de design e neste histórico, eliminando nomenclatura ligada ao processo de produção.
+- `docs/IMPLEMENTATION_PLAN.md` passou a se apresentar explicitamente como registro do plano S-01 a S-20 já concluído. `docs/AUDIT_HISTORY.md` permanece como registro técnico detalhado; arquitetura, decisões e checklist de testes continuam especializados.
+- O backup ignorado `assets/preset-decks/decks.json.bak` era um esqueleto antigo com sete pilhas vazias, todas substituídas pelo manifest atual de dez pilhas, e foi removido. Dois diretórios locais de configuração que estavam vazios também foram removidos. `docs.zip` não existia no estado revisado.
+- As chaves históricas `br.codex.double-sided-cards/*` presentes nos presets foram mantidas: são metadados persistidos de compatibilidade, não créditos ou vestígios documentais, e esta etapa proíbe alterar presets, IDs e formatos persistidos.
+
+### Limites preservados
+
+- Nenhum comportamento, fonte funcional, dependência, asset, preset, manifest, ID, versão pública ou parâmetro de cache foi alterado por esta revisão.
+- A diferença entre `package.json` (`0.1.0`, pacote privado) e `manifest.json` (`0.2.69`, versão pública) foi documentada e deixada para uma futura decisão de versionamento/publicação.
+- A descrição do manifesto permanece mais estreita e com ortografia anterior à documentação pública atual. Ela não foi alterada porque esta etapa preserva o manifesto, a versão e os parâmetros de cache.
+- Não foi criado arquivo de licença porque o repositório não registra uma decisão de licenciamento que possa ser inferida com segurança.
+- Nenhum teste manual no Owlbear Rodeo foi considerado realizado nesta etapa.
+
+### Validação automática
+
+- `npm.cmd run check` passou antes e depois do build, validando 8 JSONs, 29 arquivos JS/MJS, 191 assets de biblioteca e 1455 referências de mapas. A forma `npm run` foi bloqueada somente pela política local do PowerShell para `npm.ps1`; o executável equivalente `npm.cmd` executou os scripts do projeto normalmente.
+- `npm.cmd run build` passou e regenerou os bundles. Permaneceram apenas os avisos conhecidos do Rollup sobre `this` nos módulos do Owlbear SDK.
+- `node --check` passou nos 29 arquivos JS/MJS aplicáveis. Os 8 JSONs também foram analisados diretamente com `JSON.parse` do Node.
+- `git diff --check`, os 11 arquivos Markdown, 19 caminhos internos e 7 scripts documentados passaram pelas verificações de integridade e existência.
+- Os hashes de `manifest.json`, package/lockfile, manifests das bibliotecas, índice e dois presets permaneceram iguais ao baseline desta revisão. Nenhum dos 953 assets de runtime foi alterado; somente os READMEs internos das bibliotecas mudaram dentro de `assets/`.
+
+## 2026-08-10 - Seguranca e fronteiras de confianca
+
+### Superficies e operacoes auditadas
+
+- Foram tratados como nao confiaveis nomes e metadata de itens, metadata de
+  cena/jogador, manifests das bibliotecas, presets JSON, URL publica informada
+  no painel, URLs de imagens e parametros do servidor local. Tambem foram
+  revisados os scripts, assets SVG, dependencias diretas e arquivos
+  distribuidos.
+- Os sinks mapeados foram DOM e atributos, `Image.src`, `fetch`, object URLs,
+  URLs entregues ao SDK, atualizacoes de itens/metadata, copias e mesclas de
+  objetos, leitura/escrita de JSON e resolucao de caminhos no servidor local.
+- Nao existem `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`,
+  `eval`, `Function`, strings executadas como codigo, links dinamicos ou SVG
+  ativo. Conteudo da cena e dos catalogos chega ao painel por `textContent`,
+  `value` e criacao explicita de elementos. Atributos dinamicos sao ARIA com
+  nomes fixos; estilos alterados em runtime recebem apenas opacidades numericas
+  calculadas internamente.
+
+### Vulnerabilidades concretas e correcoes
+
+- O clonador conservador de metadata copiava chaves por atribuicao em um objeto
+  comum. Uma chave JSON `__proto__` alterava o prototipo da copia; foi
+  reproduzido que `__proto__.sourceDeckId` passava a ser lido como a pilha de
+  origem de uma carta e podia direcionar a devolucao para outro item da cena.
+  A copia agora define propriedades proprias sem acionar o setter de prototipo,
+  e a preservacao de campos desconhecidos na devolucao usa `Object.fromEntries`.
+- Presets aceitavam a mesma chave especial e depois copiavam chaves de itens e
+  metadata dinamicamente. A validacao passou a recusar somente `__proto__` em
+  qualquer nivel, antes de mutar a cena; campos desconhecidos comuns e o
+  formato persistido continuam preservados.
+- `dev-server.mjs` omitia o host e, nesta plataforma, escutava em `::`, enquanto
+  endpoints capazes de gravar assets, substituir presets e buscar imagens
+  respondiam a origens externas por CORS. O servidor agora escuta apenas em
+  `127.0.0.1`; endpoints internos exigem origem exatamente local quando o
+  cabecalho `Origin` existe. O cache remoto passou a exigir POST e URL HTTP(S).
+  `localhost` e `.local-assets` continuam disponiveis no fluxo administrativo.
+
+### Casos analisados e mantidos
+
+- Presets publicos validam toda a estrutura antes da restauracao e recusam
+  URLs locais, caminhos Windows, `file:` e qualquer campo `url` que nao seja
+  HTTP(S). Os dois mapas atuais contem apenas HTTPS publico. Manifests de
+  biblioteca sao normalizados e alimentam somente texto e recursos de imagem;
+  nenhum valor chega a HTML ou codigo executavel.
+- `data:` e `blob:` permanecem aceitos apenas pelo helper de assets de imagem.
+  Nao ha valor persistido com esses esquemas nem caminho para navegacao, HTML
+  ou execucao; remove-los sem vetor concreto reduziria compatibilidade.
+- O fetch de URL de cena ocorre apenas no fluxo administrativo local, depois de
+  classificacao HTTP(S) e acao explicita. Object URLs sao criadas para blobs de
+  imagem e sempre revogadas. A URL publica informada pelo usuario aceita apenas
+  HTTP(S) e e usada para reconstruir URLs de assets, nao para navegar.
+- A resolucao de arquivos estaticos usa caminho absoluto e confirma a raiz; IDs
+  de presets gravaveis usam mapa fixo, nomes de uploads sao sanitizados e os
+  scripts auxiliares operam em diretorios fixos. Nao foi encontrado path
+  traversal concreto.
+- Nao foram encontrados tokens, chaves, credenciais, arquivos privados ou
+  caminhos absolutos da maquina no produto distribuido. As referencias locais
+  restantes pertencem ao servidor e aos ramos de migracao intencionais.
+
+### Dependencias, validacao e limites
+
+- `npm audit` continua informando duas ocorrencias moderadas do mesmo alerta:
+  `uuid` transitivo e seu efeito sobre `@owlbear-rodeo/sdk`. Nao ha correcao
+  disponivel na arvore atual. O SDK 3.1.0 importa somente `v4`; o alerta cobre
+  `v3`, `v5` e `v6` quando o chamador fornece buffer. Nao foi encontrado vetor
+  aplicavel e nenhuma dependencia foi atualizada.
+- `npm run check` passou antes e depois do build, validando 8 JSONs, 29 arquivos
+  JS/MJS, 191 assets de biblioteca e 1455 referencias de mapas. `npm run build`,
+  `node --check`, `git diff --check`, os testes hostis de prototipo/preset e os
+  testes HTTP focados do servidor passaram; permaneceram apenas os avisos
+  conhecidos do SDK no Rollup.
+- Hashes dos dois presets completos, indice, manifests de cartas/pilhas,
+  manifesto publico e lockfile permaneceram iguais ao baseline da auditoria.
+  IDs, metadata, URLs persistidas, formatos, assets, versao e cache busting nao
+  foram alterados.
+- Dependem do ambiente real do Owlbear o tratamento final de URLs de imagem,
+  redirects e CORS pelo renderer, a apresentacao de nomes/notificacoes pelo SDK,
+  as permissoes efetivas da sala e a integracao do iframe com o localhost. Nao
+  foi exigido teste manual nesta etapa.
+- Conclusao: depois das correcoes acima, nao restou caminho concreto de alta
+  confianca entre entrada nao confiavel e execucao, injecao no DOM, acesso
+  inesperado a recursos ou comportamento inseguro que justifique outra etapa
+  antes dos testes manuais.
+
+## 2026-08-10 - Interface, acessibilidade basica e feedback
+
+### Escopo e problemas objetivos
+
+- Foram auditados `index.html`, `src/styles.css`, o controle do painel e as
+  mensagens que seus fluxos exibem, sem reabrir S-01 a S-20, arquitetura,
+  performance, metadata ou regras transacionais.
+- Os selects visuais escondiam o controle nativo, mas o botao substituto era
+  anunciado apenas pelo valor atual, sem o nome do campo. A abertura e a
+  escolha tambem nao ofereciam o comportamento esperado para setas,
+  Enter/Espaco, Home/End e Escape, e o foco podia ficar no item ocultado apos a
+  selecao.
+- Acoes do painel desabilitavam o proprio botao, mas virar, comprar,
+  embaralhar, devolver e sincronizar nao informavam o processamento. Uma
+  devolucao bem-sucedida apagava a mensagem final. Falha secundaria ao mostrar
+  uma notificacao do Owlbear podia substituir sucesso real por mensagem de
+  falha da operacao.
+- Os dois botoes de restauracao permaneciam acionaveis durante a leitura de
+  selecao feita pelo wrapper comum, antes de o estado visual de restauracao ser
+  ativado. Isso permitia duas entradas acidentais da UI, embora a protecao de
+  dominio continuasse existindo.
+- URL publica vazia ou sintaticamente invalida ainda deixava a migracao
+  acionavel quando havia conexao. Falha ao carregar o indice de mapas era
+  registrada no console e apresentada como mapa nao cadastrado. Falha de uma
+  leitura auxiliar durante a inicializacao podia rotular incorretamente uma
+  conexao SDK ja obtida como ausente.
+- Em tema escuro, o aviso usava a mesma cor marrom do tema claro e tinha
+  contraste insuficiente. O contorno de foco translucido tambem ficava pouco
+  perceptivel. Em viewport de 240 px, duas acoes excediam a propria coluna.
+- Textos dinamicos e mensagens de erro exibidos pelo painel continham erros
+  objetivos de acentuacao. Nomes persistidos de catalogos e presets nao foram
+  alterados; quando necessario, foi usado somente rotulo de exibicao.
+
+### Correcoes e comportamento preservado
+
+- Os selects mantiveram a aparencia atual e receberam nome acessivel completo,
+  relacao com o listbox, navegacao por teclado, retorno previsivel do foco e
+  fechamento ao sair do componente.
+- Estados de processamento passaram a usar a regiao `aria-live` existente. Os
+  botoes continuam desabilitados durante a propria operacao; restauracao
+  desabilita os dois comandos antes da primeira espera assincrona. Nenhum novo
+  lock ou fluxo transacional foi criado.
+- Falhas de notificacao agora sao secundarias e nao mudam o resultado real da
+  acao. Sucesso ao devolver carta permanece visivel. Erros nao serializaveis
+  usam fallback compreensivel, e falhas de indice/inicializacao distinguem
+  indisponibilidade parcial de ausencia do SDK.
+- Migracao exige URL preenchida e valida. O status de conexao e o estado dos
+  mapas passaram a ser anunciados. O icone decorativo continua com `alt` vazio.
+- Foco passou a usar contorno solido da paleta; aviso recebeu cor propria por
+  tema. Abaixo de 281 px, apenas grids de duas colunas passam para uma coluna,
+  eliminando o overflow sem mudar o painel normal de 320/420 px.
+- Foram mantidos tipos explicitos em todos os botoes, labels dos controles
+  nativos, confirmacoes de salvamento/restauracao, estados vazios de cores e
+  bibliotecas, controles indisponiveis sem SDK/catalogo e a identidade visual.
+
+### Validacao e limites
+
+- `npm run check`, `npm run build`, `node --check`, validacao dos oito JSONs e
+  `git diff --check` passaram; o build manteve somente os avisos conhecidos do
+  SDK sobre `this` no topo de modulos ES.
+- Inspecao local do DOM confirmou nomes acessiveis, `type` em botoes, `alt` em
+  imagens, navegacao completa de um select por teclado e ausencia de overflow
+  horizontal em 240 e 320 px. Sucesso e falha do indice de mapas foram
+  simulados sem nova infraestrutura.
+- Manifesto, IDs, metadata, presets completos, assets e formatos persistidos
+  nao foram alterados por esta etapa. Versao e cache busting permaneceram
+  inalterados conforme a restricao da auditoria; uma publicacao futura precisa
+  aplicar o incremento previsto nas regras do projeto.
+- Nao foi considerado teste no Owlbear. Ainda dependem do ambiente real: foco
+  dentro do iframe, leitor de tela, teclado/touch no painel hospedado,
+  confirmacoes nativas, latencia/falha real do SDK e fetch, duplo toque nos
+  comandos, restauracao e comportamento em aparelho mobile.
+- Conclusao: nao restou divida significativa de interface que justifique outra
+  etapa antes dos testes manuais. Ajustes adicionais seriam cosméticos ou
+  dependeriam de evidencia no Owlbear/mobile real.
+
+## 2026-08-10 - Performance de runtime e assets
+
+### Escopo e inventario
+
+- Foram auditados carregamento inicial, bibliotecas, restauracao, rede, DOM,
+  Canvas, listeners, leituras de cena, listas e caches, sem reabrir S-01 a S-20
+  ou a arquitetura sem evidencia nova.
+- `assets/` possui 961 arquivos e 795648077 bytes (758,8 MiB) no workspace; o
+  total inclui um backup `.bak` ignorado de 1113 bytes. PNG concentra 920
+  arquivos e 774818333 bytes; JPG, 10 e 18110697 bytes; WebP, 5 e 1439614
+  bytes; os cinco JSONs somam 1274993 bytes.
+- `assets/local-assets/` concentra 746 arquivos e 645797109 bytes (615,9 MiB),
+  seguido por `preset-decks/` com 91741945 bytes e `preset-cards/` com
+  56881651 bytes. Os maiores arquivos sao quatro copias de um mapa de 24,59
+  MiB e tres copias de outro mapa de 24,16 MiB.
+- SHA-256 encontrou 177 grupos byte-a-byte identicos: 882 arquivos participam,
+  705 sao copias alem da primeira e representam 545693077 bytes (520,4 MiB).
+  A classificacao e apenas diagnostica; nenhum arquivo ou URL foi removido.
+- O cruzamento de JSONs, fontes e arquivos distribuidos encontrou 362 arquivos
+  referenciados, com 255230709 bytes, sem referencia ausente ou diferenca de
+  caixa. Outros 599 arquivos, com 540417368 bytes (515,4 MiB), nao aparecem no
+  estado atual: 580 ficam em `local-assets/` e 19 sao README, `.gitkeep` ou o
+  backup ignorado. Desses, 559 arquivos e 342878719 bytes sao copias exatas de
+  algum arquivo referenciado. Todos continuam preservados por compatibilidade
+  potencial com cenas, metadata, presets e saves antigos.
+
+### Carregamento real e gargalos
+
+- O tamanho total da pasta nao e transferido ao iniciar a extensao. O background
+  nao enumera nem pre-carrega `assets/`; o painel usa selects textuais, sem
+  thumbnails ou elementos `<img>` para as bibliotecas.
+- Antes desta etapa, abrir o painel carregava os dois manifests e os dois mapas
+  completos: 1251834 bytes de `assets/`, com parse e validacao de 435 itens. O
+  painel agora carrega os manifests enriquecidos e um indice de 422 bytes:
+  48043 bytes no total, reducao de 1203791 bytes (96,2%). O mapa completo e
+  buscado e validado somente depois da confirmacao de restauracao; dentro da
+  mesma abertura do painel ele fica reutilizado em memoria.
+- Os manifests nao possuíam dimensoes. Criar uma pilha disparava de 3 a 25
+  instancias de `Image` para medir verso e todas as frentes, embora somente o
+  verso estivesse visivel; as frentes invisiveis somavam de 1,1 a 12,2 MiB por
+  pilha em cache frio. Criar uma carta media as duas faces. Os geradores agora
+  leem o cabecalho PNG com Node padrao e gravam largura, altura e MIME nas 191
+  referencias. As 10 pilhas e 47 cartas foram montadas sem `Image` disponivel,
+  demonstrando zero sondagens; o Owlbear continua carregando apenas a face que
+  precisa renderizar e as demais sob demanda.
+- Restaurar os mapas continua sendo o fluxo pesado real: o Tutorial possui 187
+  itens de imagem e 111 URLs atuais unicas, com 68774546 bytes (65,59 MiB); a
+  Missao 0.5 possui 180 itens, 111 URLs e 68381153 bytes (65,21 MiB). Esses
+  totais sao o limite frio do conjunto atual, nao prova de download imediato de
+  tudo: cache, estado anterior e descarte por viewport podem reduzir a
+  transferencia. Outros URLs de frente/verso permanecem apenas em metadata ate
+  serem exibidos.
+- Leituras de cena completas, serializacao ampla e Canvas ficaram restritos a
+  restauracao, salvamento, sincronizacao explicita ou migracao/publicacao. No
+  fluxo administrativo de migracao, URLs repetidas sao deduplicadas por
+  operacao, object URLs sao revogadas e `ImageBitmap` e fechado. Esse fluxo nao
+  foi alterado porque exige servidor local, rede, Canvas e Owlbear reais.
+- Os listeners normais trabalham sobre selecao pequena ou sobre cerca de 200
+  itens, com debounces ja existentes de 150 ms e 450 ms. Filas e mapas de locks
+  removem entradas em `finally`; nao foi encontrado cache persistente sem
+  limite. Os manifests ainda usam `no-store`, mas somam somente 47621 bytes e
+  mudar a politica criaria risco de catalogo obsoleto sem beneficio suficiente.
+
+### Compatibilidade, validacao e conclusao
+
+- Nenhum asset existente foi renomeado, movido, removido, convertido ou teve
+  URL reescrita. IDs, ordem, nomes, defaults e paths dos manifests permanecem
+  equivalentes; apenas dimensoes/MIME foram acrescentados. Os dois presets
+  completos permaneceram sem diff.
+- `npm run check`, antes e depois do build, validou 8 JSONs, 29 arquivos JS/MJS,
+  191 assets de biblioteca e 1455 referencias dos mapas. `npm run build`,
+  verificacoes `node --check`, a auditoria SHA-256, a simulacao focada de
+  carregamento sob demanda e `git diff --check` passaram. Permaneceram apenas
+  os avisos conhecidos do Rollup sobre `this` no SDK.
+- Versao e cache busting permaneceram inalterados conforme o escopo desta
+  auditoria. Uma publicacao futura deve aplicar o incremento exigido pelas
+  regras do projeto para que clientes com `v=69` nao mantenham o bundle antigo.
+- Nenhum teste manual no Owlbear foi considerado realizado. Ainda precisam de
+  ambiente real: confirmar o waterfall/cache, restaurar os dois mapas, criar e
+  manipular carta/pilha da biblioteca e observar memoria no mobile. Canvas e
+  publicacao administrativa so devem ser revisitados com servidor local.
+- Conclusao: nao ficou uma divida de performance relevante no uso normal que
+  justifique outra etapa agora. O volume e as duplicatas representam sobretudo
+  custo de armazenamento/publicacao e risco de manutencao. A carga fria de um
+  mapa restaurado pode continuar relevante no mobile, mas reduzi-la exigiria
+  alterar assets ou URLs persistentes e deve depender de medicao real e uma
+  etapa de compatibilidade propria.
 
 ## 2026-08-10 - Reprodutibilidade e higiene tecnica
 
@@ -145,7 +437,7 @@ A auditoria geral avaliou performance, arquitetura, codigo, seguranca, boas prat
 | G-03 | O projeto depende de cache busting manual no manifesto e URLs. | Medio | Media | Pendente |
 | G-04 | Metadados antigos/incompletos podem passar por validadores permissivos. | Medio | Alta | Pendente |
 | G-05 | Operacoes SDK dentro de fluxos complexos podem deixar estado parcial se falharem. | Alto | Alta | Pendente |
-| G-06 | Documentacao tecnica era insuficiente para continuidade entre sessoes. | Medio | Alta | Corrigido pela pasta `docs/` e consolidado em `CONTRIBUTING_AI.md` |
+| G-06 | Documentacao tecnica era insuficiente para continuidade entre sessoes. | Medio | Alta | Corrigido pela documentacao tecnica e consolidado em `DEVELOPMENT.md` |
 | G-07 | Publico e local exigem disciplina manual para nao misturar recursos. | Medio | Alta | Mitigado por `PROJECT_RULES.md` e docs |
 | G-08 | Restauracao de mapas atua em muitos itens e precisa ser tratada como area de risco. | Alto | Alta | Pendente |
 | G-09 | Registros repetidos de comandos podem gerar lentidao ou botoes inconsistentes. | Medio | Media | Pendente |
@@ -229,7 +521,7 @@ manuais no Owlbear Rodeo, a situacao final e:
 | G-03 | Pendente | Cache busting continua manual. |
 | G-04 | Tratado | A Etapa 8 introduziu normalizacao conservadora de metadata em leitura. |
 | G-05 | Amplamente mitigado | Etapas 3, 4, 5, 6 e 7 adicionaram filas, releituras, verificacoes e rollbacks; o SDK continua sem transacoes distribuidas completas. |
-| G-06 | Concluido | A documentacao permanente em `docs/` e o guia de contribuicao registram arquitetura, regras e historico. |
+| G-06 | Concluido | A documentacao permanente e o guia de desenvolvimento registram arquitetura, regras e historico. |
 | G-07 | Mitigado | `PROJECT_RULES.md` e a documentacao preservam as diferencas entre as versoes publica e local. |
 | G-08 | Tratado | A Etapa 7 tornou a restauracao mais segura; o marcador permanece consultivo pelas limitacoes do SDK. |
 | G-09 | Tratado | A Etapa 2 agrupou registros e preservou a recuperacao de comandos. |

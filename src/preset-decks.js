@@ -44,7 +44,7 @@ export async function loadPresetDecks() {
   });
 
   if (!response.ok) {
-    throw new Error("Nao consegui carregar a biblioteca de pilhas.");
+    throw new Error("Não consegui carregar a biblioteca de pilhas.");
   }
 
   const data = await response.json();
@@ -58,12 +58,12 @@ export function isPresetDeckReady(deck) {
 }
 
 async function buildFace(asset) {
-  return buildPresetFace(asset, "A pilha padrao ainda nao tem verso configurado.");
+  return buildPresetFace(asset, "A pilha padrão ainda não tem verso configurado.");
 }
 
 export async function buildPresetDeckData(deck) {
   if (!isPresetDeckReady(deck)) {
-    throw new Error(`A pilha "${deck?.name || "padrao"}" ainda nao tem cartas configuradas.`);
+    throw new Error(`A pilha "${deck?.name || "padrão"}" ainda não tem cartas configuradas.`);
   }
 
   const [back, cards] = await Promise.all([

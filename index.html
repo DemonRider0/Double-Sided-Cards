@@ -13,7 +13,9 @@
         <img src="./icons/card.svg?v=65" alt="" class="topbar__icon" />
         <div>
           <h1>Cartas Duplas</h1>
-          <p id="connectionStatus" class="status">Carregando painel...</p>
+          <p id="connectionStatus" class="status" role="status" aria-live="polite">
+            Carregando painel...
+          </p>
         </div>
       </header>
 
@@ -44,7 +46,7 @@
       <section class="form">
         <h2>Jogadores e cores</h2>
         <ul id="colorAssignments" class="color-list" aria-live="polite">
-          <li>Aguardando conexao...</li>
+          <li>Aguardando conex&atilde;o...</li>
         </ul>
       </section>
 
@@ -125,7 +127,7 @@
         <h2>Publicar</h2>
         <label class="field">
           <span>URL p&uacute;blica</span>
-          <input id="publicBaseUrl" name="publicBaseUrl" type="url" placeholder="https://usuario.github.io/repositorio" />
+          <input id="publicBaseUrl" name="publicBaseUrl" type="url" placeholder="https://usuario.github.io/repositorio" required />
         </label>
         <p class="field-note">
           Use esta op&ccedil;&atilde;o depois de copiar as imagens locais para o GitHub Pages.
@@ -137,7 +139,9 @@
 
       <section class="form">
         <h2>Mapas salvos</h2>
-        <p id="defaultBoardInfo" class="field-note">Carregando mapas salvos...</p>
+        <p id="defaultBoardInfo" class="field-note" role="status" aria-live="polite">
+          Carregando mapas salvos...
+        </p>
         <div class="action-grid">
           <button class="button button--secondary" type="button" data-create-scene-preset="tutorial" disabled hidden>
             Salvar Tutorial

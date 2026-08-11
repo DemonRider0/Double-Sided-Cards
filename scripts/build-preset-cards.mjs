@@ -1,6 +1,7 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createManifestAsset } from "./image-metadata.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const presetRoot = path.join(root, "assets", "preset-cards");
@@ -128,7 +129,14 @@ async function readGroupFiles(groupId) {
     .sort(filenameCollator.compare);
 }
 
-function mergeGroup(defaultGroup, existingGroup, files) {
+async function getManifestAsset(groupId, filename) {
+  return createManifestAsset(
+    path.join(presetRoot, groupId, filename),
+    publicPath(groupId, filename),
+  );
+}
+
+async function mergeGroup(defaultGroup, existingGroup, files) {
   const specificBacks = new Map();
   const cardFiles = [];
   let backFile = "";
@@ -156,9 +164,9 @@ function mergeGroup(defaultGroup, existingGroup, files) {
     gridWidth: getDefaultGridWidth(defaultGroup, existingGroup),
     layer: getDefaultLayer(defaultGroup, existingGroup),
     origin: getDefaultOrigin(defaultGroup, existingGroup),
-    back: backFile ? publicPath(defaultGroup.id, backFile) : existingGroup?.back || "",
+    back: backFile ? await getManifestAsset(defaultGroup.id, backFile) : existingGroup?.back || "",
     cards: cardFiles.length
-      ? cardFiles.map((file, index) => {
+      ? await Promise.all(cardFiles.map(async (file, index) => {
           const slug =
             path.basename(file, path.extname(file)).toLowerCase().replace(/[^a-z0-9]+/g, "-") ||
             "carta";
@@ -167,15 +175,15 @@ function mergeGroup(defaultGroup, existingGroup, files) {
           const card = {
             id: `${index + 1}-${slug}`,
             name: displayName(file, `Carta ${index + 1}`),
-            front: publicPath(defaultGroup.id, file),
+            front: await getManifestAsset(defaultGroup.id, file),
           };
 
           if (specificBackFile) {
-            card.back = publicPath(defaultGroup.id, specificBackFile);
+            card.back = await getManifestAsset(defaultGroup.id, specificBackFile);
           }
 
           return card;
-        })
+        }))
       : existingGroup?.cards || [],
   };
 }
@@ -186,7 +194,7 @@ const groups = [];
 
 for (const defaultGroup of groupDefaults) {
   const files = await readGroupFiles(defaultGroup.id);
-  groups.push(mergeGroup(defaultGroup, existingById.get(defaultGroup.id), files));
+  groups.push(await mergeGroup(defaultGroup, existingById.get(defaultGroup.id), files));
 }
 
 await writeFile(manifestPath, `${JSON.stringify({ version: 1, groups }, null, 2)}\n`);

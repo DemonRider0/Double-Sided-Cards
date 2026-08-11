@@ -66,7 +66,7 @@ export async function loadPresetCardGroups() {
   });
 
   if (!response.ok) {
-    throw new Error("Nao consegui carregar a biblioteca de cartas.");
+    throw new Error("Não consegui carregar a biblioteca de cartas.");
   }
 
   const data = await response.json();
@@ -80,12 +80,12 @@ export function isPresetCardReady(group, card) {
 }
 
 async function buildFace(asset, label) {
-  return buildPresetFace(asset, `A biblioteca ainda nao tem ${label} configurado.`);
+  return buildPresetFace(asset, `A biblioteca ainda não tem ${label} configurado.`);
 }
 
 export async function buildPresetCardData(group, card) {
   if (!isPresetCardReady(group, card)) {
-    throw new Error(`A carta "${card?.name || "padrao"}" ainda nao tem frente e verso.`);
+    throw new Error(`A carta "${card?.name || "padrão"}" ainda não tem frente e verso.`);
   }
 
   const backAsset = card?.back?.path ? card.back : group.back;

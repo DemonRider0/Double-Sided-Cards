@@ -279,7 +279,7 @@ async function getCurrentSingleSelectedImage(OBR, expectedItemId = null) {
   const item = items[0];
 
   if (!item || item.type !== "IMAGE") {
-    throw new Error("A imagem selecionada nao esta mais disponivel.");
+    throw new Error("A imagem selecionada não está mais disponível.");
   }
 
   return item;
@@ -451,7 +451,7 @@ async function validateSelectedColorToken(OBR, color, selectedTokenId) {
       requestedColor: color,
       explicitColor,
     });
-    throw new Error("O identificador selecionado nao possui uma cor valida.");
+    throw new Error("O identificador selecionado não possui uma cor válida.");
   }
 }
 
@@ -468,7 +468,7 @@ export async function setActivePlayerColor(OBR, colorId, options = {}) {
 
   if (!color) {
     console.warn("Tentativa de selecionar uma cor invalida", { colorId });
-    throw new Error("Escolha uma cor valida.");
+    throw new Error("Escolha uma cor válida.");
   }
 
   return withPlayerColorOperation(async () => {
@@ -485,7 +485,7 @@ export async function setActivePlayerColor(OBR, colorId, options = {}) {
         claimedBy: claimedBy.id,
       });
       throw new Error(
-        `${getColorLabel(color)} ja esta em uso por ${claimedBy.name || "outro jogador"}.`,
+        `${getColorLabel(color)} já está em uso por ${claimedBy.name || "outro jogador"}.`,
       );
     }
 
@@ -509,7 +509,7 @@ export async function setActivePlayerColor(OBR, colorId, options = {}) {
         } catch (rollbackError) {
           console.error("Nao consegui restaurar a cor anterior do jogador", rollbackError);
           throw new Error(
-            "A cor entrou em conflito e nao consegui restaurar o estado anterior.",
+            "A cor entrou em conflito e não consegui restaurar o estado anterior.",
           );
         }
       }
@@ -535,7 +535,7 @@ export async function markSelectedTokenColor(OBR, colorId, fallbackSelection = [
   const color = normalizePlayerColor(colorId);
 
   if (!color) {
-    throw new Error("Escolha uma cor valida.");
+    throw new Error("Escolha uma cor válida.");
   }
 
   const item = await getSingleSelectedImage(OBR, fallbackSelection);
@@ -562,7 +562,7 @@ export async function markSelectedCardsCategory(OBR, categoryId, fallbackSelecti
 
   if (!category) {
     console.warn("Tentativa de marcar uma categoria invalida", { categoryId });
-    throw new Error("Escolha uma categoria valida.");
+    throw new Error("Escolha uma categoria válida.");
   }
 
   const items = (await getSelectedItems(OBR, fallbackSelection)).filter(
@@ -728,10 +728,10 @@ async function clearItemAssignmentReferences(OBR, itemId, maxAttempts = 2) {
       return references.length;
     }
 
-    lastError = new Error("A referencia de slot reapareceu durante a limpeza.");
+    lastError = new Error("A referência de slot reapareceu durante a limpeza.");
   }
 
-  throw lastError || new Error("Nao consegui limpar a referencia do slot.");
+  throw lastError || new Error("Não consegui limpar a referência do slot.");
 }
 
 export async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelection = []) {
@@ -739,7 +739,7 @@ export async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelec
 
   if (!category) {
     console.warn("Categoria invalida durante o posicionamento", { categoryId });
-    throw new Error("Escolha uma categoria valida.");
+    throw new Error("Escolha uma categoria válida.");
   }
 
   const selectedItem = await getSingleSelectedImage(OBR, fallbackSelection);
@@ -749,7 +749,7 @@ export async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelec
       itemId: selectedItem.id,
       category,
     });
-    throw new Error("A carta selecionada nao possui uma categoria valida.");
+    throw new Error("A carta selecionada não possui uma categoria válida.");
   }
 
   const [initialState, color] = await Promise.all([
@@ -774,7 +774,7 @@ export async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelec
       ownerColor: foreignAssignment.color,
       requestedColor: color,
     });
-    throw new Error("Essa carta ja pertence ao espaco de outro jogador.");
+    throw new Error("Essa carta já pertence ao espaço de outro jogador.");
   }
 
   if (initialReferences.length) {
@@ -808,7 +808,7 @@ export async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelec
     ]);
 
     if (currentItem.id !== selectedItem.id) {
-      throw new Error("A selecao mudou antes de posicionar a carta.");
+      throw new Error("A seleção mudou antes de posicionar a carta.");
     }
 
     if (currentColor !== color) {
@@ -828,7 +828,7 @@ export async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelec
       console.warn("A carta foi movida antes de ocupar o slot", {
         itemId: selectedItem.id,
       });
-      throw new Error("A carta foi alterada por outra acao. Tente novamente.");
+      throw new Error("A carta foi alterada por outra ação. Tente novamente.");
     }
 
     const currentSlot = currentState.slots[color]?.[category];
@@ -844,14 +844,14 @@ export async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelec
         expectedPreviousItemId,
         currentPreviousItemId,
       });
-      throw new Error("Esse slot foi alterado por outra acao. Tente novamente.");
+      throw new Error("Esse slot foi alterado por outra ação. Tente novamente.");
     }
 
     const currentReferences = getAssignmentReferences(currentState, currentItem.id);
     const currentForeignAssignment = getForeignAssignment(currentReferences, color);
 
     if (currentForeignAssignment) {
-      throw new Error("Essa carta ja pertence ao espaco de outro jogador.");
+      throw new Error("Essa carta já pertence ao espaço de outro jogador.");
     }
 
     if (currentReferences.length) {
@@ -871,7 +871,7 @@ export async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelec
       await setSceneState(OBR, currentState);
     } catch (error) {
       console.error("Falha ao reservar o slot na metadata da cena", error);
-      throw new Error("Nao consegui reservar esse slot. Tente novamente.");
+      throw new Error("Não consegui reservar esse slot. Tente novamente.");
     }
 
     let reservedState = await getSceneState(OBR);
@@ -891,7 +891,7 @@ export async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelec
       ).catch((error) => {
         console.error("Falha no rollback da reserva de slot", error);
       });
-      throw new Error("O slot entrou em conflito com outra acao. Tente novamente.");
+      throw new Error("O slot entrou em conflito com outra ação. Tente novamente.");
     }
 
     let latestItem;
@@ -937,7 +937,7 @@ export async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelec
       ).catch((error) => {
         console.error("Falha no rollback da reserva invalidada", error);
       });
-      throw new Error("A carta ou o slot mudou durante a operacao. Tente novamente.");
+      throw new Error("A carta ou o slot mudou durante a operação. Tente novamente.");
     }
 
     const refreshedItems = await safeGetItems(OBR, [
@@ -958,7 +958,7 @@ export async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelec
       ).catch((error) => {
         console.error("Falha no rollback apos a carta desaparecer", error);
       });
-      throw new Error("A carta selecionada nao esta mais disponivel.");
+      throw new Error("A carta selecionada não está mais disponível.");
     }
 
     const previousItem = expectedPreviousItemId
@@ -1034,7 +1034,7 @@ export async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelec
         });
       }
 
-      throw new Error("Nao consegui posicionar a carta; o slot foi restaurado.");
+      throw new Error("Não consegui posicionar a carta; o slot foi restaurado.");
     }
 
     const finalState = await getSceneState(OBR);
@@ -1062,7 +1062,7 @@ export async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelec
       }).catch((error) => {
         console.error("Falha ao reconciliar um conflito posterior de slot", error);
       });
-      throw new Error("O slot mudou durante a operacao. A carta foi reconciliada.");
+      throw new Error("O slot mudou durante a operação. A carta foi reconciliada.");
     }
 
     return {
@@ -1097,7 +1097,7 @@ export async function returnSelectedCardToOrigin(OBR, fallbackSelection = []) {
       currentSelection.length !== 1 ||
       currentSelection[0] !== itemId
     ) {
-      throw new Error("A selecao mudou antes de devolver a carta.");
+      throw new Error("A seleção mudou antes de devolver a carta.");
     }
 
     const [currentItems, currentState] = await Promise.all([
@@ -1109,7 +1109,7 @@ export async function returnSelectedCardToOrigin(OBR, fallbackSelection = []) {
 
     if (!currentItem) {
       if (!currentReferences.length) {
-        throw new Error("A imagem selecionada nao esta mais disponivel.");
+        throw new Error("A imagem selecionada não está mais disponível.");
       }
 
       console.warn("Item ausente; limpando somente referencias exatas de slot", {
@@ -1128,7 +1128,7 @@ export async function returnSelectedCardToOrigin(OBR, fallbackSelection = []) {
 
     if (!origin) {
       console.warn("Carta sem origem registrada", { itemId });
-      throw new Error("Nao encontrei a posicao original dessa carta.");
+      throw new Error("Não encontrei a posição original dessa carta.");
     }
 
     const alreadyAtOrigin =
@@ -1146,7 +1146,7 @@ export async function returnSelectedCardToOrigin(OBR, fallbackSelection = []) {
       });
     } catch (error) {
       console.error("Falha ao mover ou desbloquear a carta para a origem", error);
-      throw new Error("Nao consegui devolver a carta para a origem.");
+      throw new Error("Não consegui devolver a carta para a origem.");
     }
 
     try {
@@ -1157,7 +1157,7 @@ export async function returnSelectedCardToOrigin(OBR, fallbackSelection = []) {
         error,
       });
       throw new Error(
-        "A carta voltou para a origem, mas nao consegui limpar o slot. Tente novamente.",
+        "A carta voltou para a origem, mas não consegui limpar o slot. Tente novamente.",
       );
     }
 

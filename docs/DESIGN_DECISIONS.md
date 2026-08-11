@@ -1,6 +1,6 @@
-# Design Decisions - Cartas Duplas
+# Decisões de design — Cartas Duplas
 
-Este documento registra decisoes tecnicas importantes. Uma decisao so deve ser alterada se DemonRider pedir explicitamente ou se houver uma correcao tecnica bem justificada.
+Este documento registra decisões técnicas importantes. Uma decisão só deve ser alterada se DemonRider pedir explicitamente ou se houver uma correção técnica bem justificada.
 
 ## 1. Usar imagens 2D em vez de figuras 3D
 

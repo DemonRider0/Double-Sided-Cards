@@ -9,6 +9,7 @@
   --accent-strong: #b52a22;
   --danger: #a12b2b;
   --success: #b7342b;
+  --warning: #7a4d00;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
@@ -72,6 +73,7 @@ h2 {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .status[data-connected="true"] {
@@ -116,6 +118,7 @@ h2 {
   font-size: 13px;
   font-weight: 650;
   line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .field {
@@ -188,7 +191,7 @@ textarea {
 
 .custom-select[data-open="true"] .custom-select__button {
   border-color: var(--accent-strong);
-  outline: 2px solid rgba(181, 42, 34, 0.35);
+  outline: 2px solid var(--accent-strong);
   outline-offset: 1px;
 }
 
@@ -229,7 +232,7 @@ input:focus,
 textarea:focus,
 select:focus,
 button:focus-visible {
-  outline: 2px solid rgba(181, 42, 34, 0.4);
+  outline: 2px solid var(--accent-strong);
   outline-offset: 2px;
 }
 
@@ -356,6 +359,7 @@ figcaption {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .message[data-tone="error"] {
@@ -367,7 +371,14 @@ figcaption {
 }
 
 .message[data-tone="warning"] {
-  color: #7a4d00;
+  color: var(--warning);
+}
+
+@media (max-width: 280px) {
+  .row,
+  .action-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -381,5 +392,6 @@ figcaption {
     --accent-strong: #f05245;
     --danger: #ff8d85;
     --success: #ff7669;
+    --warning: #f0b45c;
   }
 }

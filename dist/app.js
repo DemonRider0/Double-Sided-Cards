@@ -94,7 +94,12 @@ function cloneSerializableValue(value, seen) {
       const clonedEntry = cloneSerializableValue(entry, seen);
 
       if (typeof clonedEntry !== "undefined") {
-        clone[key] = clonedEntry;
+        Object.defineProperty(clone, key, {
+          value: clonedEntry,
+          enumerable: true,
+          configurable: true,
+          writable: true,
+        });
       }
     }
 
@@ -911,15 +916,11 @@ function cloneDeckCard(card) {
 }
 
 function cloneUnknownFields(value, knownFields) {
-  const unknownFields = {};
-
-  for (const [key, entry] of Object.entries(value || {})) {
-    if (!knownFields.has(key)) {
-      unknownFields[key] = cloneSerializable(entry);
-    }
-  }
-
-  return unknownFields;
+  return Object.fromEntries(
+    Object.entries(value || {})
+      .filter(([key]) => !knownFields.has(key))
+      .map(([key, entry]) => [key, cloneSerializable(entry)]),
+  );
 }
 
 function cardsMatch(leftCards, rightCards) {
@@ -964,7 +965,7 @@ function requireNormalizedDeck(item, operation) {
   const metadata = getNormalizedDeck(item, operation, true);
 
   if (!metadata) {
-    throw new Error(`Esta pilha possui dados incompletos e nao pode ser ${operation}.`);
+    throw new Error(`Esta pilha possui dados incompletos e não pode ser ${operation}.`);
   }
 
   return metadata;
@@ -1149,7 +1150,7 @@ function createMissionDeckItem(buildImage, selectedCards, shuffledRecords) {
   );
 
   if (!firstMetadata) {
-    throw new Error("A primeira carta da pilha de missao possui dados incompletos.");
+    throw new Error("A primeira carta da pilha de missão possui dados incompletos.");
   }
 
   const cards = shuffledRecords.map((record) => cloneDeckCard(record.entry));
@@ -1223,7 +1224,7 @@ async function getItemsByIdsForMission(OBR, itemIds, stage, operation = null) {
     return await OBR.scene.items.getItems(itemIds);
   } catch (error) {
     logMissionDeckFailure(stage, error, operation);
-    throw new Error("Nao consegui reler as cartas da pilha de missao.");
+    throw new Error("Não consegui reler as cartas da pilha de missão.");
   }
 }
 
@@ -1258,7 +1259,7 @@ async function readMissionDeck(OBR, deckId, operation, stage) {
     return deck || null;
   } catch (error) {
     logMissionDeckFailure(stage, error, operation);
-    throw new Error("Nao consegui verificar a pilha de missao criada.");
+    throw new Error("Não consegui verificar a pilha de missão criada.");
   }
 }
 
@@ -1373,7 +1374,7 @@ async function reconcileMissionSourceDeletion(OBR, operation, deleteError = null
       ...summarizeMissionOperation(operation, { remainingSourceIds }),
     });
     throw new Error(
-      "Nao consegui apagar todas as cartas e a pilha ja foi alterada; preservei o estado mais recente.",
+      "Não consegui apagar todas as cartas e a pilha já foi alterada; preservei o estado mais recente.",
     );
   }
 
@@ -1386,12 +1387,12 @@ async function reconcileMissionSourceDeletion(OBR, operation, deleteError = null
 
     if (rolledBack) {
       throw new Error(
-        "Nao consegui apagar as cartas originais; a nova pilha foi removida com seguranca.",
+        "Não consegui apagar as cartas originais; a nova pilha foi removida com segurança.",
       );
     }
 
     throw new Error(
-      "Nao consegui apagar as cartas originais nem remover a nova pilha automaticamente.",
+      "Não consegui apagar as cartas originais nem remover a nova pilha automaticamente.",
     );
   }
 
@@ -1414,12 +1415,12 @@ async function reconcileMissionSourceDeletion(OBR, operation, deleteError = null
       ...summarizeMissionOperation(operation, { remainingSourceIds }),
     });
     throw new Error(
-      "Algumas cartas nao foram apagadas; a pilha foi ajustada para evitar duplicacao.",
+      "Algumas cartas não foram apagadas; a pilha foi ajustada para evitar duplicação.",
     );
   }
 
   throw new Error(
-    "Algumas cartas nao foram apagadas e nao foi seguro ajustar a pilha automaticamente.",
+    "Algumas cartas não foram apagadas e não foi seguro ajustar a pilha automaticamente.",
   );
 }
 
@@ -1442,11 +1443,11 @@ async function addMissionDeckOrRollback(OBR, operation) {
     }
 
     if (removed) {
-      throw new Error("Nao consegui criar a pilha de missao; as cartas foram preservadas.");
+      throw new Error("Não consegui criar a pilha de missão; as cartas foram preservadas.");
     }
 
     throw new Error(
-      "A criacao da pilha falhou e nao foi seguro remover uma pilha residual automaticamente.",
+      "A criação da pilha falhou e não foi seguro remover uma pilha residual automaticamente.",
     );
   }
 
@@ -1458,7 +1459,7 @@ async function addMissionDeckOrRollback(OBR, operation) {
   );
 
   if (!createdDeck || !missionDeckMatchesInitial(createdDeck, operation)) {
-    throw new Error("Nao consegui confirmar a pilha de missao criada.");
+    throw new Error("Não consegui confirmar a pilha de missão criada.");
   }
 }
 
@@ -1469,7 +1470,7 @@ async function createMissionDeckFromSelection(OBR, buildImage) {
     selection = (await OBR.player.getSelection()) || [];
   } catch (error) {
     logMissionDeckFailure("leitura da selecao", error, null);
-    throw new Error("Nao consegui ler a selecao atual.");
+    throw new Error("Não consegui ler a seleção atual.");
   }
 
   if (selection.length !== 5 || new Set(selection).size !== 5) {
@@ -1480,7 +1481,7 @@ async function createMissionDeckFromSelection(OBR, buildImage) {
   const operationKey = missionCreationKey(sourceIds);
 
   if (activeMissionDeckCreations.has(operationKey)) {
-    throw new Error("Esta pilha de missao ja esta sendo criada.");
+    throw new Error("Esta pilha de missão já está sendo criada.");
   }
 
   activeMissionDeckCreations.add(operationKey);
@@ -1499,11 +1500,11 @@ async function createMissionDeckFromSelection(OBR, buildImage) {
       currentSelection = (await OBR.player.getSelection()) || [];
     } catch (error) {
       logMissionDeckFailure("confirmacao da selecao", error, { sourceIds });
-      throw new Error("Nao consegui confirmar a selecao atual.");
+      throw new Error("Não consegui confirmar a seleção atual.");
     }
 
     if (!sameItemIds(sourceIds, currentSelection)) {
-      throw new Error("A selecao mudou; selecione novamente as 5 cartas.");
+      throw new Error("A seleção mudou; selecione novamente as 5 cartas.");
     }
 
     const currentItems = await getItemsByIdsForMission(
@@ -1519,7 +1520,7 @@ async function createMissionDeckFromSelection(OBR, buildImage) {
         const entry = createMissionDeckEntry(item);
 
         if (!entry) {
-          throw new Error("Uma das cartas selecionadas deixou de ser compativel.");
+          throw new Error("Uma das cartas selecionadas deixou de ser compatível.");
         }
 
         return {
@@ -1531,7 +1532,7 @@ async function createMissionDeckFromSelection(OBR, buildImage) {
       builtDeck = createMissionDeckItem(buildImage, selectedCards, shuffledRecords);
     } catch (error) {
       logMissionDeckFailure("serializacao ou montagem da pilha", error, { sourceIds });
-      throw new Error("Nao consegui preparar os dados da pilha de missao.");
+      throw new Error("Não consegui preparar os dados da pilha de missão.");
     }
 
     const operation = {
@@ -1763,21 +1764,21 @@ async function drawSingleDeck(OBR, buildImage, deckId, drawOffset, options) {
       const rollbackSucceeded = await rollbackDrawnCard(OBR, operation);
 
       if (rollbackSucceeded) {
-        throw new Error("Nao consegui montar a carta; a pilha foi restaurada.");
+        throw new Error("Não consegui montar a carta; a pilha foi restaurada.");
       }
     } catch (rollbackError) {
-      if (rollbackError.message === "Nao consegui montar a carta; a pilha foi restaurada.") {
+      if (rollbackError.message === "Não consegui montar a carta; a pilha foi restaurada.") {
         throw rollbackError;
       }
 
       console.warn("Nao consegui restaurar a pilha apos falha ao montar carta", rollbackError);
       throw new Error(
-        "Nao consegui montar a carta e tambem nao consegui restaurar a pilha automaticamente.",
+        "Não consegui montar a carta e também não consegui restaurar a pilha automaticamente.",
       );
     }
 
     throw new Error(
-      "Nao consegui montar a carta; a pilha mudou depois da compra e nao foi alterada de novo.",
+      "Não consegui montar a carta; a pilha mudou depois da compra e não foi alterada de novo.",
     );
   }
 
@@ -1793,17 +1794,17 @@ async function drawSingleDeck(OBR, buildImage, deckId, drawOffset, options) {
     } catch (rollbackError) {
       console.warn("Nao consegui restaurar a pilha apos falha ao comprar carta", rollbackError);
       throw new Error(
-        "Nao consegui criar a carta e tambem nao consegui restaurar a pilha automaticamente.",
+        "Não consegui criar a carta e também não consegui restaurar a pilha automaticamente.",
       );
     }
 
     if (rollbackSucceeded) {
-      throw new Error("Nao consegui criar a carta; a pilha foi restaurada.");
+      throw new Error("Não consegui criar a carta; a pilha foi restaurada.");
     }
 
     console.warn("Compra parcial sem rollback seguro", error);
     throw new Error(
-      "Nao consegui criar a carta; a pilha mudou depois da compra e nao foi alterada de novo.",
+      "Não consegui criar a carta; a pilha mudou depois da compra e não foi alterada de novo.",
     );
   }
 
@@ -1814,7 +1815,7 @@ async function drawSingleDeck(OBR, buildImage, deckId, drawOffset, options) {
     } catch (error) {
       console.warn("Carta comprada, mas nao consegui apagar a pilha temporaria vazia", error);
       await OBR.notification
-        .show("Carta comprada, mas nao consegui apagar a pilha vazia.", "WARNING")
+        .show("Carta comprada, mas não consegui apagar a pilha vazia.", "WARNING")
         .catch(() => {});
     }
   }
@@ -2008,7 +2009,7 @@ async function readCardById(OBR, cardId, stage) {
     return item || null;
   } catch (error) {
     logReturnFailure(`releitura da carta (${stage})`, error, { cardId });
-    throw new Error("Nao consegui reler a carta para devolver.");
+    throw new Error("Não consegui reler a carta para devolver.");
   }
 }
 
@@ -2018,7 +2019,7 @@ async function readDeckById(OBR, deckId, stage) {
     return item || null;
   } catch (error) {
     logReturnFailure(`releitura da pilha (${stage})`, error, { deckId });
-    throw new Error("Nao consegui reler a pilha de origem.");
+    throw new Error("Não consegui reler a pilha de origem.");
   }
 }
 
@@ -2130,7 +2131,7 @@ async function deleteReturnedCardOrReconcile(OBR, operation) {
   } catch (rollbackError) {
     logReturnFailure("rollback", rollbackError, operation);
     throw new Error(
-      "Nao consegui apagar a carta e tambem nao consegui restaurar a pilha automaticamente.",
+      "Não consegui apagar a carta e também não consegui restaurar a pilha automaticamente.",
     );
   }
 
@@ -2139,7 +2140,7 @@ async function deleteReturnedCardOrReconcile(OBR, operation) {
       cardId: operation.cardId,
       deckId: operation.deckId,
     });
-    throw new Error("Nao consegui apagar a carta; a pilha foi restaurada.");
+    throw new Error("Não consegui apagar a carta; a pilha foi restaurada.");
   }
 
   console.warn("Rollback recusado porque a pilha mudou apos a devolucao", {
@@ -2147,7 +2148,7 @@ async function deleteReturnedCardOrReconcile(OBR, operation) {
     deckId: operation.deckId,
   });
   throw new Error(
-    "Nao consegui apagar a carta; a pilha mudou depois da devolucao e nao foi alterada de novo.",
+    "Não consegui apagar a carta; a pilha mudou depois da devolução e não foi alterada de novo.",
   );
 }
 
@@ -2160,7 +2161,7 @@ async function returnSingleCardToDeck(OBR, cardId) {
   }
 
   if (!getNormalizedCard(initialCard, "devolucao", true)) {
-    throw new Error("Esta carta possui dados incompletos e nao pode ser devolvida.");
+    throw new Error("Esta carta possui dados incompletos e não pode ser devolvida.");
   }
 
   const sourceDeckId = getReturnSourceDeckId(initialCard);
@@ -2184,7 +2185,7 @@ async function returnSingleCardToDeck(OBR, cardId) {
     const cardMetadata = getNormalizedCard(currentCard, "devolucao", true);
 
     if (!cardMetadata) {
-      throw new Error("Esta carta possui dados incompletos e nao pode ser devolvida.");
+      throw new Error("Esta carta possui dados incompletos e não pode ser devolvida.");
     }
 
     const currentSourceDeckId = getReturnSourceDeckId(currentCard);
@@ -2209,7 +2210,7 @@ async function returnSingleCardToDeck(OBR, cardId) {
     }
 
     if (!getNormalizedDeck(sourceDeck, "devolucao", true)) {
-      throw new Error("A pilha de origem possui dados incompletos e nao aceita devolucao.");
+      throw new Error("A pilha de origem possui dados incompletos e não aceita devolução.");
     }
 
     let operation = null;
@@ -2218,7 +2219,7 @@ async function returnSingleCardToDeck(OBR, cardId) {
       operation = await applyReturnToDeck(OBR, currentCard, sourceDeckId);
     } catch (error) {
       logReturnFailure("updateItems", error, { cardId, deckId: sourceDeckId });
-      throw new Error("Nao consegui atualizar a pilha para devolver a carta.");
+      throw new Error("Não consegui atualizar a pilha para devolver a carta.");
     }
 
     if (!operation) {
@@ -2514,10 +2515,10 @@ async function clearItemAssignmentReferences(OBR, itemId, maxAttempts = 2) {
       return references.length;
     }
 
-    lastError = new Error("A referencia de slot reapareceu durante a limpeza.");
+    lastError = new Error("A referência de slot reapareceu durante a limpeza.");
   }
 
-  throw lastError || new Error("Nao consegui limpar a referencia do slot.");
+  throw lastError || new Error("Não consegui limpar a referência do slot.");
 }
 
 async function returnSelectedCardToOrigin(OBR, fallbackSelection = []) {
@@ -2544,7 +2545,7 @@ async function returnSelectedCardToOrigin(OBR, fallbackSelection = []) {
       currentSelection.length !== 1 ||
       currentSelection[0] !== itemId
     ) {
-      throw new Error("A selecao mudou antes de devolver a carta.");
+      throw new Error("A seleção mudou antes de devolver a carta.");
     }
 
     const [currentItems, currentState] = await Promise.all([
@@ -2556,7 +2557,7 @@ async function returnSelectedCardToOrigin(OBR, fallbackSelection = []) {
 
     if (!currentItem) {
       if (!currentReferences.length) {
-        throw new Error("A imagem selecionada nao esta mais disponivel.");
+        throw new Error("A imagem selecionada não está mais disponível.");
       }
 
       console.warn("Item ausente; limpando somente referencias exatas de slot", {
@@ -2575,7 +2576,7 @@ async function returnSelectedCardToOrigin(OBR, fallbackSelection = []) {
 
     if (!origin) {
       console.warn("Carta sem origem registrada", { itemId });
-      throw new Error("Nao encontrei a posicao original dessa carta.");
+      throw new Error("Não encontrei a posição original dessa carta.");
     }
 
     const alreadyAtOrigin =
@@ -2593,7 +2594,7 @@ async function returnSelectedCardToOrigin(OBR, fallbackSelection = []) {
       });
     } catch (error) {
       console.error("Falha ao mover ou desbloquear a carta para a origem", error);
-      throw new Error("Nao consegui devolver a carta para a origem.");
+      throw new Error("Não consegui devolver a carta para a origem.");
     }
 
     try {
@@ -2604,7 +2605,7 @@ async function returnSelectedCardToOrigin(OBR, fallbackSelection = []) {
         error,
       });
       throw new Error(
-        "A carta voltou para a origem, mas nao consegui limpar o slot. Tente novamente.",
+        "A carta voltou para a origem, mas não consegui limpar o slot. Tente novamente.",
       );
     }
 
@@ -2716,7 +2717,7 @@ function requireNormalizedCard(item) {
       code: result.code,
       face: result.face,
     });
-    throw new Error("Esta carta possui dados incompletos e nao pode ser virada.");
+    throw new Error("Esta carta possui dados incompletos e não pode ser virada.");
   }
 
   return result.value;
@@ -2947,7 +2948,7 @@ async function loadPresetDecks() {
   });
 
   if (!response.ok) {
-    throw new Error("Nao consegui carregar a biblioteca de pilhas.");
+    throw new Error("Não consegui carregar a biblioteca de pilhas.");
   }
 
   const data = await response.json();
@@ -2961,12 +2962,12 @@ function isPresetDeckReady(deck) {
 }
 
 async function buildFace$1(asset) {
-  return buildPresetFace(asset, "A pilha padrao ainda nao tem verso configurado.");
+  return buildPresetFace(asset, "A pilha padrão ainda não tem verso configurado.");
 }
 
 async function buildPresetDeckData(deck) {
   if (!isPresetDeckReady(deck)) {
-    throw new Error(`A pilha "${deck?.name || "padrao"}" ainda nao tem cartas configuradas.`);
+    throw new Error(`A pilha "${deck?.name || "padrão"}" ainda não tem cartas configuradas.`);
   }
 
   const [back, cards] = await Promise.all([
@@ -3048,7 +3049,7 @@ async function loadPresetCardGroups() {
   });
 
   if (!response.ok) {
-    throw new Error("Nao consegui carregar a biblioteca de cartas.");
+    throw new Error("Não consegui carregar a biblioteca de cartas.");
   }
 
   const data = await response.json();
@@ -3062,12 +3063,12 @@ function isPresetCardReady(group, card) {
 }
 
 async function buildFace(asset, label) {
-  return buildPresetFace(asset, `A biblioteca ainda nao tem ${label} configurado.`);
+  return buildPresetFace(asset, `A biblioteca ainda não tem ${label} configurado.`);
 }
 
 async function buildPresetCardData(group, card) {
   if (!isPresetCardReady(group, card)) {
-    throw new Error(`A carta "${card?.name || "padrao"}" ainda nao tem frente e verso.`);
+    throw new Error(`A carta "${card?.name || "padrão"}" ainda não tem frente e verso.`);
   }
 
   const backAsset = card?.back?.path ? card.back : group.back;
@@ -3090,6 +3091,7 @@ async function buildPresetCardData(group, card) {
 const PRESET_VERSION = 1;
 const ITEM_CHUNK_SIZE = 80;
 const RESTORE_MARKER_VERSION = 1;
+const SCENE_PRESET_INDEX_URL = "./assets/scene-presets/index.json";
 const SCENE_RESTORE_MARKER_KEY = `${EXTENSION_ID}/scene-restore`;
 const SCENE_PRESETS = [
   {
@@ -3101,7 +3103,8 @@ const SCENE_PRESETS = [
   {
     id: "missao-0-5",
     name: "Missao 0.5 (nao oficial)",
-    restoreLabel: "Restaurar a Missao 0.5 (nao oficial)",
+    label: "Missão 0.5 (não oficial)",
+    restoreLabel: "Restaurar a Missão 0.5 (não oficial)",
     url: "./assets/scene-presets/missao-0-5.json",
   },
 ];
@@ -3201,17 +3204,17 @@ function assertSerializable(value, path = "preset", ancestors = new Set()) {
 
   if (typeof value === "number") {
     if (!Number.isFinite(value)) {
-      throw new Error(`${path} possui um numero nao finito.`);
+      throw new Error(`${path} possui um número não finito.`);
     }
     return;
   }
 
   if (typeof value !== "object") {
-    throw new Error(`${path} possui um valor nao serializavel.`);
+    throw new Error(`${path} possui um valor não serializável.`);
   }
 
   if (ancestors.has(value)) {
-    throw new Error(`${path} possui uma referencia circular.`);
+    throw new Error(`${path} possui uma referência circular.`);
   }
 
   const prototype = Object.getPrototypeOf(value);
@@ -3220,7 +3223,7 @@ function assertSerializable(value, path = "preset", ancestors = new Set()) {
   }
 
   if (Object.getOwnPropertySymbols(value).length) {
-    throw new Error(`${path} possui chaves nao serializaveis.`);
+    throw new Error(`${path} possui chaves não serializáveis.`);
   }
 
   ancestors.add(value);
@@ -3228,7 +3231,7 @@ function assertSerializable(value, path = "preset", ancestors = new Set()) {
     if (Array.isArray(value)) {
       for (let index = 0; index < value.length; index += 1) {
         if (!(index in value)) {
-          throw new Error(`${path}[${index}] esta ausente.`);
+          throw new Error(`${path}[${index}] está ausente.`);
         }
         assertSerializable(value[index], `${path}[${index}]`, ancestors);
       }
@@ -3236,6 +3239,10 @@ function assertSerializable(value, path = "preset", ancestors = new Set()) {
     }
 
     for (const [key, entry] of Object.entries(value)) {
+      if (key === "__proto__") {
+        throw new Error(`${path} possui uma chave que pode alterar prototipos.`);
+      }
+
       assertSerializable(entry, `${path}.${key}`, ancestors);
     }
   } finally {
@@ -3265,11 +3272,11 @@ function isForbiddenLocalReference(value) {
 function validatePublicReferences(value, path = "preset", key = "") {
   if (typeof value === "string") {
     if (isForbiddenLocalReference(value)) {
-      throw new Error(`${path} aponta para um endereco local.`);
+      throw new Error(`${path} aponta para um endereço local.`);
     }
 
     if (key.toLowerCase() === "url" && !/^https?:\/\//i.test(value)) {
-      throw new Error(`${path} nao possui uma URL publica valida.`);
+      throw new Error(`${path} não possui uma URL pública válida.`);
     }
     return;
   }
@@ -3293,7 +3300,7 @@ function validatePresetBoardIntegrity(preset, itemIds) {
   }
 
   if (!isRecord(board)) {
-    throw new Error("A metadata de selecao do mapa e invalida.");
+    throw new Error("A metadata de seleção do mapa é inválida.");
   }
 
   for (const categories of Object.values(board.assigned || {})) {
@@ -3318,7 +3325,7 @@ function validatePresetBoardIntegrity(preset, itemIds) {
 
   for (const color of PLAYER_COLORS) {
     if (!explicitColors.has(color.id)) {
-      throw new Error(`O mapa nao possui identificador explicito para ${color.label}.`);
+      throw new Error(`O mapa não possui identificador explícito para ${color.label}.`);
     }
   }
 }
@@ -3331,7 +3338,7 @@ function validateCardAndDeckMetadata(item) {
       key.endsWith("/card") ||
       key.endsWith("/deck");
     if (isCardOrDeck && !isRecord(value)) {
-      throw new Error(`O item ${item.id} possui metadata de carta ou pilha invalida.`);
+      throw new Error(`O item ${item.id} possui metadata de carta ou pilha inválida.`);
     }
   }
 }
@@ -3343,7 +3350,7 @@ function validateScenePreset(
   try {
     assertSerializable(value);
   } catch (error) {
-    throw new SceneRestoreError("O mapa salvo possui dados nao serializaveis.", {
+    throw new SceneRestoreError("O mapa salvo possui dados não serializáveis.", {
       code: "INVALID_PRESET",
       stage: "validation",
       cause: error,
@@ -3357,14 +3364,14 @@ function validateScenePreset(
     !value.items.length ||
     !isRecord(value.metadata)
   ) {
-    throw new SceneRestoreError("O mapa salvo possui uma estrutura invalida.", {
+    throw new SceneRestoreError("O mapa salvo possui uma estrutura inválida.", {
       code: "INVALID_PRESET",
       stage: "validation",
     });
   }
 
   if (Object.prototype.hasOwnProperty.call(value.metadata, SCENE_RESTORE_MARKER_KEY)) {
-    throw new SceneRestoreError("O mapa salvo contem metadata interna de restauracao.", {
+    throw new SceneRestoreError("O mapa salvo contém metadata interna de restauração.", {
       code: "INVALID_PRESET",
       stage: "validation",
     });
@@ -3374,7 +3381,7 @@ function validateScenePreset(
     value.itemCount !== undefined &&
     (!Number.isInteger(value.itemCount) || value.itemCount !== value.items.length)
   ) {
-    throw new SceneRestoreError("A contagem do mapa salvo nao corresponde aos itens.", {
+    throw new SceneRestoreError("A contagem do mapa salvo não corresponde aos itens.", {
       code: "INVALID_PRESET",
       stage: "validation",
     });
@@ -3383,7 +3390,7 @@ function validateScenePreset(
   const ids = new Set();
   for (const [index, item] of value.items.entries()) {
     if (!isRecord(item) || typeof item.id !== "string" || !item.id.trim()) {
-      throw new SceneRestoreError(`O item ${index + 1} do mapa nao possui ID valido.`, {
+      throw new SceneRestoreError(`O item ${index + 1} do mapa não possui ID válido.`, {
         code: "INVALID_PRESET",
         stage: "validation",
       });
@@ -3395,7 +3402,7 @@ function validateScenePreset(
       });
     }
     if (typeof item.type !== "string" || !item.type.trim() || !isRecord(item.metadata)) {
-      throw new SceneRestoreError(`O item ${item.id} possui estrutura invalida.`, {
+      throw new SceneRestoreError(`O item ${item.id} possui estrutura inválida.`, {
         code: "INVALID_PRESET",
         stage: "validation",
       });
@@ -3411,7 +3418,7 @@ function validateScenePreset(
       validatePublicReferences(value);
     }
   } catch (error) {
-    throw new SceneRestoreError(error.message || "O mapa salvo nao passou pela validacao.", {
+    throw new SceneRestoreError(error.message || "O mapa salvo não passou pela validação.", {
       code: "INVALID_PRESET",
       stage: "validation",
       cause: error,
@@ -3500,12 +3507,49 @@ async function loadScenePreset(definition) {
 }
 
 async function loadScenePresetEntries() {
-  return Promise.all(
-    SCENE_PRESETS.map(async (definition) => ({
+  let summaries = [];
+  let loadError = null;
+
+  try {
+    const response = await fetch(`${SCENE_PRESET_INDEX_URL}?v=${Date.now()}`, {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      throw new Error(`Resposta HTTP ${response.status}.`);
+    }
+
+    const index = await response.json();
+    if (index?.version !== PRESET_VERSION || !Array.isArray(index.presets)) {
+      throw new Error("Índice de mapas inválido.");
+    }
+    summaries = index.presets;
+  } catch (error) {
+    console.error("[scene-preset] Falha ao carregar o indice de mapas.", error);
+    loadError = "Não consegui carregar os mapas salvos. Reabra o painel para tentar novamente.";
+  }
+
+  return SCENE_PRESETS.map((definition) => {
+    const summary = summaries.find(
+      (entry) =>
+        entry?.id === definition.id &&
+        entry.name === definition.name &&
+        typeof entry.savedAt === "string" &&
+        Number.isInteger(entry.itemCount) &&
+        entry.itemCount > 0,
+    );
+
+    return {
       definition,
-      preset: await loadScenePreset(definition),
-    })),
-  );
+      loadError,
+      summary: summary
+        ? {
+            savedAt: summary.savedAt,
+            itemCount: summary.itemCount,
+          }
+        : null,
+      preset: null,
+    };
+  });
 }
 
 async function saveScenePreset(OBR, presetId) {
@@ -3525,7 +3569,7 @@ async function saveScenePreset(OBR, presetId) {
 
   if (!response.ok) {
     throw new Error(
-      "Nao consegui criar o mapa salvo. Essa acao precisa do servidor localhost.",
+      "Não consegui criar o mapa salvo. Essa ação precisa do servidor localhost.",
     );
   }
 
@@ -3562,7 +3606,7 @@ async function getRestoreIdentity(OBR) {
   ]);
 
   if (!playerId) {
-    throw new SceneRestoreError("Nao consegui identificar o jogador atual.", {
+    throw new SceneRestoreError("Não consegui identificar o jogador atual.", {
       code: "PLAYER_UNAVAILABLE",
       stage: "marker",
     });
@@ -3625,14 +3669,14 @@ async function acquireRestoreMarker(OBR, operation, allowOrphanRecovery) {
   const status = await classifyExistingMarker(OBR, existing, { includeLocalLock: false });
 
   if (status.state === "active") {
-    throw new SceneRestoreError("Ja existe uma restauracao em andamento nesta cena.", {
+    throw new SceneRestoreError("Já existe uma restauração em andamento nesta cena.", {
       code: "RESTORE_ACTIVE",
       stage: "marker",
     });
   }
   if (status.state === "orphan" && !allowOrphanRecovery) {
     throw new SceneRestoreError(
-      "Existe uma restauracao interrompida. Confirme a recuperacao antes de continuar.",
+      "Existe uma restauração interrompida. Confirme a recuperação antes de continuar.",
       {
         code: "ORPHAN_RESTORE",
         stage: "marker",
@@ -3655,7 +3699,7 @@ async function acquireRestoreMarker(OBR, operation, allowOrphanRecovery) {
   });
   const observed = (await OBR.scene.getMetadata())[SCENE_RESTORE_MARKER_KEY];
   if (!isRestoreMarker(observed) || observed.token !== operation.token) {
-    throw new SceneRestoreError("Outra restauracao assumiu a cena.", {
+    throw new SceneRestoreError("Outra restauração assumiu a cena.", {
       code: "RESTORE_CONFLICT",
       stage: "marker",
     });
@@ -3667,7 +3711,7 @@ async function acquireRestoreMarker(OBR, operation, allowOrphanRecovery) {
 async function requireRestoreOwnership(OBR, operation) {
   const marker = (await OBR.scene.getMetadata())[SCENE_RESTORE_MARKER_KEY];
   if (!isRestoreMarker(marker) || marker.token !== operation.token) {
-    throw new SceneRestoreError("A restauracao perdeu o controle da cena.", {
+    throw new SceneRestoreError("A restauração perdeu o controle da cena.", {
       code: "RESTORE_MARKER_LOST",
       stage: operation.phase,
       partial: true,
@@ -3687,7 +3731,7 @@ async function setRestorePhase(OBR, operation, phase) {
   operation.phase = phase;
   const observed = await requireRestoreOwnership(OBR, operation);
   if (observed.phase !== phase) {
-    throw new SceneRestoreError("Nao consegui confirmar a fase da restauracao.", {
+    throw new SceneRestoreError("Não consegui confirmar a fase da restauração.", {
       code: "RESTORE_MARKER_UPDATE_FAILED",
       stage: phase,
       partial: true,
@@ -3714,7 +3758,7 @@ function createRestorationPlan(preset, currentItems, currentMetadata) {
     assertSerializable(currentMetadata, "metadata atual");
   } catch (error) {
     throw stageError(
-      "A cena atual possui dados que nao podem ser restaurados com seguranca.",
+      "A cena atual possui dados que não podem ser restaurados com segurança.",
       "INVALID_CURRENT_SCENE",
       "planning",
       error,
@@ -3853,7 +3897,7 @@ async function applyAdditions(OBR, operation, entries, journal) {
         missing.push(target);
       } else if (!itemMatchesTarget(current, target)) {
         throw stageError(
-          `O item ${target.id} apareceu com outro estado durante a restauracao.`,
+          `O item ${target.id} apareceu com outro estado durante a restauração.`,
           "ADD_CONFLICT",
           "adding",
           null,
@@ -3928,7 +3972,7 @@ async function applyUpdates(OBR, operation, entries, journal) {
     for (const entry of group) {
       if (!valuesEqual(currentById.get(entry.before.id), entry.before)) {
         throw stageError(
-          `O item ${entry.before.id} mudou durante a restauracao.`,
+          `O item ${entry.before.id} mudou durante a restauração.`,
           "UPDATE_CONFLICT",
           "updating",
           null,
@@ -4168,7 +4212,7 @@ async function applyTargetMetadata(OBR, operation, plan, journal) {
   }
   if (targetEntries.some(([key, target]) => !valuesEqual(after[key], target))) {
     throw stageError(
-      "A metadata da cena nao foi confirmada.",
+      "A metadata da cena não foi confirmada.",
       "METADATA_VERIFY_FAILED",
       "metadata",
     );
@@ -4194,7 +4238,7 @@ async function applyDeletions(OBR, operation, entries, journal) {
       }
       if (!valuesEqual(current, target)) {
         throw stageError(
-          `O item extra ${target.id} mudou durante a restauracao.`,
+          `O item extra ${target.id} mudou durante a restauração.`,
           "DELETE_CONFLICT",
           "deleting",
           null,
@@ -4282,7 +4326,7 @@ function verifySelectionBoardResult(metadata, items) {
   );
   for (const color of PLAYER_COLORS) {
     if (!colors.has(color.id)) {
-      throw new Error(`O identificador ${color.label} nao foi restaurado.`);
+      throw new Error(`O identificador ${color.label} não foi restaurado.`);
     }
   }
 }
@@ -4303,7 +4347,7 @@ async function verifyRestoration(OBR, operation, plan) {
   }
   if (items.length !== plan.targetItems.length) {
     throw stageError(
-      "A quantidade final de itens nao corresponde ao mapa salvo.",
+      "A quantidade final de itens não corresponde ao mapa salvo.",
       "FINAL_VERIFY_FAILED",
       "verifying",
     );
@@ -4313,7 +4357,7 @@ async function verifyRestoration(OBR, operation, plan) {
   for (const target of plan.targetItems) {
     if (!itemMatchesTarget(currentById.get(target.id), target)) {
       throw stageError(
-        `O item ${target.id} nao corresponde ao mapa salvo.`,
+        `O item ${target.id} não corresponde ao mapa salvo.`,
         "FINAL_VERIFY_FAILED",
         "verifying",
       );
@@ -4323,7 +4367,7 @@ async function verifyRestoration(OBR, operation, plan) {
   for (const [key, target] of Object.entries(plan.targetMetadata)) {
     if (!valuesEqual(metadata[key], target)) {
       throw stageError(
-        `A metadata ${key} nao corresponde ao mapa salvo.`,
+        `A metadata ${key} não corresponde ao mapa salvo.`,
         "FINAL_VERIFY_FAILED",
         "verifying",
       );
@@ -4354,7 +4398,7 @@ async function rollbackRestoration(OBR, operation, plan, journal) {
   try {
     await setRestorePhase(OBR, operation, "rolling-back");
   } catch (error) {
-    fail("marcador indisponivel; rollback recusado", error);
+    fail("marcador indisponível; rollback recusado", error);
     return { complete: false, refused: true, errors };
   }
 
@@ -4373,7 +4417,7 @@ async function rollbackRestoration(OBR, operation, plan, journal) {
           continue;
         }
         if (!itemMatchesTarget(current, target)) {
-          throw new Error(`O item ${target.id} foi alterado depois da restauracao.`);
+          throw new Error(`O item ${target.id} foi alterado depois da restauração.`);
         }
         safeIds.push(target.id);
       }
@@ -4385,7 +4429,7 @@ async function rollbackRestoration(OBR, operation, plan, journal) {
         }
       }
     } catch (error) {
-      fail("nao foi possivel remover itens adicionados", error);
+      fail("não foi possível remover itens adicionados", error);
     }
   }
 
@@ -4410,11 +4454,11 @@ async function rollbackRestoration(OBR, operation, plan, journal) {
         await OBR.scene.items.addItems(clone(missing));
         const restored = mapItems(await getItemsByIds(OBR, missing.map((item) => item.id)));
         if (missing.some((item) => !itemMatchesTarget(restored.get(item.id), item))) {
-          throw new Error("Alguns itens apagados nao foram restaurados.");
+          throw new Error("Alguns itens apagados não foram restaurados.");
         }
       }
     } catch (error) {
-      fail("nao foi possivel readicionar itens apagados", error);
+      fail("não foi possível readicionar itens apagados", error);
     }
   }
 
@@ -4431,7 +4475,7 @@ async function rollbackRestoration(OBR, operation, plan, journal) {
           continue;
         }
         if (!itemMatchesTarget(current, entry.target)) {
-          throw new Error(`O item ${entry.target.id} mudou depois da atualizacao.`);
+          throw new Error(`O item ${entry.target.id} mudou depois da atualização.`);
         }
         toRestore.push(current);
       }
@@ -4450,11 +4494,11 @@ async function rollbackRestoration(OBR, operation, plan, journal) {
             (entry) => !itemMatchesTarget(restored.get(entry.before.id), entry.before),
           )
         ) {
-          throw new Error("Alguns itens atualizados nao voltaram ao estado anterior.");
+          throw new Error("Alguns itens atualizados não voltaram ao estado anterior.");
         }
       }
     } catch (error) {
-      fail("nao foi possivel restaurar itens atualizados", error);
+      fail("não foi possível restaurar itens atualizados", error);
     }
   }
 
@@ -4470,7 +4514,7 @@ async function rollbackRestoration(OBR, operation, plan, journal) {
           continue;
         }
         if (!valuesEqual(currentMetadata[key], target)) {
-          throw new Error(`A metadata ${key} mudou depois da restauracao.`);
+          throw new Error(`A metadata ${key} mudou depois da restauração.`);
         }
         patch[key] = previous.exists ? clone(previous.value) : null;
       }
@@ -4484,12 +4528,12 @@ async function rollbackRestoration(OBR, operation, plan, journal) {
             : !Object.prototype.hasOwnProperty.call(restoredMetadata, key) ||
               restoredMetadata[key] === null;
           if (!restored) {
-            throw new Error(`A metadata ${key} nao voltou ao estado anterior.`);
+            throw new Error(`A metadata ${key} não voltou ao estado anterior.`);
           }
         }
       }
     } catch (error) {
-      fail("nao foi possivel restaurar metadata", error);
+      fail("não foi possível restaurar metadata", error);
     }
   }
 
@@ -4497,7 +4541,7 @@ async function rollbackRestoration(OBR, operation, plan, journal) {
     try {
       await setRestorePhase(OBR, operation, "recovery-required");
     } catch (error) {
-      fail("nao foi possivel manter o marcador de recuperacao", error);
+      fail("não foi possível manter o marcador de recuperação", error);
     }
     return { complete: false, refused: false, errors };
   }
@@ -4505,10 +4549,10 @@ async function rollbackRestoration(OBR, operation, plan, journal) {
   try {
     const released = await releaseRestoreMarker(OBR, operation);
     if (!released) {
-      throw new Error("O marcador nao pertence mais a esta operacao.");
+      throw new Error("O marcador não pertence mais a esta operação.");
     }
   } catch (error) {
-    fail("nao foi possivel limpar o marcador", error);
+    fail("não foi possível limpar o marcador", error);
     return { complete: false, refused: false, errors };
   }
 
@@ -4547,7 +4591,7 @@ async function performRestore(OBR, preset, options, operation) {
     const released = await releaseRestoreMarker(OBR, operation);
     if (!released) {
       throw stageError(
-        "O mapa foi restaurado, mas o controle da operacao mudou antes da limpeza.",
+        "O mapa foi restaurado, mas o controle da operação mudou antes da limpeza.",
         "MARKER_RELEASE_FAILED",
         "completed",
         null,
@@ -4585,7 +4629,7 @@ async function performRestore(OBR, preset, options, operation) {
 
     if (error.code === "RESTORE_MARKER_LOST") {
       throw new SceneRestoreError(
-        "A restauracao foi interrompida por outra operacao. Confira a cena antes de tentar novamente.",
+        "A restauração foi interrompida por outra operação. Confira a cena antes de tentar novamente.",
         {
           code: error.code,
           stage: error.stage,
@@ -4599,7 +4643,7 @@ async function performRestore(OBR, preset, options, operation) {
     const rollback = await rollbackRestoration(OBR, operation, plan, journal);
     if (rollback.complete) {
       throw new SceneRestoreError(
-        "Nao consegui restaurar o mapa; as mudancas seguras foram desfeitas.",
+        "Não consegui restaurar o mapa; as mudanças seguras foram desfeitas.",
         {
           code: error.code,
           stage: error.stage,
@@ -4610,7 +4654,7 @@ async function performRestore(OBR, preset, options, operation) {
     }
 
     throw new SceneRestoreError(
-      "A restauracao falhou parcialmente. Confira a cena antes de tentar novamente.",
+      "A restauração falhou parcialmente. Confira a cena antes de tentar novamente.",
       {
         code: error.code,
         stage: error.stage,
@@ -4623,7 +4667,7 @@ async function performRestore(OBR, preset, options, operation) {
 
 async function restoreDefaultBoardPreset(OBR, preset, options = {}) {
   if (activeRestorePromise) {
-    throw new SceneRestoreError("Uma restauracao ja esta em andamento neste painel.", {
+    throw new SceneRestoreError("Uma restauração já está em andamento neste painel.", {
       code: "LOCAL_RESTORE_ACTIVE",
       stage: "local-lock",
     });
@@ -4691,18 +4735,35 @@ let presetDecks = [];
 let presetCardGroups = [];
 let scenePresetEntries = [];
 let sceneRestoreRunning = false;
+let migrationRunning = false;
 let colorAssignmentsRefreshTimer = null;
 const customSelects = new Map();
 
 window.addEventListener("error", (event) => {
-  setConnectionStatus("Erro no painel", false);
-  setMessage(`Erro no painel: ${event.message}`, "error");
+  if (!obr) {
+    setConnectionStatus("Erro no painel", false);
+  }
+  setMessage(`Erro no painel: ${getErrorMessage(event.error || event.message)}`, "error");
 });
 
 window.addEventListener("unhandledrejection", (event) => {
-  setConnectionStatus("Erro no painel", false);
-  setMessage(`Erro no painel: ${event.reason?.message || event.reason}`, "error");
+  if (!obr) {
+    setConnectionStatus("Erro no painel", false);
+  }
+  setMessage(`Erro no painel: ${getErrorMessage(event.reason)}`, "error");
 });
+
+function getErrorMessage(error, fallback = "Ocorreu um erro inesperado.") {
+  if (typeof error === "string" && error.trim()) {
+    return error;
+  }
+
+  if (typeof error?.message === "string" && error.message.trim()) {
+    return error.message;
+  }
+
+  return fallback;
+}
 
 function setMessage(text, tone = "neutral") {
   elements.message.textContent = text;
@@ -4715,7 +4776,7 @@ function setConnectionStatus(text, isConnected) {
   if (!isConnected) {
     renderPlayerColorAssignments([]);
   }
-  elements.migratePublicButton.disabled = !isConnected;
+  updateMigratePublicButton(isConnected);
   updateDefaultBoardControls(isConnected);
   elements.panelFlipButton.disabled = !isConnected;
   elements.panelDrawButton.disabled = !isConnected;
@@ -4726,6 +4787,28 @@ function setConnectionStatus(text, isConnected) {
   updatePresetDeckControls(isConnected);
   updatePresetCardControls(isConnected);
   updateMissionDeckControls(isConnected);
+}
+
+function updateMigratePublicButton(isConnected = Boolean(obr)) {
+  const hasValidUrl =
+    Boolean(elements.publicBaseUrl.value.trim()) && elements.publicBaseUrl.checkValidity();
+  elements.migratePublicButton.disabled = migrationRunning || !isConnected || !hasValidUrl;
+}
+
+async function showNotification(text, tone) {
+  if (!obr?.notification?.show) {
+    return;
+  }
+
+  try {
+    if (tone) {
+      await obr.notification.show(text, tone);
+    } else {
+      await obr.notification.show(text);
+    }
+  } catch (error) {
+    console.warn("Nao consegui exibir a notificacao do Owlbear", error);
+  }
 }
 
 function normalizePointerColor(color) {
@@ -4849,7 +4932,7 @@ async function refreshPlayerColorAssignments() {
     if (elements.colorAssignments) {
       elements.colorAssignments.replaceChildren();
       const item = document.createElement("li");
-      item.textContent = "Nao consegui ler os jogadores.";
+      item.textContent = "Não consegui ler os jogadores.";
       elements.colorAssignments.append(item);
     }
   }
@@ -4893,7 +4976,7 @@ function updateDefaultBoardControls(isConnected = Boolean(obr)) {
 
   for (const button of elements.restoreScenePresetButtons) {
     const entry = entriesById.get(button.dataset.restoreScenePreset);
-    button.disabled = sceneRestoreRunning || !isConnected || !entry?.preset;
+    button.disabled = sceneRestoreRunning || !isConnected || !(entry?.preset || entry?.summary);
   }
 
   if (!scenePresetEntries.length) {
@@ -4901,13 +4984,21 @@ function updateDefaultBoardControls(isConnected = Boolean(obr)) {
     return;
   }
 
-  const parts = scenePresetEntries.map(({ definition, preset }) => {
-    if (!preset) {
-      return `${definition.name}: nao cadastrado`;
+  const loadError = scenePresetEntries.find((entry) => entry.loadError)?.loadError;
+  if (loadError) {
+    elements.defaultBoardInfo.textContent = loadError;
+    return;
+  }
+
+  const parts = scenePresetEntries.map(({ definition, preset, summary }) => {
+    const details = preset || summary;
+    const displayName = definition.label || definition.name;
+    if (!details) {
+      return `${displayName}: não cadastrado`;
     }
 
-    const itemLabel = preset.itemCount === 1 ? "1 item" : `${preset.itemCount} itens`;
-    return `${definition.name}: ${itemLabel}, salvo em ${formatPresetDate(preset.savedAt)}`;
+    const itemLabel = details.itemCount === 1 ? "1 item" : `${details.itemCount} itens`;
+    return `${displayName}: ${itemLabel}, salvo em ${formatPresetDate(details.savedAt)}`;
   });
 
   elements.defaultBoardInfo.textContent = parts.join(" | ");
@@ -4950,35 +5041,74 @@ async function refreshPanelSelectionMemory() {
 async function showPanelActionResult(count, singular, plural, warning) {
   if (!count) {
     setMessage(warning, "warning");
-    await obr.notification.show(warning, "WARNING");
+    await showNotification(warning, "WARNING");
     return;
   }
 
   const message = count === 1 ? singular : plural(count);
   setMessage(message, "success");
-  await obr.notification.show(message, "SUCCESS");
+  await showNotification(message, "SUCCESS");
 }
 
-async function runPanelAction(button, action) {
+async function runPanelAction(button, action, pendingMessage = "") {
   if (!obr) {
-    setMessage("Abra esta extensao dentro do Owlbear para usar os comandos.", "warning");
+    setMessage("Abra esta extensão dentro do Owlbear para usar os comandos.", "warning");
     return;
   }
 
   button.disabled = true;
+  if (pendingMessage) {
+    setMessage(pendingMessage, "neutral");
+  }
   try {
     await refreshPanelSelectionMemory();
     await action();
   } catch (error) {
     console.error(error);
-    setMessage(error.message || "Nao consegui executar a acao.", "error");
+    setMessage(getErrorMessage(error, "Não consegui executar a ação."), "error");
   } finally {
     button.disabled = false;
   }
 }
 
 function getSelectLabel(select) {
-  return select.selectedOptions?.[0]?.textContent || select.options?.[0]?.textContent || "Escolha uma opcao";
+  return select.selectedOptions?.[0]?.textContent || select.options?.[0]?.textContent || "Escolha uma opção";
+}
+
+function getSelectFieldLabel(select) {
+  return select.closest("label")?.querySelector("span")?.textContent?.trim() || "";
+}
+
+function getEnabledCustomSelectOptions(state) {
+  return [...state.menu.querySelectorAll(".custom-select__option:not(:disabled)")];
+}
+
+function focusCustomSelectOption(select, direction = 1) {
+  const state = customSelects.get(select);
+  if (!state) {
+    return;
+  }
+
+  const options = [...state.menu.querySelectorAll(".custom-select__option")];
+  const selectedIndex = [...select.options].findIndex((option) => option.selected);
+  const selectedItem = options[selectedIndex];
+  const enabledOptions = getEnabledCustomSelectOptions(state);
+  const target =
+    (selectedItem && !selectedItem.disabled && selectedItem) ||
+    (direction < 0 ? enabledOptions.at(-1) : enabledOptions[0]);
+  target?.focus();
+}
+
+function moveCustomSelectFocus(select, currentItem, direction) {
+  const state = customSelects.get(select);
+  if (!state) {
+    return;
+  }
+
+  const options = getEnabledCustomSelectOptions(state);
+  const currentIndex = options.indexOf(currentItem);
+  const nextIndex = Math.min(Math.max(currentIndex + direction, 0), options.length - 1);
+  options[nextIndex]?.focus();
 }
 
 function closeCustomSelect(select) {
@@ -5024,12 +5154,39 @@ function buildCustomSelectMenu(select) {
       select.dispatchEvent(new Event("change", { bubbles: true }));
       closeCustomSelect(select);
       syncAllCustomSelects();
+      state.button.focus();
+    });
+    item.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        item.click();
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeCustomSelect(select);
+        state.button.focus();
+        return;
+      }
+
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        moveCustomSelectFocus(select, item, event.key === "ArrowDown" ? 1 : -1);
+        return;
+      }
+
+      if (event.key === "Home" || event.key === "End") {
+        event.preventDefault();
+        const enabledOptions = getEnabledCustomSelectOptions(state);
+        (event.key === "Home" ? enabledOptions[0] : enabledOptions.at(-1))?.focus();
+      }
     });
     state.menu.append(item);
   }
 }
 
-function openCustomSelect(select) {
+function openCustomSelect(select, focusOption = false, direction = 1) {
   const state = customSelects.get(select);
 
   if (!state || select.disabled) {
@@ -5041,6 +5198,9 @@ function openCustomSelect(select) {
   state.root.dataset.open = "true";
   state.menu.hidden = false;
   state.button.setAttribute("aria-expanded", "true");
+  if (focusOption) {
+    focusCustomSelectOption(select, direction);
+  }
 }
 
 function syncCustomSelect(select) {
@@ -5050,7 +5210,12 @@ function syncCustomSelect(select) {
     return;
   }
 
-  state.button.textContent = getSelectLabel(select);
+  const selectedLabel = getSelectLabel(select);
+  state.button.textContent = selectedLabel;
+  state.button.setAttribute(
+    "aria-label",
+    state.fieldLabel ? `${state.fieldLabel}: ${selectedLabel}` : selectedLabel,
+  );
   state.button.disabled = select.disabled;
   state.root.dataset.disabled = String(select.disabled);
 
@@ -5091,6 +5256,12 @@ function enhanceCustomSelect(select) {
   menu.className = "custom-select__menu";
   menu.hidden = true;
   menu.setAttribute("role", "listbox");
+  menu.id = `${select.id || `select-${customSelects.size + 1}`}-menu`;
+  const fieldLabel = getSelectFieldLabel(select);
+  if (fieldLabel) {
+    menu.setAttribute("aria-label", fieldLabel);
+  }
+  button.setAttribute("aria-controls", menu.id);
 
   root.append(button, menu);
   select.after(root);
@@ -5103,7 +5274,7 @@ function enhanceCustomSelect(select) {
     subtree: true,
   });
 
-  customSelects.set(select, { button, menu, observer, root });
+  customSelects.set(select, { button, fieldLabel, menu, observer, root });
 
   button.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -5113,7 +5284,7 @@ function enhanceCustomSelect(select) {
       return;
     }
 
-    openCustomSelect(select);
+    openCustomSelect(select, event.detail === 0);
   });
 
   button.addEventListener("keydown", (event) => {
@@ -5124,8 +5295,26 @@ function enhanceCustomSelect(select) {
 
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      openCustomSelect(select);
+      if (root.dataset.open === "true") {
+        closeCustomSelect(select);
+      } else {
+        openCustomSelect(select, true);
+      }
+      return;
     }
+
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      openCustomSelect(select, true, event.key === "ArrowDown" ? 1 : -1);
+    }
+  });
+
+  root.addEventListener("focusout", () => {
+    window.requestAnimationFrame(() => {
+      if (!root.contains(document.activeElement)) {
+        closeCustomSelect(select);
+      }
+    });
   });
 
   select.addEventListener("change", () => syncCustomSelect(select));
@@ -5138,11 +5327,9 @@ function enhancePanelSelects() {
   }
 
   document.addEventListener("click", (event) => {
-    for (const { root } of customSelects.values()) {
+    for (const [select, { root }] of customSelects.entries()) {
       if (!root.contains(event.target)) {
-        root.dataset.open = "false";
-        root.querySelector(".custom-select__menu").hidden = true;
-        root.querySelector(".custom-select__button").setAttribute("aria-expanded", "false");
+        closeCustomSelect(select);
       }
     }
   });
@@ -5281,7 +5468,7 @@ function normalizePublicBaseUrl(value) {
   const url = new URL(value.trim());
 
   if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new Error("Informe uma URL publica iniciando com http ou https.");
+    throw new Error("Informe uma URL pública iniciando com http ou https.");
   }
 
   url.search = "";
@@ -5395,7 +5582,7 @@ async function loadBlobImage(blob) {
       const image = new Image();
       image.onload = () => {
         if (!image.naturalWidth || !image.naturalHeight) {
-          reject(new Error("A imagem carregou sem dimensoes validas."));
+          reject(new Error("A imagem carregou sem dimensões válidas."));
           return;
         }
 
@@ -5407,7 +5594,7 @@ async function loadBlobImage(blob) {
         });
       };
       image.onerror = () => {
-        reject(new Error(`Nao consegui carregar esta imagem: ${objectUrl}`));
+        reject(new Error(`Não consegui carregar esta imagem: ${objectUrl}`));
       };
       image.src = objectUrl;
     });
@@ -5425,7 +5612,7 @@ function canvasToBlob(canvas, mime, quality) {
           return;
         }
 
-        reject(new Error("Nao consegui converter a imagem para o formato otimizado."));
+        reject(new Error("Não consegui converter a imagem para o formato otimizado."));
       },
       mime,
       quality,
@@ -5483,12 +5670,12 @@ async function uploadBlobAsLocalAsset(blob, name) {
   });
 
   if (!response.ok) {
-    throw new Error("O servidor local nao conseguiu salvar a imagem otimizada.");
+    throw new Error("O servidor local não conseguiu salvar a imagem otimizada.");
   }
 
   const payload = await response.json();
   if (!payload.url) {
-    throw new Error("O servidor local nao retornou a imagem otimizada.");
+    throw new Error("O servidor local não retornou a imagem otimizada.");
   }
 
   return payload.url;
@@ -5501,7 +5688,7 @@ async function cachePlainSceneImage(item) {
   });
 
   if (!response.ok) {
-    throw new Error(`Nao consegui baixar "${item.name || "imagem"}" do Owlbear.`);
+    throw new Error(`Não consegui baixar "${item.name || "imagem"}" do Owlbear.`);
   }
 
   const originalBlob = await response.blob();
@@ -5705,13 +5892,13 @@ function migrateDeckItem(item, publicBaseUrl, stats, remoteCache) {
 
 async function migrateSceneLocalAssets() {
   if (!obr) {
-    setMessage("Abra esta extensao dentro do Owlbear para migrar os links.", "warning");
+    setMessage("Abra esta extensão dentro do Owlbear para migrar os links.", "warning");
     return;
   }
 
   const rawBaseUrl = elements.publicBaseUrl.value.trim();
   if (!rawBaseUrl) {
-    throw new Error("Informe a URL publica do GitHub Pages antes de migrar.");
+    throw new Error("Informe a URL pública do GitHub Pages antes de migrar.");
   }
 
   const publicBaseUrl = normalizePublicBaseUrl(rawBaseUrl);
@@ -5739,7 +5926,7 @@ async function migrateSceneLocalAssets() {
   });
 
   if (!stats.items) {
-    setMessage("Nao encontrei links locais ou divindades fora do padrao nesta cena.", "warning");
+    setMessage("Não encontrei links locais ou divindades fora do padrão nesta cena.", "warning");
     return;
   }
 
@@ -5751,10 +5938,10 @@ async function migrateSceneLocalAssets() {
     stats.cached === 1 ? "1 imagem normal otimizada" : `${stats.cached} imagens normais otimizadas`;
   const cacheErrorLabel =
     stats.cacheErrors === 1
-      ? "1 imagem normal nao pode ser otimizada"
-      : `${stats.cacheErrors} imagens normais nao puderam ser otimizadas`;
+      ? "1 imagem normal não pode ser otimizada"
+      : `${stats.cacheErrors} imagens normais não puderam ser otimizadas`;
   const message = stats.urls
-    ? `Migrei ${itemLabel} da cena para usar ${urlLabel} publicas${
+    ? `Migrei ${itemLabel} da cena para usar ${urlLabel} públicas${
         stats.sized || stats.cached || stats.cacheErrors
           ? `; ${[stats.cached ? cachedLabel : "", stats.sized ? divinityLabel : ""]
               .filter(Boolean)
@@ -5767,7 +5954,7 @@ async function migrateSceneLocalAssets() {
       : cacheErrorLabel;
 
   setMessage(message, "success");
-  await obr.notification.show(
+  await showNotification(
     stats.urls ? "Links locais migrados para o GitHub Pages." : "Divindades ajustadas.",
     "SUCCESS",
   );
@@ -5779,73 +5966,102 @@ function getScenePresetEntry(presetId) {
 
 async function createDefaultBoardFromCurrentScene(presetId) {
   if (!obr) {
-    setMessage("Abra esta extensao dentro do Owlbear para criar o mapa salvo.", "warning");
+    setMessage("Abra esta extensão dentro do Owlbear para criar o mapa salvo.", "warning");
     return;
   }
 
   const definition = SCENE_PRESETS.find((preset) => preset.id === presetId);
   const confirmed = window.confirm(
-    `Salvar "${definition?.name || "mapa salvo"}" vai substituir esse backup pelo estado atual da cena. Continuar?`,
+    `Salvar "${definition?.label || definition?.name || "mapa salvo"}" vai substituir esse backup pelo estado atual da cena. Continuar?`,
   );
 
   if (!confirmed) {
     return;
   }
 
+  setMessage("Salvando o mapa...", "neutral");
   const result = await saveScenePreset(obr, presetId);
-  await refreshDefaultBoardInfo();
+  const entry = getScenePresetEntry(presetId);
+  if (entry) {
+    entry.summary = {
+      itemCount: result.itemCount,
+      savedAt: result.savedAt,
+    };
+    entry.preset = null;
+    updateDefaultBoardControls(true);
+  }
 
   const itemLabel = result.itemCount === 1 ? "1 item" : `${result.itemCount} itens`;
-  const message = `${definition?.name || "Mapa salvo"} criado com ${itemLabel}.`;
+  const message = `${definition?.label || definition?.name || "Mapa salvo"} criado com ${itemLabel}.`;
   setMessage(message, "success");
-  await obr.notification.show("Mapa salvo criado.", "SUCCESS");
+  await showNotification("Mapa salvo criado.", "SUCCESS");
 }
 
 async function restoreDefaultBoard(presetId) {
   if (!obr) {
-    setMessage("Abra esta extensao dentro do Owlbear para restaurar o tabuleiro.", "warning");
+    setMessage("Abra esta extensão dentro do Owlbear para restaurar o tabuleiro.", "warning");
+    return;
+  }
+
+  if (sceneRestoreRunning) {
+    setMessage("Já existe uma restauração em andamento neste painel.", "warning");
     return;
   }
 
   const entry = getScenePresetEntry(presetId);
 
-  if (!entry?.preset) {
-    setMessage("Esse mapa salvo ainda nao foi cadastrado na extensao.", "warning");
-    await obr.notification.show("Mapa salvo nao cadastrado.", "WARNING");
-    return;
-  }
-
-  const restoreStatus = await getSceneRestoreStatus(obr);
-  if (restoreStatus.state === "local" || restoreStatus.state === "active") {
-    const message = "Ja existe uma restauracao em andamento nesta cena.";
-    setMessage(message, "warning");
-    await obr.notification.show(message, "WARNING");
-    return;
-  }
-
-  const recoveringOrphan = restoreStatus.state === "orphan";
-  const recoveryWarning = recoveringOrphan
-    ? "\n\nFoi encontrada uma restauracao interrompida. Continuar assumira o controle dela."
-    : "";
-  const confirmed = window.confirm(
-    `${entry.definition.restoreLabel} vai substituir a cena atual. Nao inicie outra restauracao em outra conta durante o processo.${recoveryWarning}\n\nContinuar?`,
-  );
-
-  if (!confirmed) {
+  if (!(entry?.preset || entry?.summary)) {
+    setMessage("Esse mapa salvo ainda não foi cadastrado na extensão.", "warning");
+    await showNotification("Mapa salvo não cadastrado.", "WARNING");
     return;
   }
 
   sceneRestoreRunning = true;
   updateDefaultBoardControls(true);
-  setMessage("Restaurando...", "warning");
+  setMessage("Verificando a restauração...", "neutral");
 
   try {
-    const result = await restoreDefaultBoardPreset(obr, entry.preset, {
+    const restoreStatus = await getSceneRestoreStatus(obr);
+    if (restoreStatus.state === "local" || restoreStatus.state === "active") {
+      const message = "Já existe uma restauração em andamento nesta cena.";
+      setMessage(message, "warning");
+      await showNotification(message, "WARNING");
+      return;
+    }
+
+    const recoveringOrphan = restoreStatus.state === "orphan";
+    const recoveryWarning = recoveringOrphan
+      ? "\n\nFoi encontrada uma restauração interrompida. Continuar assumirá o controle dela."
+      : "";
+    const confirmed = window.confirm(
+      `${entry.definition.restoreLabel} vai substituir a cena atual. Não inicie outra restauração em outra conta durante o processo.${recoveryWarning}\n\nContinuar?`,
+    );
+
+    if (!confirmed) {
+      setMessage("", "neutral");
+      return;
+    }
+
+    setMessage("Restaurando...", "warning");
+    const preset = entry.preset || (await loadScenePreset(entry.definition));
+    if (!preset) {
+      throw new Error("Não consegui carregar esse mapa salvo.");
+    }
+    entry.preset = preset;
+    entry.summary = {
+      itemCount: preset.itemCount,
+      savedAt: preset.savedAt,
+    };
+
+    const result = await restoreDefaultBoardPreset(obr, preset, {
       allowOrphanRecovery: recoveringOrphan,
     });
     const message = `Cena restaurada: ${result.updated} atualizados, ${result.added} recriados, ${result.deleted} removidos.`;
     setMessage(message, "success");
-    await obr.notification.show(`${entry.definition.name} restaurado.`, "SUCCESS");
+    await showNotification(
+      `${entry.definition.label || entry.definition.name} restaurado.`,
+      "SUCCESS",
+    );
   } finally {
     sceneRestoreRunning = false;
     updateDefaultBoardControls(Boolean(obr));
@@ -5929,7 +6145,7 @@ function setPresetCardDefaultControls(group) {
 function updateMissionDeckControls(isConnected = Boolean(obr)) {
   elements.createMissionDeckButton.disabled = !isConnected;
   elements.missionDeckInfo.textContent =
-    "Selecione exatamente 5 cartas sacadas para unir em uma pilha temporaria.";
+    "Selecione exatamente 5 cartas sacadas para unir em uma pilha temporária.";
 }
 
 function updatePresetDeckControls(isConnected = Boolean(obr), syncDefaults = false) {
@@ -5960,15 +6176,15 @@ function updatePresetDeckControls(isConnected = Boolean(obr), syncDefaults = fal
 
   if (!isReady) {
     elements.presetDeckInfo.textContent =
-      "Esta pilha ja existe no catalogo, mas ainda precisa de verso e cartas.";
+      "Esta pilha já existe no catálogo, mas ainda precisa de verso e cartas.";
     return;
   }
 
   const count = deck.cards.length;
   elements.presetDeckInfo.textContent =
     count === 1
-      ? `1 carta cadastrada. Padrao: ${deck.gridWidth} no grid.`
-      : `${count} cartas cadastradas. Padrao: ${deck.gridWidth} no grid.`;
+      ? `1 carta cadastrada. Padrão: ${deck.gridWidth} no grid.`
+      : `${count} cartas cadastradas. Padrão: ${deck.gridWidth} no grid.`;
 }
 
 function populatePresetDeckSelect() {
@@ -6027,21 +6243,21 @@ function updatePresetCardControls(isConnected = Boolean(obr), syncDefaults = fal
 
   if (!hasCards) {
     elements.presetCardInfo.textContent =
-      "Este grupo ja existe no catalogo, mas ainda precisa de verso e cartas.";
+      "Este grupo já existe no catálogo, mas ainda precisa de verso e cartas.";
     return;
   }
 
   if (!isReady) {
     elements.presetCardInfo.textContent =
-      "Esta carta ainda precisa de frente e verso no catalogo.";
+      "Esta carta ainda precisa de frente e verso no catálogo.";
     return;
   }
 
   const categoryLabel = group.category
-    ? " Marca automatica para selecao de personagem."
+    ? " Marca automática para seleção de personagem."
     : "";
   elements.presetCardInfo.textContent =
-    `${group.cards.length} cartas cadastradas. Padrao: ${group.gridWidth} no grid.${categoryLabel}`;
+    `${group.cards.length} cartas cadastradas. Padrão: ${group.gridWidth} no grid.${categoryLabel}`;
 }
 
 function populatePresetCardSelect(syncDefaults = false) {
@@ -6183,12 +6399,12 @@ async function addCardToScene({
 
 async function createMissionDeck() {
   if (!obr || !buildImage) {
-    setMessage("Abra esta extensao dentro do Owlbear Rodeo para criar a pilha.", "warning");
+    setMessage("Abra esta extensão dentro do Owlbear Rodeo para criar a pilha.", "warning");
     return;
   }
 
   elements.createMissionDeckButton.disabled = true;
-  setMessage("Criando pilha de missao...", "neutral");
+  setMessage("Criando pilha de missão...", "neutral");
 
   try {
     const deck = await createMissionDeckFromSelection(obr, buildImage);
@@ -6199,11 +6415,11 @@ async function createMissionDeck() {
       lastFlipSelection = [deck.id];
     }
     lastCardSelection = [];
-    await obr.notification.show("Pilha de missao criada.", "SUCCESS");
-    setMessage("Pilha de missao criada com 5 cartas selecionadas.", "success");
+    setMessage("Pilha de missão criada com 5 cartas selecionadas.", "success");
+    await showNotification("Pilha de missão criada.", "SUCCESS");
   } catch (error) {
     console.error(error);
-    setMessage(error.message || "Nao consegui criar a pilha de missao.", "error");
+    setMessage(getErrorMessage(error, "Não consegui criar a pilha de missão."), "error");
   } finally {
     updateMissionDeckControls(Boolean(obr));
   }
@@ -6211,7 +6427,7 @@ async function createMissionDeck() {
 
 async function createPresetDeck() {
   if (!obr || !buildImage) {
-    setMessage("Abra esta extensao dentro do Owlbear Rodeo para criar uma pilha.", "warning");
+    setMessage("Abra esta extensão dentro do Owlbear Rodeo para criar uma pilha.", "warning");
     return;
   }
 
@@ -6222,7 +6438,7 @@ async function createPresetDeck() {
   }
 
   if (!isPresetDeckReady(deck)) {
-    setMessage("Esta pilha ainda precisa de verso e cartas no catalogo.", "warning");
+    setMessage("Esta pilha ainda precisa de verso e cartas no catálogo.", "warning");
     return;
   }
 
@@ -6237,11 +6453,11 @@ async function createPresetDeck() {
       gridWidth,
       layer: elements.presetDeckLayer.value || deckData.layer,
     });
-    await obr.notification.show(`Pilha "${deckData.name}" criada.`);
     setMessage(`Pilha "${deckData.name}" criada da biblioteca.`, "success");
+    await showNotification(`Pilha "${deckData.name}" criada.`);
   } catch (error) {
     console.error(error);
-    setMessage(error.message || "Nao consegui criar a pilha da biblioteca.", "error");
+    setMessage(getErrorMessage(error, "Não consegui criar a pilha da biblioteca."), "error");
   } finally {
     updatePresetDeckControls(Boolean(obr));
   }
@@ -6249,7 +6465,7 @@ async function createPresetDeck() {
 
 async function createPresetCard() {
   if (!obr || !buildImage) {
-    setMessage("Abra esta extensao dentro do Owlbear Rodeo para criar uma carta.", "warning");
+    setMessage("Abra esta extensão dentro do Owlbear Rodeo para criar uma carta.", "warning");
     return;
   }
 
@@ -6260,7 +6476,7 @@ async function createPresetCard() {
   }
 
   if (!isPresetCardReady(group, card)) {
-    setMessage("Esta carta ainda precisa de frente e verso no catalogo.", "warning");
+    setMessage("Esta carta ainda precisa de frente e verso no catálogo.", "warning");
     return;
   }
 
@@ -6276,11 +6492,11 @@ async function createPresetCard() {
       layer: elements.presetCardLayer.value || cardData.layer,
       origin: cardData.origin,
     });
-    await obr.notification.show(`Carta "${cardData.name}" criada.`);
     setMessage(`Carta "${cardData.name}" criada da biblioteca.`, "success");
+    await showNotification(`Carta "${cardData.name}" criada.`);
   } catch (error) {
     console.error(error);
-    setMessage(error.message || "Nao consegui criar a carta da biblioteca.", "error");
+    setMessage(getErrorMessage(error, "Não consegui criar a carta da biblioteca."), "error");
   } finally {
     updatePresetCardControls(Boolean(obr));
   }
@@ -6301,19 +6517,19 @@ async function init() {
   elements.importPresetDeckButton.addEventListener("click", () =>
     createPresetDeck().catch((error) => {
       console.error(error);
-      setMessage(error.message || "Nao consegui criar a pilha da biblioteca.", "error");
+      setMessage(getErrorMessage(error, "Não consegui criar a pilha da biblioteca."), "error");
     }),
   );
   elements.importPresetCardButton.addEventListener("click", () =>
     createPresetCard().catch((error) => {
       console.error(error);
-      setMessage(error.message || "Nao consegui criar a carta da biblioteca.", "error");
+      setMessage(getErrorMessage(error, "Não consegui criar a carta da biblioteca."), "error");
     }),
   );
   elements.createMissionDeckButton.addEventListener("click", () =>
     createMissionDeck().catch((error) => {
       console.error(error);
-      setMessage(error.message || "Nao consegui criar a pilha de missao.", "error");
+      setMessage(getErrorMessage(error, "Não consegui criar a pilha de missão."), "error");
     }),
   );
   loadPresetLibrary().catch((error) => {
@@ -6323,11 +6539,13 @@ async function init() {
     populatePresetDeckSelect();
     populatePresetCardGroupSelect();
     elements.presetDeckInfo.textContent =
-      error.message || "Nao consegui carregar a biblioteca de pilhas.";
+      getErrorMessage(error, "Não consegui carregar a biblioteca de pilhas.");
     elements.presetCardInfo.textContent =
-      error.message || "Nao consegui carregar a biblioteca de cartas.";
+      getErrorMessage(error, "Não consegui carregar a biblioteca de cartas.");
   });
   elements.publicBaseUrl.value = getDefaultPublicBaseUrl();
+  elements.publicBaseUrl.addEventListener("input", () => updateMigratePublicButton(Boolean(obr)));
+  updateMigratePublicButton(false);
   elements.panelFlipButton.addEventListener("click", () =>
     runPanelAction(elements.panelFlipButton, async () => {
       const fallbackSelection = lastFlipSelection.length
@@ -6342,7 +6560,7 @@ async function init() {
         (total) => `${total} itens virados.`,
         "Selecione uma carta dupla ou uma pilha com cartas para virar.",
       );
-    }),
+    }, "Virando a seleção..."),
   );
   elements.panelDrawButton.addEventListener("click", () =>
     runPanelAction(elements.panelDrawButton, async () => {
@@ -6357,7 +6575,7 @@ async function init() {
         (total) => `${total} cartas compradas.`,
         "Selecione uma pilha com cartas para comprar.",
       );
-    }),
+    }, "Comprando uma carta..."),
   );
   elements.panelShuffleButton.addEventListener("click", () =>
     runPanelAction(elements.panelShuffleButton, async () => {
@@ -6368,7 +6586,7 @@ async function init() {
         (total) => `${total} pilhas embaralhadas.`,
         "Selecione uma pilha com pelo menos duas cartas.",
       );
-    }),
+    }, "Embaralhando a pilha..."),
   );
   elements.panelReturnButton.addEventListener("click", () =>
     runPanelAction(elements.panelReturnButton, async () => {
@@ -6377,28 +6595,25 @@ async function init() {
         lastCardSelection,
         lastDeckSelection,
       );
-      if (!count) {
-        await showPanelActionResult(
-          count,
-          "",
-          () => "",
-          "Selecione uma carta comprada com pilha de origem.",
-        );
-        return;
-      }
+      await showPanelActionResult(
+        count,
+        "Carta devolvida para a pilha.",
+        (total) => `${total} cartas devolvidas para a pilha.`,
+        "Selecione uma carta comprada com pilha de origem.",
+      );
+      if (!count) return;
 
       lastCardSelection = [];
       lastFlipSelection = lastDeckSelection;
-      setMessage("", "neutral");
-    }),
+    }, "Devolvendo a carta para a pilha..."),
   );
   elements.returnOriginButton.addEventListener("click", () =>
     runPanelAction(elements.returnOriginButton, async () => {
       await returnSelectedCardToOrigin(obr, lastCardSelection);
-      const message = "Carta devolvida para a posicao original.";
+      const message = "Carta devolvida para a posição original.";
       setMessage(message, "success");
-      await obr.notification.show(message, "SUCCESS");
-    }),
+      await showNotification(message, "SUCCESS");
+    }, "Devolvendo a carta para a origem..."),
   );
   elements.panelRepairButton.addEventListener("click", () =>
     runPanelAction(elements.panelRepairButton, async () => {
@@ -6406,27 +6621,29 @@ async function init() {
       const total = stats.cards + stats.decks;
 
       if (!total) {
-        const warning = "Nao encontrei cartas ou pilhas para sincronizar.";
+        const warning = "Não encontrei cartas ou pilhas para sincronizar.";
         setMessage(warning, "warning");
-        await obr.notification.show(warning, "WARNING");
+        await showNotification(warning, "WARNING");
         return;
       }
 
       const message = getRepairMessage(stats);
       setMessage(message, "success");
-      await obr.notification.show(message, "SUCCESS");
-    }),
+      await showNotification(message, "SUCCESS");
+    }, "Sincronizando a cena..."),
   );
   elements.migratePublicButton.addEventListener("click", () => {
-    elements.migratePublicButton.disabled = true;
+    migrationRunning = true;
+    updateMigratePublicButton(Boolean(obr));
     setMessage("Migrando links locais da cena...", "neutral");
     migrateSceneLocalAssets()
       .catch((error) => {
         console.error(error);
-        setMessage(error.message || "Nao consegui migrar os links locais.", "error");
+        setMessage(getErrorMessage(error, "Não consegui migrar os links locais."), "error");
       })
       .finally(() => {
-        elements.migratePublicButton.disabled = !obr;
+        migrationRunning = false;
+        updateMigratePublicButton(Boolean(obr));
       });
   });
   for (const button of elements.createScenePresetButtons) {
@@ -6435,54 +6652,79 @@ async function init() {
     );
   }
   for (const button of elements.restoreScenePresetButtons) {
-    button.addEventListener("click", () =>
-      runPanelAction(button, () => restoreDefaultBoard(button.dataset.restoreScenePreset)),
-    );
+    button.addEventListener("click", () => {
+      restoreDefaultBoard(button.dataset.restoreScenePreset).catch((error) => {
+        console.error(error);
+        setMessage(getErrorMessage(error, "Não consegui restaurar o mapa salvo."), "error");
+      });
+    });
   }
 
   setConnectionStatus("Painel carregado; conectando...", false);
-  setMessage("Previa ativa. Conectando ao Owlbear...", "neutral");
+  setMessage("Prévia ativa. Conectando ao Owlbear...", "neutral");
 
+  let loaded;
   try {
-    const loaded =
+    loaded =
       (await window.doubleSidedCardsSdkReady) ||
       (await import("./" + "sdk-client.js?v=65").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
-    obr = loaded.OBR;
-    buildImage = loaded.sdk.buildImage;
-    obr.broadcast
-      .sendMessage(COMMANDS_CHANNEL, { type: "register-commands" }, { destination: "LOCAL" })
-      .catch((error) => {
-        console.warn("Nao consegui pedir o registro dos comandos", error);
-    });
-    const selection = await obr.player.getSelection();
-    await rememberSelection(selection);
-    await refreshDefaultBoardInfo();
-    await refreshPlayerColorAssignments();
-    obr.player.onChange((player) => {
-      rememberSelection(player.selection).catch((error) => {
-        console.warn("Nao consegui atualizar a selecao do painel", error);
-      });
-      schedulePlayerColorAssignmentsRefresh();
-    });
-    if (obr.party?.onChange) {
-      obr.party.onChange((players) => {
-        schedulePlayerColorAssignmentsRefresh(players);
-      });
-    }
-    if (colorAssignmentsRefreshTimer) {
-      window.clearTimeout(colorAssignmentsRefreshTimer);
-    }
-    setConnectionStatus("Conectado ao Owlbear", true);
-    setMessage("", "neutral");
   } catch (error) {
     console.warn(error);
-    setConnectionStatus("Sem conexao ao SDK", false);
+    setConnectionStatus("Sem conexão ao SDK", false);
+    refreshDefaultBoardInfo().catch((presetError) => {
+      console.warn("Nao consegui carregar os mapas salvos", presetError);
+      elements.defaultBoardInfo.textContent =
+        "Não consegui carregar os mapas salvos. Reabra o painel para tentar novamente.";
+    });
     setMessage(
-      `A tela carregou, mas ainda nao conectou ao Owlbear: ${error.message}`,
+      `A tela carregou, mas ainda não conectou ao Owlbear: ${getErrorMessage(error)}`,
       "warning",
     );
+    return;
+  }
+
+  obr = loaded.OBR;
+  buildImage = loaded.sdk.buildImage;
+  obr.broadcast
+    .sendMessage(COMMANDS_CHANNEL, { type: "register-commands" }, { destination: "LOCAL" })
+    .catch((error) => {
+      console.warn("Nao consegui pedir o registro dos comandos", error);
+    });
+
+  const initialResults = await Promise.allSettled([
+    obr.player.getSelection().then((selection) => rememberSelection(selection)),
+    refreshDefaultBoardInfo(),
+    refreshPlayerColorAssignments(),
+  ]);
+  const initialFailures = initialResults.filter((result) => result.status === "rejected");
+  for (const failure of initialFailures) {
+    console.warn("Nao consegui carregar parte do estado inicial do painel", failure.reason);
+  }
+
+  obr.player.onChange((player) => {
+    rememberSelection(player.selection).catch((error) => {
+      console.warn("Nao consegui atualizar a selecao do painel", error);
+    });
+    schedulePlayerColorAssignmentsRefresh();
+  });
+  if (obr.party?.onChange) {
+    obr.party.onChange((players) => {
+      schedulePlayerColorAssignmentsRefresh(players);
+    });
+  }
+  if (colorAssignmentsRefreshTimer) {
+    window.clearTimeout(colorAssignmentsRefreshTimer);
+  }
+  setConnectionStatus("Conectado ao Owlbear", true);
+  if (initialFailures.length) {
+    setMessage(
+      "Conectado ao Owlbear, mas parte do estado inicial não pôde ser carregada. Reabra o painel se alguma seção não atualizar.",
+      "warning",
+    );
+  } else {
+    setMessage("", "neutral");
   }
 }
 

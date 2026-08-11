@@ -1,6 +1,6 @@
-# Test Checklist - Cartas Duplas
+# Checklist de testes — Cartas Duplas
 
-Este checklist deve ser usado antes de publicar mudancas no GitHub Pages e tambem apos alteracoes importantes na versao local.
+Este checklist deve ser usado antes de publicar mudanças no GitHub Pages e também após alterações importantes na versão local.
 
 ## Regras gerais de teste
 

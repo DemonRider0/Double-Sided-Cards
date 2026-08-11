@@ -62,15 +62,11 @@ function cloneDeckCard(card) {
 }
 
 function cloneUnknownFields(value, knownFields) {
-  const unknownFields = {};
-
-  for (const [key, entry] of Object.entries(value || {})) {
-    if (!knownFields.has(key)) {
-      unknownFields[key] = cloneSerializable(entry);
-    }
-  }
-
-  return unknownFields;
+  return Object.fromEntries(
+    Object.entries(value || {})
+      .filter(([key]) => !knownFields.has(key))
+      .map(([key, entry]) => [key, cloneSerializable(entry)]),
+  );
 }
 
 function cardsMatch(leftCards, rightCards) {
@@ -115,7 +111,7 @@ function requireNormalizedDeck(item, operation) {
   const metadata = getNormalizedDeck(item, operation, true);
 
   if (!metadata) {
-    throw new Error(`Esta pilha possui dados incompletos e nao pode ser ${operation}.`);
+    throw new Error(`Esta pilha possui dados incompletos e não pode ser ${operation}.`);
   }
 
   return metadata;
@@ -364,7 +360,7 @@ function createMissionDeckItem(buildImage, selectedCards, shuffledRecords) {
   );
 
   if (!firstMetadata) {
-    throw new Error("A primeira carta da pilha de missao possui dados incompletos.");
+    throw new Error("A primeira carta da pilha de missão possui dados incompletos.");
   }
 
   const cards = shuffledRecords.map((record) => cloneDeckCard(record.entry));
@@ -438,7 +434,7 @@ async function getItemsByIdsForMission(OBR, itemIds, stage, operation = null) {
     return await OBR.scene.items.getItems(itemIds);
   } catch (error) {
     logMissionDeckFailure(stage, error, operation);
-    throw new Error("Nao consegui reler as cartas da pilha de missao.");
+    throw new Error("Não consegui reler as cartas da pilha de missão.");
   }
 }
 
@@ -473,7 +469,7 @@ async function readMissionDeck(OBR, deckId, operation, stage) {
     return deck || null;
   } catch (error) {
     logMissionDeckFailure(stage, error, operation);
-    throw new Error("Nao consegui verificar a pilha de missao criada.");
+    throw new Error("Não consegui verificar a pilha de missão criada.");
   }
 }
 
@@ -588,7 +584,7 @@ async function reconcileMissionSourceDeletion(OBR, operation, deleteError = null
       ...summarizeMissionOperation(operation, { remainingSourceIds }),
     });
     throw new Error(
-      "Nao consegui apagar todas as cartas e a pilha ja foi alterada; preservei o estado mais recente.",
+      "Não consegui apagar todas as cartas e a pilha já foi alterada; preservei o estado mais recente.",
     );
   }
 
@@ -601,12 +597,12 @@ async function reconcileMissionSourceDeletion(OBR, operation, deleteError = null
 
     if (rolledBack) {
       throw new Error(
-        "Nao consegui apagar as cartas originais; a nova pilha foi removida com seguranca.",
+        "Não consegui apagar as cartas originais; a nova pilha foi removida com segurança.",
       );
     }
 
     throw new Error(
-      "Nao consegui apagar as cartas originais nem remover a nova pilha automaticamente.",
+      "Não consegui apagar as cartas originais nem remover a nova pilha automaticamente.",
     );
   }
 
@@ -629,12 +625,12 @@ async function reconcileMissionSourceDeletion(OBR, operation, deleteError = null
       ...summarizeMissionOperation(operation, { remainingSourceIds }),
     });
     throw new Error(
-      "Algumas cartas nao foram apagadas; a pilha foi ajustada para evitar duplicacao.",
+      "Algumas cartas não foram apagadas; a pilha foi ajustada para evitar duplicação.",
     );
   }
 
   throw new Error(
-    "Algumas cartas nao foram apagadas e nao foi seguro ajustar a pilha automaticamente.",
+    "Algumas cartas não foram apagadas e não foi seguro ajustar a pilha automaticamente.",
   );
 }
 
@@ -657,11 +653,11 @@ async function addMissionDeckOrRollback(OBR, operation) {
     }
 
     if (removed) {
-      throw new Error("Nao consegui criar a pilha de missao; as cartas foram preservadas.");
+      throw new Error("Não consegui criar a pilha de missão; as cartas foram preservadas.");
     }
 
     throw new Error(
-      "A criacao da pilha falhou e nao foi seguro remover uma pilha residual automaticamente.",
+      "A criação da pilha falhou e não foi seguro remover uma pilha residual automaticamente.",
     );
   }
 
@@ -673,7 +669,7 @@ async function addMissionDeckOrRollback(OBR, operation) {
   );
 
   if (!createdDeck || !missionDeckMatchesInitial(createdDeck, operation)) {
-    throw new Error("Nao consegui confirmar a pilha de missao criada.");
+    throw new Error("Não consegui confirmar a pilha de missão criada.");
   }
 }
 
@@ -684,7 +680,7 @@ export async function createMissionDeckFromSelection(OBR, buildImage) {
     selection = (await OBR.player.getSelection()) || [];
   } catch (error) {
     logMissionDeckFailure("leitura da selecao", error, null);
-    throw new Error("Nao consegui ler a selecao atual.");
+    throw new Error("Não consegui ler a seleção atual.");
   }
 
   if (selection.length !== 5 || new Set(selection).size !== 5) {
@@ -695,7 +691,7 @@ export async function createMissionDeckFromSelection(OBR, buildImage) {
   const operationKey = missionCreationKey(sourceIds);
 
   if (activeMissionDeckCreations.has(operationKey)) {
-    throw new Error("Esta pilha de missao ja esta sendo criada.");
+    throw new Error("Esta pilha de missão já está sendo criada.");
   }
 
   activeMissionDeckCreations.add(operationKey);
@@ -714,11 +710,11 @@ export async function createMissionDeckFromSelection(OBR, buildImage) {
       currentSelection = (await OBR.player.getSelection()) || [];
     } catch (error) {
       logMissionDeckFailure("confirmacao da selecao", error, { sourceIds });
-      throw new Error("Nao consegui confirmar a selecao atual.");
+      throw new Error("Não consegui confirmar a seleção atual.");
     }
 
     if (!sameItemIds(sourceIds, currentSelection)) {
-      throw new Error("A selecao mudou; selecione novamente as 5 cartas.");
+      throw new Error("A seleção mudou; selecione novamente as 5 cartas.");
     }
 
     const currentItems = await getItemsByIdsForMission(
@@ -734,7 +730,7 @@ export async function createMissionDeckFromSelection(OBR, buildImage) {
         const entry = createMissionDeckEntry(item);
 
         if (!entry) {
-          throw new Error("Uma das cartas selecionadas deixou de ser compativel.");
+          throw new Error("Uma das cartas selecionadas deixou de ser compatível.");
         }
 
         return {
@@ -746,7 +742,7 @@ export async function createMissionDeckFromSelection(OBR, buildImage) {
       builtDeck = createMissionDeckItem(buildImage, selectedCards, shuffledRecords);
     } catch (error) {
       logMissionDeckFailure("serializacao ou montagem da pilha", error, { sourceIds });
-      throw new Error("Nao consegui preparar os dados da pilha de missao.");
+      throw new Error("Não consegui preparar os dados da pilha de missão.");
     }
 
     const operation = {
@@ -978,21 +974,21 @@ async function drawSingleDeck(OBR, buildImage, deckId, drawOffset, options) {
       const rollbackSucceeded = await rollbackDrawnCard(OBR, operation);
 
       if (rollbackSucceeded) {
-        throw new Error("Nao consegui montar a carta; a pilha foi restaurada.");
+        throw new Error("Não consegui montar a carta; a pilha foi restaurada.");
       }
     } catch (rollbackError) {
-      if (rollbackError.message === "Nao consegui montar a carta; a pilha foi restaurada.") {
+      if (rollbackError.message === "Não consegui montar a carta; a pilha foi restaurada.") {
         throw rollbackError;
       }
 
       console.warn("Nao consegui restaurar a pilha apos falha ao montar carta", rollbackError);
       throw new Error(
-        "Nao consegui montar a carta e tambem nao consegui restaurar a pilha automaticamente.",
+        "Não consegui montar a carta e também não consegui restaurar a pilha automaticamente.",
       );
     }
 
     throw new Error(
-      "Nao consegui montar a carta; a pilha mudou depois da compra e nao foi alterada de novo.",
+      "Não consegui montar a carta; a pilha mudou depois da compra e não foi alterada de novo.",
     );
   }
 
@@ -1008,17 +1004,17 @@ async function drawSingleDeck(OBR, buildImage, deckId, drawOffset, options) {
     } catch (rollbackError) {
       console.warn("Nao consegui restaurar a pilha apos falha ao comprar carta", rollbackError);
       throw new Error(
-        "Nao consegui criar a carta e tambem nao consegui restaurar a pilha automaticamente.",
+        "Não consegui criar a carta e também não consegui restaurar a pilha automaticamente.",
       );
     }
 
     if (rollbackSucceeded) {
-      throw new Error("Nao consegui criar a carta; a pilha foi restaurada.");
+      throw new Error("Não consegui criar a carta; a pilha foi restaurada.");
     }
 
     console.warn("Compra parcial sem rollback seguro", error);
     throw new Error(
-      "Nao consegui criar a carta; a pilha mudou depois da compra e nao foi alterada de novo.",
+      "Não consegui criar a carta; a pilha mudou depois da compra e não foi alterada de novo.",
     );
   }
 
@@ -1029,7 +1025,7 @@ async function drawSingleDeck(OBR, buildImage, deckId, drawOffset, options) {
     } catch (error) {
       console.warn("Carta comprada, mas nao consegui apagar a pilha temporaria vazia", error);
       await OBR.notification
-        .show("Carta comprada, mas nao consegui apagar a pilha vazia.", "WARNING")
+        .show("Carta comprada, mas não consegui apagar a pilha vazia.", "WARNING")
         .catch(() => {});
     }
   }
@@ -1223,7 +1219,7 @@ async function readCardById(OBR, cardId, stage) {
     return item || null;
   } catch (error) {
     logReturnFailure(`releitura da carta (${stage})`, error, { cardId });
-    throw new Error("Nao consegui reler a carta para devolver.");
+    throw new Error("Não consegui reler a carta para devolver.");
   }
 }
 
@@ -1233,7 +1229,7 @@ async function readDeckById(OBR, deckId, stage) {
     return item || null;
   } catch (error) {
     logReturnFailure(`releitura da pilha (${stage})`, error, { deckId });
-    throw new Error("Nao consegui reler a pilha de origem.");
+    throw new Error("Não consegui reler a pilha de origem.");
   }
 }
 
@@ -1345,7 +1341,7 @@ async function deleteReturnedCardOrReconcile(OBR, operation) {
   } catch (rollbackError) {
     logReturnFailure("rollback", rollbackError, operation);
     throw new Error(
-      "Nao consegui apagar a carta e tambem nao consegui restaurar a pilha automaticamente.",
+      "Não consegui apagar a carta e também não consegui restaurar a pilha automaticamente.",
     );
   }
 
@@ -1354,7 +1350,7 @@ async function deleteReturnedCardOrReconcile(OBR, operation) {
       cardId: operation.cardId,
       deckId: operation.deckId,
     });
-    throw new Error("Nao consegui apagar a carta; a pilha foi restaurada.");
+    throw new Error("Não consegui apagar a carta; a pilha foi restaurada.");
   }
 
   console.warn("Rollback recusado porque a pilha mudou apos a devolucao", {
@@ -1362,7 +1358,7 @@ async function deleteReturnedCardOrReconcile(OBR, operation) {
     deckId: operation.deckId,
   });
   throw new Error(
-    "Nao consegui apagar a carta; a pilha mudou depois da devolucao e nao foi alterada de novo.",
+    "Não consegui apagar a carta; a pilha mudou depois da devolução e não foi alterada de novo.",
   );
 }
 
@@ -1375,7 +1371,7 @@ async function returnSingleCardToDeck(OBR, cardId) {
   }
 
   if (!getNormalizedCard(initialCard, "devolucao", true)) {
-    throw new Error("Esta carta possui dados incompletos e nao pode ser devolvida.");
+    throw new Error("Esta carta possui dados incompletos e não pode ser devolvida.");
   }
 
   const sourceDeckId = getReturnSourceDeckId(initialCard);
@@ -1399,7 +1395,7 @@ async function returnSingleCardToDeck(OBR, cardId) {
     const cardMetadata = getNormalizedCard(currentCard, "devolucao", true);
 
     if (!cardMetadata) {
-      throw new Error("Esta carta possui dados incompletos e nao pode ser devolvida.");
+      throw new Error("Esta carta possui dados incompletos e não pode ser devolvida.");
     }
 
     const currentSourceDeckId = getReturnSourceDeckId(currentCard);
@@ -1424,7 +1420,7 @@ async function returnSingleCardToDeck(OBR, cardId) {
     }
 
     if (!getNormalizedDeck(sourceDeck, "devolucao", true)) {
-      throw new Error("A pilha de origem possui dados incompletos e nao aceita devolucao.");
+      throw new Error("A pilha de origem possui dados incompletos e não aceita devolução.");
     }
 
     let operation = null;
@@ -1433,7 +1429,7 @@ async function returnSingleCardToDeck(OBR, cardId) {
       operation = await applyReturnToDeck(OBR, currentCard, sourceDeckId);
     } catch (error) {
       logReturnFailure("updateItems", error, { cardId, deckId: sourceDeckId });
-      throw new Error("Nao consegui atualizar a pilha para devolver a carta.");
+      throw new Error("Não consegui atualizar a pilha para devolver a carta.");
     }
 
     if (!operation) {

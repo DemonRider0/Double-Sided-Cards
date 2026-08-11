@@ -8,52 +8,102 @@
       "gridWidth": 3,
       "layer": "MOUNT",
       "origin": null,
-      "back": "assets/preset-cards/classes/Verso.png",
+      "back": {
+        "path": "assets/preset-cards/classes/Verso.png",
+        "width": 1063,
+        "height": 1063,
+        "mime": "image/png"
+      },
       "cards": [
         {
           "id": "1-arcanista",
           "name": "Arcanista",
-          "front": "assets/preset-cards/classes/Arcanista.png"
+          "front": {
+            "path": "assets/preset-cards/classes/Arcanista.png",
+            "width": 1063,
+            "height": 1063,
+            "mime": "image/png"
+          }
         },
         {
           "id": "2-b-rbaro",
           "name": "Bárbaro",
-          "front": "assets/preset-cards/classes/Bárbaro.png"
+          "front": {
+            "path": "assets/preset-cards/classes/Bárbaro.png",
+            "width": 1063,
+            "height": 1063,
+            "mime": "image/png"
+          }
         },
         {
           "id": "3-bardo",
           "name": "Bardo",
-          "front": "assets/preset-cards/classes/Bardo.png"
+          "front": {
+            "path": "assets/preset-cards/classes/Bardo.png",
+            "width": 1063,
+            "height": 1063,
+            "mime": "image/png"
+          }
         },
         {
           "id": "4-ca-ador",
           "name": "Caçador",
-          "front": "assets/preset-cards/classes/Caçador.png"
+          "front": {
+            "path": "assets/preset-cards/classes/Caçador.png",
+            "width": 1063,
+            "height": 1063,
+            "mime": "image/png"
+          }
         },
         {
           "id": "5-cavaleiro",
           "name": "Cavaleiro",
-          "front": "assets/preset-cards/classes/Cavaleiro.png"
+          "front": {
+            "path": "assets/preset-cards/classes/Cavaleiro.png",
+            "width": 1063,
+            "height": 1063,
+            "mime": "image/png"
+          }
         },
         {
           "id": "6-cl-rigo",
           "name": "Clérigo",
-          "front": "assets/preset-cards/classes/Clérigo.png"
+          "front": {
+            "path": "assets/preset-cards/classes/Clérigo.png",
+            "width": 1063,
+            "height": 1063,
+            "mime": "image/png"
+          }
         },
         {
           "id": "7-guerreiro",
           "name": "Guerreiro",
-          "front": "assets/preset-cards/classes/Guerreiro.png"
+          "front": {
+            "path": "assets/preset-cards/classes/Guerreiro.png",
+            "width": 1063,
+            "height": 1063,
+            "mime": "image/png"
+          }
         },
         {
           "id": "8-inventor",
           "name": "Inventor",
-          "front": "assets/preset-cards/classes/Inventor.png"
+          "front": {
+            "path": "assets/preset-cards/classes/Inventor.png",
+            "width": 1063,
+            "height": 1063,
+            "mime": "image/png"
+          }
         },
         {
           "id": "9-ladino",
           "name": "Ladino",
-          "front": "assets/preset-cards/classes/Ladino.png"
+          "front": {
+            "path": "assets/preset-cards/classes/Ladino.png",
+            "width": 1063,
+            "height": 1063,
+            "mime": "image/png"
+          }
         }
       ]
     },
@@ -64,62 +114,122 @@
       "gridWidth": 3,
       "layer": "MOUNT",
       "origin": null,
-      "back": "assets/preset-cards/racas/Verso.png",
+      "back": {
+        "path": "assets/preset-cards/racas/Verso.png",
+        "width": 1063,
+        "height": 1063,
+        "mime": "image/png"
+      },
       "cards": [
         {
           "id": "1-an-o",
           "name": "Anão",
-          "front": "assets/preset-cards/racas/Anão.png"
+          "front": {
+            "path": "assets/preset-cards/racas/Anão.png",
+            "width": 1063,
+            "height": 1063,
+            "mime": "image/png"
+          }
         },
         {
           "id": "2-dahllan",
           "name": "Dahllan",
-          "front": "assets/preset-cards/racas/Dahllan.png"
+          "front": {
+            "path": "assets/preset-cards/racas/Dahllan.png",
+            "width": 1063,
+            "height": 1063,
+            "mime": "image/png"
+          }
         },
         {
           "id": "3-elfo",
           "name": "Elfo",
-          "front": "assets/preset-cards/racas/Elfo.png"
+          "front": {
+            "path": "assets/preset-cards/racas/Elfo.png",
+            "width": 1063,
+            "height": 1063,
+            "mime": "image/png"
+          }
         },
         {
           "id": "4-goblin",
           "name": "Goblin",
-          "front": "assets/preset-cards/racas/Goblin.png"
+          "front": {
+            "path": "assets/preset-cards/racas/Goblin.png",
+            "width": 1063,
+            "height": 1063,
+            "mime": "image/png"
+          }
         },
         {
           "id": "5-humano",
           "name": "Humano",
-          "front": "assets/preset-cards/racas/Humano.png"
+          "front": {
+            "path": "assets/preset-cards/racas/Humano.png",
+            "width": 1063,
+            "height": 1063,
+            "mime": "image/png"
+          }
         },
         {
           "id": "6-medusa",
           "name": "Medusa",
-          "front": "assets/preset-cards/racas/Medusa.png"
+          "front": {
+            "path": "assets/preset-cards/racas/Medusa.png",
+            "width": 1063,
+            "height": 1063,
+            "mime": "image/png"
+          }
         },
         {
           "id": "7-minotauro",
           "name": "Minotauro",
-          "front": "assets/preset-cards/racas/Minotauro.png"
+          "front": {
+            "path": "assets/preset-cards/racas/Minotauro.png",
+            "width": 1063,
+            "height": 1063,
+            "mime": "image/png"
+          }
         },
         {
           "id": "8-osteon",
           "name": "Osteon",
-          "front": "assets/preset-cards/racas/Osteon.png"
+          "front": {
+            "path": "assets/preset-cards/racas/Osteon.png",
+            "width": 1063,
+            "height": 1063,
+            "mime": "image/png"
+          }
         },
         {
           "id": "9-qareen",
           "name": "Qareen",
-          "front": "assets/preset-cards/racas/Qareen.png"
+          "front": {
+            "path": "assets/preset-cards/racas/Qareen.png",
+            "width": 1063,
+            "height": 1063,
+            "mime": "image/png"
+          }
         },
         {
           "id": "10-s-lfide",
           "name": "Sílfide",
-          "front": "assets/preset-cards/racas/Sílfide.png"
+          "front": {
+            "path": "assets/preset-cards/racas/Sílfide.png",
+            "width": 1063,
+            "height": 1063,
+            "mime": "image/png"
+          }
         },
         {
           "id": "11-trog",
           "name": "Trog",
-          "front": "assets/preset-cards/racas/Trog.png"
+          "front": {
+            "path": "assets/preset-cards/racas/Trog.png",
+            "width": 1063,
+            "height": 1063,
+            "mime": "image/png"
+          }
         }
       ]
     },
@@ -135,68 +245,178 @@
         {
           "id": "1-alihanna",
           "name": "Alihanna",
-          "front": "assets/preset-cards/divindades/Alihanna.png",
-          "back": "assets/preset-cards/divindades/Alihanna verso.png"
+          "front": {
+            "path": "assets/preset-cards/divindades/Alihanna.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          },
+          "back": {
+            "path": "assets/preset-cards/divindades/Alihanna verso.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "id": "2-arsenal",
           "name": "Arsenal",
-          "front": "assets/preset-cards/divindades/Arsenal.png",
-          "back": "assets/preset-cards/divindades/Arsenal verso.png"
+          "front": {
+            "path": "assets/preset-cards/divindades/Arsenal.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          },
+          "back": {
+            "path": "assets/preset-cards/divindades/Arsenal verso.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "id": "3-azgher",
           "name": "Azgher",
-          "front": "assets/preset-cards/divindades/Azgher.png",
-          "back": "assets/preset-cards/divindades/Azgher verso.png"
+          "front": {
+            "path": "assets/preset-cards/divindades/Azgher.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          },
+          "back": {
+            "path": "assets/preset-cards/divindades/Azgher verso.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "id": "4-kallyadranoch",
           "name": "Kallyadranoch",
-          "front": "assets/preset-cards/divindades/Kallyadranoch.png",
-          "back": "assets/preset-cards/divindades/Kallyadranoch verso.png"
+          "front": {
+            "path": "assets/preset-cards/divindades/Kallyadranoch.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          },
+          "back": {
+            "path": "assets/preset-cards/divindades/Kallyadranoch verso.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "id": "5-khalmyr",
           "name": "Khalmyr",
-          "front": "assets/preset-cards/divindades/Khalmyr.png",
-          "back": "assets/preset-cards/divindades/Khalmyr verso.png"
+          "front": {
+            "path": "assets/preset-cards/divindades/Khalmyr.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          },
+          "back": {
+            "path": "assets/preset-cards/divindades/Khalmyr verso.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "id": "6-megalokk",
           "name": "Megalokk",
-          "front": "assets/preset-cards/divindades/Megalokk.png",
-          "back": "assets/preset-cards/divindades/Megalokk verso.png"
+          "front": {
+            "path": "assets/preset-cards/divindades/Megalokk.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          },
+          "back": {
+            "path": "assets/preset-cards/divindades/Megalokk verso.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "id": "7-nimb",
           "name": "Nimb",
-          "front": "assets/preset-cards/divindades/Nimb.png",
-          "back": "assets/preset-cards/divindades/Nimb verso.png"
+          "front": {
+            "path": "assets/preset-cards/divindades/Nimb.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          },
+          "back": {
+            "path": "assets/preset-cards/divindades/Nimb verso.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "id": "8-thwor",
           "name": "Thwor",
-          "front": "assets/preset-cards/divindades/Thwor.png",
-          "back": "assets/preset-cards/divindades/Thwor verso.png"
+          "front": {
+            "path": "assets/preset-cards/divindades/Thwor.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          },
+          "back": {
+            "path": "assets/preset-cards/divindades/Thwor verso.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "id": "9-thyatis",
           "name": "Thyatis",
-          "front": "assets/preset-cards/divindades/Thyatis.png",
-          "back": "assets/preset-cards/divindades/Thyatis verso.png"
+          "front": {
+            "path": "assets/preset-cards/divindades/Thyatis.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          },
+          "back": {
+            "path": "assets/preset-cards/divindades/Thyatis verso.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "id": "10-valkaria",
           "name": "Valkaria",
-          "front": "assets/preset-cards/divindades/Valkaria.png",
-          "back": "assets/preset-cards/divindades/Valkaria verso.png"
+          "front": {
+            "path": "assets/preset-cards/divindades/Valkaria.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          },
+          "back": {
+            "path": "assets/preset-cards/divindades/Valkaria verso.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "id": "11-wynna",
           "name": "Wynna",
-          "front": "assets/preset-cards/divindades/Wynna.png",
-          "back": "assets/preset-cards/divindades/Wynna verso.png"
+          "front": {
+            "path": "assets/preset-cards/divindades/Wynna.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          },
+          "back": {
+            "path": "assets/preset-cards/divindades/Wynna verso.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         }
       ]
     },
@@ -207,37 +427,72 @@
       "gridWidth": 1.25,
       "layer": "MOUNT",
       "origin": null,
-      "back": "assets/preset-cards/reacoes-heroicas/Verso.png",
+      "back": {
+        "path": "assets/preset-cards/reacoes-heroicas/Verso.png",
+        "width": 673,
+        "height": 1039,
+        "mime": "image/png"
+      },
       "cards": [
         {
           "id": "1-arcanista",
           "name": "Arcanista",
-          "front": "assets/preset-cards/reacoes-heroicas/Arcanista.png"
+          "front": {
+            "path": "assets/preset-cards/reacoes-heroicas/Arcanista.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "id": "2-cavaleiro",
           "name": "Cavaleiro",
-          "front": "assets/preset-cards/reacoes-heroicas/Cavaleiro.png"
+          "front": {
+            "path": "assets/preset-cards/reacoes-heroicas/Cavaleiro.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "id": "3-cl-rigo",
           "name": "Clérigo",
-          "front": "assets/preset-cards/reacoes-heroicas/Clérigo.png"
+          "front": {
+            "path": "assets/preset-cards/reacoes-heroicas/Clérigo.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "id": "4-guerreiro",
           "name": "Guerreiro",
-          "front": "assets/preset-cards/reacoes-heroicas/Guerreiro.png"
+          "front": {
+            "path": "assets/preset-cards/reacoes-heroicas/Guerreiro.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "id": "5-inventor",
           "name": "Inventor",
-          "front": "assets/preset-cards/reacoes-heroicas/Inventor.png"
+          "front": {
+            "path": "assets/preset-cards/reacoes-heroicas/Inventor.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "id": "6-ladino",
           "name": "Ladino",
-          "front": "assets/preset-cards/reacoes-heroicas/Ladino.png"
+          "front": {
+            "path": "assets/preset-cards/reacoes-heroicas/Ladino.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         }
       ]
     },
@@ -251,32 +506,62 @@
         "x": 885,
         "y": 531.5
       },
-      "back": "assets/preset-cards/herois/Verso.png",
+      "back": {
+        "path": "assets/preset-cards/herois/Verso.png",
+        "width": 2126,
+        "height": 1063,
+        "mime": "image/png"
+      },
       "cards": [
         {
           "id": "1-dandara-hero-na",
           "name": "Dandara heroína",
-          "front": "assets/preset-cards/herois/Dandara heroína.png"
+          "front": {
+            "path": "assets/preset-cards/herois/Dandara heroína.png",
+            "width": 2126,
+            "height": 1063,
+            "mime": "image/png"
+          }
         },
         {
           "id": "2-ergon-her-i",
           "name": "Ergon herói",
-          "front": "assets/preset-cards/herois/Ergon herói.png"
+          "front": {
+            "path": "assets/preset-cards/herois/Ergon herói.png",
+            "width": 2126,
+            "height": 1063,
+            "mime": "image/png"
+          }
         },
         {
           "id": "3-jonas-her-i",
           "name": "Jonas herói",
-          "front": "assets/preset-cards/herois/Jonas herói.png"
+          "front": {
+            "path": "assets/preset-cards/herois/Jonas herói.png",
+            "width": 2126,
+            "height": 1063,
+            "mime": "image/png"
+          }
         },
         {
           "id": "4-maguie-de-landriax-2",
           "name": "Maguie de Landriax 2",
-          "front": "assets/preset-cards/herois/Maguie de Landriax 2.png"
+          "front": {
+            "path": "assets/preset-cards/herois/Maguie de Landriax 2.png",
+            "width": 2126,
+            "height": 1063,
+            "mime": "image/png"
+          }
         },
         {
           "id": "5-warryn-hero-2",
           "name": "Warryn heroí 2",
-          "front": "assets/preset-cards/herois/Warryn heroí 2.png"
+          "front": {
+            "path": "assets/preset-cards/herois/Warryn heroí 2.png",
+            "width": 2126,
+            "height": 1063,
+            "mime": "image/png"
+          }
         }
       ]
     },
@@ -287,32 +572,62 @@
       "gridWidth": 1,
       "layer": "MOUNT",
       "origin": null,
-      "back": "assets/preset-cards/herois-montaria/Verso.png",
+      "back": {
+        "path": "assets/preset-cards/herois-montaria/Verso.png",
+        "width": 300,
+        "height": 300,
+        "mime": "image/png"
+      },
       "cards": [
         {
           "id": "1-dandara-token",
           "name": "Dandara token",
-          "front": "assets/preset-cards/herois-montaria/Dandara token.png"
+          "front": {
+            "path": "assets/preset-cards/herois-montaria/Dandara token.png",
+            "width": 300,
+            "height": 300,
+            "mime": "image/png"
+          }
         },
         {
           "id": "2-ergon-token",
           "name": "Ergon token",
-          "front": "assets/preset-cards/herois-montaria/Ergon token.png"
+          "front": {
+            "path": "assets/preset-cards/herois-montaria/Ergon token.png",
+            "width": 300,
+            "height": 300,
+            "mime": "image/png"
+          }
         },
         {
           "id": "3-jonas-token",
           "name": "Jonas token",
-          "front": "assets/preset-cards/herois-montaria/Jonas token.png"
+          "front": {
+            "path": "assets/preset-cards/herois-montaria/Jonas token.png",
+            "width": 300,
+            "height": 300,
+            "mime": "image/png"
+          }
         },
         {
           "id": "4-maguie-token",
           "name": "Maguie token",
-          "front": "assets/preset-cards/herois-montaria/Maguie token.png"
+          "front": {
+            "path": "assets/preset-cards/herois-montaria/Maguie token.png",
+            "width": 300,
+            "height": 300,
+            "mime": "image/png"
+          }
         },
         {
           "id": "5-warryn-token",
           "name": "Warryn token",
-          "front": "assets/preset-cards/herois-montaria/Warryn token.png"
+          "front": {
+            "path": "assets/preset-cards/herois-montaria/Warryn token.png",
+            "width": 300,
+            "height": 300,
+            "mime": "image/png"
+          }
         }
       ]
     }

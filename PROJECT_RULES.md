@@ -1,8 +1,8 @@
-# Project Rules - Double-Sided Cards
+# Regras do projeto — Double-Sided Cards
 
 Autor e dono do projeto: DemonRider.
 
-Este arquivo registra as regras permanentes do projeto. Qualquer alteracao futura deve respeitar estas decisoes, a menos que DemonRider peca explicitamente o contrario.
+Este arquivo registra as regras permanentes do projeto. Qualquer alteração futura deve respeitar estas decisões, a menos que DemonRider peça explicitamente o contrário.
 
 ## Objetivo do projeto
 
@@ -28,12 +28,12 @@ Este arquivo registra as regras permanentes do projeto. Qualquer alteracao futur
 - A versao publica deve ser mais limpa para jogadores: nao reintroduzir menus locais de importacao ou marcacao se eles tiverem sido removidos.
 - A versao local pode ter botoes administrativos, como marcar identificadores de cor, marcar raca, marcar classe, marcar divindade e importar cartas/pilhas.
 
-## Autoria e documentacao
+## Autoria e documentação
 
 - Toda autoria deve apontar para DemonRider.
-- Nao inserir referencias a IA, assistentes, modelos ou ferramentas automatizadas nos arquivos do projeto.
-- Textos visiveis ao usuario devem estar em portugues, exceto nomes tecnicos exigidos pelo Owlbear, manifest, codigo, chaves internas e nomes de camadas.
-- Comentarios e documentacao devem ser objetivos e voltados ao uso/manutencao da extensao.
+- Não inserir créditos, autoria ou referências de processo que não pertençam ao produto e à sua manutenção.
+- Textos visíveis ao usuário devem estar em português, exceto nomes técnicos exigidos pelo Owlbear, manifest, código, chaves internas e nomes de camadas.
+- Comentários e documentação devem ser objetivos e voltados ao uso e à manutenção da extensão.
 
 ## Regras de build e cache
 

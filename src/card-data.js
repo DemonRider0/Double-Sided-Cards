@@ -92,7 +92,12 @@ function cloneSerializableValue(value, seen) {
       const clonedEntry = cloneSerializableValue(entry, seen);
 
       if (typeof clonedEntry !== "undefined") {
-        clone[key] = clonedEntry;
+        Object.defineProperty(clone, key, {
+          value: clonedEntry,
+          enumerable: true,
+          configurable: true,
+          writable: true,
+        });
       }
     }
 

@@ -6,27 +6,57 @@
       "name": "Ameacas Elite",
       "gridWidth": 4.5,
       "layer": "PROP",
-      "back": "assets/preset-decks/elite/Verso.png",
+      "back": {
+        "path": "assets/preset-decks/elite/Verso.png",
+        "width": 1417,
+        "height": 945,
+        "mime": "image/png"
+      },
       "cards": [
         {
           "name": "Burodron",
-          "front": "assets/preset-decks/elite/Burodron.png"
+          "front": {
+            "path": "assets/preset-decks/elite/Burodron.png",
+            "width": 1418,
+            "height": 946,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Hurobak",
-          "front": "assets/preset-decks/elite/Hurobak.png"
+          "front": {
+            "path": "assets/preset-decks/elite/Hurobak.png",
+            "width": 1418,
+            "height": 946,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Morgadrel",
-          "front": "assets/preset-decks/elite/Morgadrel.png"
+          "front": {
+            "path": "assets/preset-decks/elite/Morgadrel.png",
+            "width": 1418,
+            "height": 946,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Senhor do Senhor Rubro",
-          "front": "assets/preset-decks/elite/Senhor do Senhor Rubro.png"
+          "front": {
+            "path": "assets/preset-decks/elite/Senhor do Senhor Rubro.png",
+            "width": 1418,
+            "height": 946,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Veridak",
-          "front": "assets/preset-decks/elite/Veridak.png"
+          "front": {
+            "path": "assets/preset-decks/elite/Veridak.png",
+            "width": 1418,
+            "height": 946,
+            "mime": "image/png"
+          }
         }
       ]
     },
@@ -35,103 +65,228 @@
       "name": "Armas",
       "gridWidth": 2.25,
       "layer": "PROP",
-      "back": "assets/preset-decks/armas/Verso.png",
+      "back": {
+        "path": "assets/preset-decks/armas/Verso.png",
+        "width": 791,
+        "height": 520,
+        "mime": "image/png"
+      },
       "cards": [
         {
           "name": "Carta 1",
-          "front": "assets/preset-decks/armas/Carta 1.png"
+          "front": {
+            "path": "assets/preset-decks/armas/Carta 1.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 2",
-          "front": "assets/preset-decks/armas/Carta 2.png"
+          "front": {
+            "path": "assets/preset-decks/armas/Carta 2.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 3",
-          "front": "assets/preset-decks/armas/Carta 3.png"
+          "front": {
+            "path": "assets/preset-decks/armas/Carta 3.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 4",
-          "front": "assets/preset-decks/armas/Carta 4.png"
+          "front": {
+            "path": "assets/preset-decks/armas/Carta 4.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 5",
-          "front": "assets/preset-decks/armas/Carta 5.png"
+          "front": {
+            "path": "assets/preset-decks/armas/Carta 5.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 6",
-          "front": "assets/preset-decks/armas/Carta 6.png"
+          "front": {
+            "path": "assets/preset-decks/armas/Carta 6.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 7",
-          "front": "assets/preset-decks/armas/Carta 7.png"
+          "front": {
+            "path": "assets/preset-decks/armas/Carta 7.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 8",
-          "front": "assets/preset-decks/armas/Carta 8.png"
+          "front": {
+            "path": "assets/preset-decks/armas/Carta 8.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 9",
-          "front": "assets/preset-decks/armas/Carta 9.png"
+          "front": {
+            "path": "assets/preset-decks/armas/Carta 9.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 10",
-          "front": "assets/preset-decks/armas/Carta 10.png"
+          "front": {
+            "path": "assets/preset-decks/armas/Carta 10.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 11",
-          "front": "assets/preset-decks/armas/Carta 11.png"
+          "front": {
+            "path": "assets/preset-decks/armas/Carta 11.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 12",
-          "front": "assets/preset-decks/armas/Carta 12.png"
+          "front": {
+            "path": "assets/preset-decks/armas/Carta 12.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 13",
-          "front": "assets/preset-decks/armas/Carta 13.png"
+          "front": {
+            "path": "assets/preset-decks/armas/Carta 13.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 14",
-          "front": "assets/preset-decks/armas/Carta 14.png"
+          "front": {
+            "path": "assets/preset-decks/armas/Carta 14.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 15",
-          "front": "assets/preset-decks/armas/Carta 15.png"
+          "front": {
+            "path": "assets/preset-decks/armas/Carta 15.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 16",
-          "front": "assets/preset-decks/armas/Carta 16.png"
+          "front": {
+            "path": "assets/preset-decks/armas/Carta 16.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 17",
-          "front": "assets/preset-decks/armas/Carta 17.png"
+          "front": {
+            "path": "assets/preset-decks/armas/Carta 17.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 18",
-          "front": "assets/preset-decks/armas/Carta 18.png"
+          "front": {
+            "path": "assets/preset-decks/armas/Carta 18.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 19",
-          "front": "assets/preset-decks/armas/Carta 19.png"
+          "front": {
+            "path": "assets/preset-decks/armas/Carta 19.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 20",
-          "front": "assets/preset-decks/armas/Carta 20.png"
+          "front": {
+            "path": "assets/preset-decks/armas/Carta 20.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 21",
-          "front": "assets/preset-decks/armas/Carta 21.png"
+          "front": {
+            "path": "assets/preset-decks/armas/Carta 21.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 22",
-          "front": "assets/preset-decks/armas/Carta 22.png"
+          "front": {
+            "path": "assets/preset-decks/armas/Carta 22.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 23",
-          "front": "assets/preset-decks/armas/Carta 23.png"
+          "front": {
+            "path": "assets/preset-decks/armas/Carta 23.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 24",
-          "front": "assets/preset-decks/armas/Carta 24.png"
+          "front": {
+            "path": "assets/preset-decks/armas/Carta 24.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         }
       ]
     },
@@ -140,79 +295,174 @@
       "name": "Salas",
       "gridWidth": 1.5,
       "layer": "PROP",
-      "back": "assets/preset-decks/salas/Verso.png",
+      "back": {
+        "path": "assets/preset-decks/salas/Verso.png",
+        "width": 520,
+        "height": 791,
+        "mime": "image/png"
+      },
       "cards": [
         {
           "name": "Carta 1",
-          "front": "assets/preset-decks/salas/Carta 1.png"
+          "front": {
+            "path": "assets/preset-decks/salas/Carta 1.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 2",
-          "front": "assets/preset-decks/salas/Carta 2.png"
+          "front": {
+            "path": "assets/preset-decks/salas/Carta 2.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 3",
-          "front": "assets/preset-decks/salas/Carta 3.png"
+          "front": {
+            "path": "assets/preset-decks/salas/Carta 3.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 4",
-          "front": "assets/preset-decks/salas/Carta 4.png"
+          "front": {
+            "path": "assets/preset-decks/salas/Carta 4.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 5",
-          "front": "assets/preset-decks/salas/Carta 5.png"
+          "front": {
+            "path": "assets/preset-decks/salas/Carta 5.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 6",
-          "front": "assets/preset-decks/salas/Carta 6.png"
+          "front": {
+            "path": "assets/preset-decks/salas/Carta 6.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 7",
-          "front": "assets/preset-decks/salas/Carta 7.png"
+          "front": {
+            "path": "assets/preset-decks/salas/Carta 7.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 8",
-          "front": "assets/preset-decks/salas/Carta 8.png"
+          "front": {
+            "path": "assets/preset-decks/salas/Carta 8.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 9",
-          "front": "assets/preset-decks/salas/Carta 9.png"
+          "front": {
+            "path": "assets/preset-decks/salas/Carta 9.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 10",
-          "front": "assets/preset-decks/salas/Carta 10.png"
+          "front": {
+            "path": "assets/preset-decks/salas/Carta 10.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 11",
-          "front": "assets/preset-decks/salas/Carta 11.png"
+          "front": {
+            "path": "assets/preset-decks/salas/Carta 11.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 12",
-          "front": "assets/preset-decks/salas/Carta 12.png"
+          "front": {
+            "path": "assets/preset-decks/salas/Carta 12.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 13",
-          "front": "assets/preset-decks/salas/Carta 13.png"
+          "front": {
+            "path": "assets/preset-decks/salas/Carta 13.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 14",
-          "front": "assets/preset-decks/salas/Carta 14.png"
+          "front": {
+            "path": "assets/preset-decks/salas/Carta 14.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 15",
-          "front": "assets/preset-decks/salas/Carta 15.png"
+          "front": {
+            "path": "assets/preset-decks/salas/Carta 15.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 16",
-          "front": "assets/preset-decks/salas/Carta 16.png"
+          "front": {
+            "path": "assets/preset-decks/salas/Carta 16.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 17",
-          "front": "assets/preset-decks/salas/Carta 17.png"
+          "front": {
+            "path": "assets/preset-decks/salas/Carta 17.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 18",
-          "front": "assets/preset-decks/salas/Carta 18.png"
+          "front": {
+            "path": "assets/preset-decks/salas/Carta 18.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         }
       ]
     },
@@ -221,15 +471,30 @@
       "name": "Salas-Refugiados",
       "gridWidth": 1.5,
       "layer": "PROP",
-      "back": "assets/preset-decks/salas-refugiados/Verso.png",
+      "back": {
+        "path": "assets/preset-decks/salas-refugiados/Verso.png",
+        "width": 520,
+        "height": 791,
+        "mime": "image/png"
+      },
       "cards": [
         {
           "name": "Carta 8",
-          "front": "assets/preset-decks/salas-refugiados/Carta 8.png"
+          "front": {
+            "path": "assets/preset-decks/salas-refugiados/Carta 8.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 9",
-          "front": "assets/preset-decks/salas-refugiados/Carta 9.png"
+          "front": {
+            "path": "assets/preset-decks/salas-refugiados/Carta 9.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         }
       ]
     },
@@ -238,23 +503,48 @@
       "name": "Salas-Objetivos",
       "gridWidth": 1.5,
       "layer": "PROP",
-      "back": "assets/preset-decks/salas-objetivos/Verso.png",
+      "back": {
+        "path": "assets/preset-decks/salas-objetivos/Verso.png",
+        "width": 520,
+        "height": 791,
+        "mime": "image/png"
+      },
       "cards": [
         {
           "name": "Carta 15",
-          "front": "assets/preset-decks/salas-objetivos/Carta 15.png"
+          "front": {
+            "path": "assets/preset-decks/salas-objetivos/Carta 15.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 16",
-          "front": "assets/preset-decks/salas-objetivos/Carta 16.png"
+          "front": {
+            "path": "assets/preset-decks/salas-objetivos/Carta 16.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 17",
-          "front": "assets/preset-decks/salas-objetivos/Carta 17.png"
+          "front": {
+            "path": "assets/preset-decks/salas-objetivos/Carta 17.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 18",
-          "front": "assets/preset-decks/salas-objetivos/Carta 18.png"
+          "front": {
+            "path": "assets/preset-decks/salas-objetivos/Carta 18.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         }
       ]
     },
@@ -263,55 +553,120 @@
       "name": "Salas-Normais",
       "gridWidth": 1.5,
       "layer": "PROP",
-      "back": "assets/preset-decks/salas-normais/Verso.png",
+      "back": {
+        "path": "assets/preset-decks/salas-normais/Verso.png",
+        "width": 520,
+        "height": 791,
+        "mime": "image/png"
+      },
       "cards": [
         {
           "name": "Carta 1",
-          "front": "assets/preset-decks/salas-normais/Carta 1.png"
+          "front": {
+            "path": "assets/preset-decks/salas-normais/Carta 1.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 2",
-          "front": "assets/preset-decks/salas-normais/Carta 2.png"
+          "front": {
+            "path": "assets/preset-decks/salas-normais/Carta 2.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 3",
-          "front": "assets/preset-decks/salas-normais/Carta 3.png"
+          "front": {
+            "path": "assets/preset-decks/salas-normais/Carta 3.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 4",
-          "front": "assets/preset-decks/salas-normais/Carta 4.png"
+          "front": {
+            "path": "assets/preset-decks/salas-normais/Carta 4.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 5",
-          "front": "assets/preset-decks/salas-normais/Carta 5.png"
+          "front": {
+            "path": "assets/preset-decks/salas-normais/Carta 5.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 6",
-          "front": "assets/preset-decks/salas-normais/Carta 6.png"
+          "front": {
+            "path": "assets/preset-decks/salas-normais/Carta 6.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 7",
-          "front": "assets/preset-decks/salas-normais/Carta 7.png"
+          "front": {
+            "path": "assets/preset-decks/salas-normais/Carta 7.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 10",
-          "front": "assets/preset-decks/salas-normais/Carta 10.png"
+          "front": {
+            "path": "assets/preset-decks/salas-normais/Carta 10.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 11",
-          "front": "assets/preset-decks/salas-normais/Carta 11.png"
+          "front": {
+            "path": "assets/preset-decks/salas-normais/Carta 11.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 12",
-          "front": "assets/preset-decks/salas-normais/Carta 12.png"
+          "front": {
+            "path": "assets/preset-decks/salas-normais/Carta 12.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 13",
-          "front": "assets/preset-decks/salas-normais/Carta 13.png"
+          "front": {
+            "path": "assets/preset-decks/salas-normais/Carta 13.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 14",
-          "front": "assets/preset-decks/salas-normais/Carta 14.png"
+          "front": {
+            "path": "assets/preset-decks/salas-normais/Carta 14.png",
+            "width": 520,
+            "height": 791,
+            "mime": "image/png"
+          }
         }
       ]
     },
@@ -320,67 +675,147 @@
       "name": "Poderes da Tormenta Nivel 1",
       "gridWidth": 2,
       "layer": "PROP",
-      "back": "assets/preset-decks/tormenta-nivel-1/Verso.png",
+      "back": {
+        "path": "assets/preset-decks/tormenta-nivel-1/Verso.png",
+        "width": 673,
+        "height": 1039,
+        "mime": "image/png"
+      },
       "cards": [
         {
           "name": "Carta 1",
-          "front": "assets/preset-decks/tormenta-nivel-1/Carta 1.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-1/Carta 1.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 2",
-          "front": "assets/preset-decks/tormenta-nivel-1/Carta 2.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-1/Carta 2.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 3",
-          "front": "assets/preset-decks/tormenta-nivel-1/Carta 3.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-1/Carta 3.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 4",
-          "front": "assets/preset-decks/tormenta-nivel-1/Carta 4.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-1/Carta 4.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 5",
-          "front": "assets/preset-decks/tormenta-nivel-1/Carta 5.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-1/Carta 5.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 6",
-          "front": "assets/preset-decks/tormenta-nivel-1/Carta 6.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-1/Carta 6.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 7",
-          "front": "assets/preset-decks/tormenta-nivel-1/Carta 7.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-1/Carta 7.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 8",
-          "front": "assets/preset-decks/tormenta-nivel-1/Carta 8.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-1/Carta 8.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 9",
-          "front": "assets/preset-decks/tormenta-nivel-1/Carta 9.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-1/Carta 9.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 10",
-          "front": "assets/preset-decks/tormenta-nivel-1/Carta 10.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-1/Carta 10.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 11",
-          "front": "assets/preset-decks/tormenta-nivel-1/Carta 11.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-1/Carta 11.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 12",
-          "front": "assets/preset-decks/tormenta-nivel-1/Carta 12.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-1/Carta 12.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 13",
-          "front": "assets/preset-decks/tormenta-nivel-1/Carta 13.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-1/Carta 13.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 14",
-          "front": "assets/preset-decks/tormenta-nivel-1/Carta 14.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-1/Carta 14.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 15",
-          "front": "assets/preset-decks/tormenta-nivel-1/Carta 15.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-1/Carta 15.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         }
       ]
     },
@@ -389,67 +824,147 @@
       "name": "Poderes da Tormenta Nivel 2",
       "gridWidth": 2,
       "layer": "PROP",
-      "back": "assets/preset-decks/tormenta-nivel-2/Verso.png",
+      "back": {
+        "path": "assets/preset-decks/tormenta-nivel-2/Verso.png",
+        "width": 673,
+        "height": 1039,
+        "mime": "image/png"
+      },
       "cards": [
         {
           "name": "Carta 1",
-          "front": "assets/preset-decks/tormenta-nivel-2/Carta 1.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-2/Carta 1.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 2",
-          "front": "assets/preset-decks/tormenta-nivel-2/Carta 2.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-2/Carta 2.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 3",
-          "front": "assets/preset-decks/tormenta-nivel-2/Carta 3.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-2/Carta 3.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 4",
-          "front": "assets/preset-decks/tormenta-nivel-2/Carta 4.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-2/Carta 4.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 5",
-          "front": "assets/preset-decks/tormenta-nivel-2/Carta 5.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-2/Carta 5.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 6",
-          "front": "assets/preset-decks/tormenta-nivel-2/Carta 6.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-2/Carta 6.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 7",
-          "front": "assets/preset-decks/tormenta-nivel-2/Carta 7.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-2/Carta 7.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 8",
-          "front": "assets/preset-decks/tormenta-nivel-2/Carta 8.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-2/Carta 8.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 9",
-          "front": "assets/preset-decks/tormenta-nivel-2/Carta 9.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-2/Carta 9.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 10",
-          "front": "assets/preset-decks/tormenta-nivel-2/Carta 10.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-2/Carta 10.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 11",
-          "front": "assets/preset-decks/tormenta-nivel-2/Carta 11.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-2/Carta 11.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 12",
-          "front": "assets/preset-decks/tormenta-nivel-2/Carta 12.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-2/Carta 12.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 13",
-          "front": "assets/preset-decks/tormenta-nivel-2/Carta 13.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-2/Carta 13.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 14",
-          "front": "assets/preset-decks/tormenta-nivel-2/Carta 14.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-2/Carta 14.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 15",
-          "front": "assets/preset-decks/tormenta-nivel-2/Carta 15.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-2/Carta 15.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         }
       ]
     },
@@ -458,67 +973,147 @@
       "name": "Poderes da Tormenta Nivel 3",
       "gridWidth": 2,
       "layer": "PROP",
-      "back": "assets/preset-decks/tormenta-nivel-3/Verso.png",
+      "back": {
+        "path": "assets/preset-decks/tormenta-nivel-3/Verso.png",
+        "width": 673,
+        "height": 1039,
+        "mime": "image/png"
+      },
       "cards": [
         {
           "name": "Carta 1",
-          "front": "assets/preset-decks/tormenta-nivel-3/Carta 1.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-3/Carta 1.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 2",
-          "front": "assets/preset-decks/tormenta-nivel-3/Carta 2.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-3/Carta 2.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 3",
-          "front": "assets/preset-decks/tormenta-nivel-3/Carta 3.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-3/Carta 3.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 4",
-          "front": "assets/preset-decks/tormenta-nivel-3/Carta 4.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-3/Carta 4.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 5",
-          "front": "assets/preset-decks/tormenta-nivel-3/Carta 5.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-3/Carta 5.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 6",
-          "front": "assets/preset-decks/tormenta-nivel-3/Carta 6.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-3/Carta 6.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 7",
-          "front": "assets/preset-decks/tormenta-nivel-3/Carta 7.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-3/Carta 7.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 8",
-          "front": "assets/preset-decks/tormenta-nivel-3/Carta 8.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-3/Carta 8.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 9",
-          "front": "assets/preset-decks/tormenta-nivel-3/Carta 9.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-3/Carta 9.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 10",
-          "front": "assets/preset-decks/tormenta-nivel-3/Carta 10.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-3/Carta 10.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 11",
-          "front": "assets/preset-decks/tormenta-nivel-3/Carta 11.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-3/Carta 11.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 12",
-          "front": "assets/preset-decks/tormenta-nivel-3/Carta 12.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-3/Carta 12.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 13",
-          "front": "assets/preset-decks/tormenta-nivel-3/Carta 13.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-3/Carta 13.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 14",
-          "front": "assets/preset-decks/tormenta-nivel-3/Carta 14.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-3/Carta 14.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 15",
-          "front": "assets/preset-decks/tormenta-nivel-3/Carta 15.png"
+          "front": {
+            "path": "assets/preset-decks/tormenta-nivel-3/Carta 15.png",
+            "width": 673,
+            "height": 1039,
+            "mime": "image/png"
+          }
         }
       ]
     },
@@ -527,39 +1122,84 @@
       "name": "Eventos",
       "gridWidth": 2.25,
       "layer": "PROP",
-      "back": "assets/preset-decks/eventos/Verso.png",
+      "back": {
+        "path": "assets/preset-decks/eventos/Verso.png",
+        "width": 791,
+        "height": 520,
+        "mime": "image/png"
+      },
       "cards": [
         {
           "name": "Carta 1",
-          "front": "assets/preset-decks/eventos/Carta 1.png"
+          "front": {
+            "path": "assets/preset-decks/eventos/Carta 1.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 2",
-          "front": "assets/preset-decks/eventos/Carta 2.png"
+          "front": {
+            "path": "assets/preset-decks/eventos/Carta 2.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 3",
-          "front": "assets/preset-decks/eventos/Carta 3.png"
+          "front": {
+            "path": "assets/preset-decks/eventos/Carta 3.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 4",
-          "front": "assets/preset-decks/eventos/Carta 4.png"
+          "front": {
+            "path": "assets/preset-decks/eventos/Carta 4.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 5",
-          "front": "assets/preset-decks/eventos/Carta 5.png"
+          "front": {
+            "path": "assets/preset-decks/eventos/Carta 5.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 6",
-          "front": "assets/preset-decks/eventos/Carta 6.png"
+          "front": {
+            "path": "assets/preset-decks/eventos/Carta 6.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 7",
-          "front": "assets/preset-decks/eventos/Carta 7.png"
+          "front": {
+            "path": "assets/preset-decks/eventos/Carta 7.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         },
         {
           "name": "Carta 8",
-          "front": "assets/preset-decks/eventos/Carta 8.png"
+          "front": {
+            "path": "assets/preset-decks/eventos/Carta 8.png",
+            "width": 791,
+            "height": 520,
+            "mime": "image/png"
+          }
         }
       ]
     }

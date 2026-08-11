@@ -6,8 +6,15 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 const port = Number.parseInt(process.argv[2] ?? "5173", 10);
+const host = "127.0.0.1";
+const trustedHostnames = new Set(["localhost", "127.0.0.1"]);
 const localAssetsDir = path.join(root, ".local-assets");
 const scenePresetDir = path.join(root, "assets", "scene-presets");
+const internalEndpoints = new Set([
+  "/__local_asset",
+  "/__remote_asset",
+  "/__scene_preset",
+]);
 const scenePresetFiles = new Map([
   ["tutorial", "tutorial.json"],
   ["missao-0-5", "missao-0-5.json"],
@@ -40,6 +47,27 @@ function getCorsHeaders(request) {
     "Access-Control-Allow-Private-Network": "true",
     "Vary": "Origin, Access-Control-Request-Headers, Access-Control-Request-Private-Network",
   };
+}
+
+function isTrustedInternalRequest(request) {
+  const origin = request.headers.origin;
+
+  if (!origin) {
+    return true;
+  }
+
+  try {
+    const requestOrigin = new URL(`http://${request.headers.host}`).origin;
+    const requestHostname = new URL(requestOrigin).hostname;
+    const suppliedOrigin = new URL(origin);
+    return (
+      trustedHostnames.has(requestHostname) &&
+      trustedHostnames.has(suppliedOrigin.hostname) &&
+      suppliedOrigin.origin === requestOrigin
+    );
+  } catch {
+    return false;
+  }
 }
 
 function resolveRequestPath(rawPathname) {
@@ -122,6 +150,12 @@ async function handleLocalAssetUpload(request, requestUrl, response) {
 }
 
 async function handleRemoteAssetCache(request, requestUrl, response) {
+  if (request.method !== "POST") {
+    response.writeHead(405, getCorsHeaders(request));
+    response.end("Metodo nao permitido");
+    return;
+  }
+
   const remoteUrl = requestUrl.searchParams.get("url");
 
   if (!remoteUrl) {
@@ -130,7 +164,23 @@ async function handleRemoteAssetCache(request, requestUrl, response) {
     return;
   }
 
-  const remoteResponse = await fetch(remoteUrl, {
+  let parsedRemoteUrl;
+
+  try {
+    parsedRemoteUrl = new URL(remoteUrl);
+  } catch {
+    response.writeHead(400, getCorsHeaders(request));
+    response.end("URL remota invalida");
+    return;
+  }
+
+  if (parsedRemoteUrl.protocol !== "http:" && parsedRemoteUrl.protocol !== "https:") {
+    response.writeHead(400, getCorsHeaders(request));
+    response.end("A URL remota precisa usar HTTP ou HTTPS");
+    return;
+  }
+
+  const remoteResponse = await fetch(parsedRemoteUrl, {
     headers: {
       "User-Agent": "Mozilla/5.0 Cartas-Duplas-Servidor-Local",
     },
@@ -225,13 +275,20 @@ async function handleScenePresetSave(request, requestUrl, response) {
 
 const server = createServer(async (request, response) => {
   try {
+    const requestUrl = new URL(request.url ?? "/", `http://${request.headers.host}`);
+    const isInternalEndpoint = internalEndpoints.has(requestUrl.pathname);
+
+    if (isInternalEndpoint && !isTrustedInternalRequest(request)) {
+      response.writeHead(403, getCorsHeaders(request));
+      response.end("Origem nao autorizada");
+      return;
+    }
+
     if (request.method === "OPTIONS") {
       response.writeHead(204, getCorsHeaders(request));
       response.end();
       return;
     }
-
-    const requestUrl = new URL(request.url ?? "/", `http://${request.headers.host}`);
 
     if (requestUrl.pathname === "/__local_asset") {
       await handleLocalAssetUpload(request, requestUrl, response);
@@ -294,6 +351,6 @@ async function resolveServedPath(filePath) {
   }
 }
 
-server.listen(port, () => {
+server.listen(port, host, () => {
   console.log(`Servidor local de Cartas Duplas: http://localhost:${port}/manifest.json`);
 });

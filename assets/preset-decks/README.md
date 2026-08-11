@@ -1,59 +1,35 @@
-# Pilhas padrao
+# Biblioteca de pilhas
 
-Cada pilha em `decks.json` e um modelo reutilizavel. A extensao nao altera esse arquivo durante o jogo, entao a mesma pilha padrao pode ser adicionada a cena quantas vezes forem necessarias.
+Cada subpasta cadastrada representa uma pilha reutilizável da biblioteca. As imagens são a fonte; `decks.json` é regenerado pelo script do projeto.
 
-Use caminhos relativos a raiz da extensao:
+## Atualização
 
-```json
-{
-  "id": "eventos",
-  "name": "Eventos",
-  "gridWidth": 2,
-  "layer": "PROP",
-  "back": "assets/preset-decks/eventos/verso.png",
-  "cards": [
-    { "name": "Evento 1", "front": "assets/preset-decks/eventos/evento-1.png" },
-    { "name": "Evento 2", "front": "assets/preset-decks/eventos/evento-2.png" }
-  ]
-}
+1. Coloque as frentes na subpasta correspondente, por exemplo `assets/preset-decks/eventos/`.
+2. Use `Verso.png` como verso da pilha.
+3. Execute:
+
+```powershell
+npm run build:preset-decks
+npm run build
 ```
 
-Se largura, altura e tipo de imagem forem omitidos, a extensao le esses dados quando a pilha e criada.
+`build:preset-decks` regenera `decks.json` e depois `cards.json`. O gerador preserva nomes, larguras e camadas válidas já cadastradas e adiciona aos assets os caminhos, dimensões e tipos de imagem.
 
-Os valores validos de camada sao `DRAWING`, `PROP`, `MOUNT`, `CHARACTER`, `ATTACHMENT`, `NOTE` e `TEXT`.
+Os valores válidos de camada são `DRAWING`, `PROP`, `MOUNT`, `CHARACTER`, `ATTACHMENT`, `NOTE` e `TEXT`.
 
-Cada pilha pode ter seu proprio tamanho padrao mudando `gridWidth` em `decks.json`. O painel carrega esse valor quando a pilha e selecionada, mas ainda permite ajustar o tamanho antes de criar a pilha na cena.
+## Pilhas atuais
 
-Quando `npm run build:preset-decks` roda novamente, ele preserva o `gridWidth` existente.
+| Pilha | Pasta | Largura no grid |
+| --- | --- | --- |
+| Ameaças Elite | `elite` | `4.5` |
+| Armas | `armas` | `2.25` |
+| Salas | `salas` | `1.5` |
+| Salas-Refugiados | `salas-refugiados` | `1.5` |
+| Salas-Objetivos | `salas-objetivos` | `1.5` |
+| Salas-Normais | `salas-normais` | `1.5` |
+| Poderes da Tormenta Nível 1 | `tormenta-nivel-1` | `2` |
+| Poderes da Tormenta Nível 2 | `tormenta-nivel-2` | `2` |
+| Poderes da Tormenta Nível 3 | `tormenta-nivel-3` | `2` |
+| Eventos | `eventos` | `2.25` |
 
-Tamanhos padrao atuais:
-
-```text
-Ameacas Elite: 4.5
-Armas: 2.25
-Salas: 1.5
-Salas-Refugiados: 1.5
-Salas-Objetivos: 1.5
-Salas-Normais: 1.5
-Poderes da Tormenta Nivel 1: 2
-Poderes da Tormenta Nivel 2: 2
-Poderes da Tormenta Nivel 3: 2
-Eventos: 2.25
-```
-
-Atalho por pasta:
-
-1. Coloque as imagens em uma pasta com o id da pilha, por exemplo `assets/preset-decks/eventos`.
-2. Nomeie o verso da pilha como `verso.png` ou `back.png`.
-3. Coloque as frentes das cartas na mesma pasta.
-4. Rode `npm run build:preset-decks`.
-
-O script atualiza `decks.json`.
-
-Pastas cadastradas para salas:
-
-```text
-assets/preset-decks/salas-refugiados
-assets/preset-decks/salas-objetivos
-assets/preset-decks/salas-normais
-```
+Não edite IDs, ordem ou formatos como parte de uma limpeza. Mudanças nas bibliotecas precisam respeitar [PROJECT_RULES.md](../../PROJECT_RULES.md).

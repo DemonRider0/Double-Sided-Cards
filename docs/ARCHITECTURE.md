@@ -1,6 +1,6 @@
-# Architecture - Cartas Duplas
+# Arquitetura — Cartas Duplas
 
-Este documento descreve a arquitetura tecnica da extensao Cartas Duplas.
+Este documento descreve a arquitetura técnica da extensão Cartas Duplas.
 
 ## Estrutura de pastas
 
@@ -14,12 +14,13 @@ Este documento descreve a arquitetura tecnica da extensao Cartas Duplas.
 |-- dist/
 |-- docs/
 |-- icons/
-|-- node_modules/
 |-- scripts/
 |-- src/
 |-- vendor/
 |-- background.html
 |-- build.mjs
+|-- CHANGELOG.md
+|-- DEVELOPMENT.md
 |-- dev-server.mjs
 |-- index.html
 |-- manifest.json
@@ -283,17 +284,16 @@ Comandos principais:
 
 ## Ordem de leitura recomendada
 
-Para manutencao futura, a ordem recomendada da documentacao e:
+Para manutenção futura, a ordem recomendada da documentação é:
 
-1. `docs/CONTRIBUTING_AI.md`
-2. `docs/AI_CONTEXT.md`
-3. `PROJECT_RULES.md`
-4. `docs/ARCHITECTURE.md`
-5. `docs/DESIGN_DECISIONS.md`
-6. `docs/AUDIT_HISTORY.md`
-7. `docs/IMPLEMENTATION_PLAN.md`
-8. `docs/TEST_CHECKLIST.md`
-9. `docs/CHANGELOG_AI.md`
+1. `PROJECT_RULES.md`
+2. `DEVELOPMENT.md`
+3. `docs/ARCHITECTURE.md`
+4. `docs/DESIGN_DECISIONS.md`
+5. `docs/AUDIT_HISTORY.md`, quando a tarefa envolver histórico técnico ou riscos já revisados;
+6. `docs/IMPLEMENTATION_PLAN.md`, como registro histórico do plano S-01 a S-20;
+7. `docs/TEST_CHECKLIST.md`, para validações manuais e regressão;
+8. `CHANGELOG.md`, para a cronologia das mudanças.
 
 ## Areas de alto risco
 

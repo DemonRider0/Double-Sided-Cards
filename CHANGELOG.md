@@ -1,6 +1,6 @@
-# Changelog AI - Cartas Duplas
+# Histórico de mudanças — Cartas Duplas
 
-Este changelog registra alteracoes realizadas com auxilio de IA. Ele deve ser atualizado em futuras implementacoes, auditorias ou documentacoes.
+Este arquivo registra mudanças técnicas, auditorias e atualizações documentais relevantes do projeto.
 
 ## 2026-07-17 - Encerramento formal do plano S-01 a S-20
 
@@ -55,8 +55,8 @@ pelo mantenedor no Owlbear Rodeo.
 ### Arquivos modificados
 
 - `docs/IMPLEMENTATION_PLAN.md`
-- `docs/CHANGELOG_AI.md`
-- `docs/AI_CONTEXT.md`
+- `CHANGELOG.md`
+- `DEVELOPMENT.md`
 - `docs/AUDIT_HISTORY.md`
 - `docs/DESIGN_DECISIONS.md`
 
@@ -157,9 +157,9 @@ Owlbear Rodeo. A Etapa 7 foi marcada como `Concluido`.
 - `index.html`
 - `background.html`
 - `README.md`
-- `docs/AI_CONTEXT.md`
+- `DEVELOPMENT.md`
 - `docs/IMPLEMENTATION_PLAN.md`
-- `docs/CHANGELOG_AI.md`
+- `CHANGELOG.md`
 - `dist/app.js` e `dist/background.js`, regenerados pelo build
 
 ### Riscos e limitacoes
@@ -309,10 +309,10 @@ mobile. A Etapa 6 foi marcada como `Concluido`.
 - `manifest.json`
 - `index.html`
 - `README.md`
-- `docs/AI_CONTEXT.md`
+- `DEVELOPMENT.md`
 - `docs/ARCHITECTURE.md`
 - `docs/IMPLEMENTATION_PLAN.md`
-- `docs/CHANGELOG_AI.md`
+- `CHANGELOG.md`
 - `dist/app.js`, regenerado pelo build
 
 ### Testes manuais pendentes
@@ -423,9 +423,9 @@ acionamento rapido, duas contas e mobile. A Etapa 5 foi marcada como
 - `index.html`
 - `background.html`
 - `README.md`
-- `docs/AI_CONTEXT.md`
+- `DEVELOPMENT.md`
 - `docs/IMPLEMENTATION_PLAN.md`
-- `docs/CHANGELOG_AI.md`
+- `CHANGELOG.md`
 - `dist/app.js`, regenerado pelo build
 - `dist/background.js`, regenerado pelo build
 
@@ -545,9 +545,9 @@ marcada como `Concluido`.
 - `index.html`
 - `background.html`
 - `README.md`
-- `docs/AI_CONTEXT.md`
+- `DEVELOPMENT.md`
 - `docs/IMPLEMENTATION_PLAN.md`
-- `docs/CHANGELOG_AI.md`
+- `CHANGELOG.md`
 - `dist/app.js`
 - `dist/background.js`
 
@@ -618,9 +618,9 @@ O mantenedor informou que os testes manuais da Etapa 3 foram aprovados no Owlbea
 - `index.html`
 - `background.html`
 - `README.md`
-- `docs/AI_CONTEXT.md`
+- `DEVELOPMENT.md`
 - `docs/IMPLEMENTATION_PLAN.md`
-- `docs/CHANGELOG_AI.md`
+- `CHANGELOG.md`
 - `dist/app.js`
 - `dist/background.js`
 
@@ -699,8 +699,8 @@ Correcao pontual da regressao critica encontrada nos testes manuais da Etapa 3. 
 - `index.html`
 - `background.html`
 - `README.md`
-- `docs/AI_CONTEXT.md`
-- `docs/CHANGELOG_AI.md`
+- `DEVELOPMENT.md`
+- `CHANGELOG.md`
 - `dist/app.js`
 - `dist/background.js`
 
@@ -756,9 +756,9 @@ O mantenedor informou que os testes manuais pendentes das Etapas 1 e 2 foram apr
 - `index.html`
 - `background.html`
 - `README.md`
-- `docs/AI_CONTEXT.md`
+- `DEVELOPMENT.md`
 - `docs/IMPLEMENTATION_PLAN.md`
-- `docs/CHANGELOG_AI.md`
+- `CHANGELOG.md`
 - `dist/app.js`
 - `dist/background.js`
 
@@ -830,9 +830,9 @@ Implementacao da Etapa 2 do plano oficial de correcoes, limitada a S-17 e S-18.
 - `index.html`
 - `background.html`
 - `README.md`
-- `docs/AI_CONTEXT.md`
+- `DEVELOPMENT.md`
 - `docs/IMPLEMENTATION_PLAN.md`
-- `docs/CHANGELOG_AI.md`
+- `CHANGELOG.md`
 - `dist/app.js`
 - `dist/background.js`
 
@@ -894,8 +894,8 @@ Revisao tecnica da Etapa 1 apos testes manuais provisoriamente aprovados pelo ma
 - `index.html`
 - `background.html`
 - `README.md`
-- `docs/AI_CONTEXT.md`
-- `docs/CHANGELOG_AI.md`
+- `DEVELOPMENT.md`
+- `CHANGELOG.md`
 - `dist/app.js`
 - `dist/background.js`
 
@@ -938,9 +938,9 @@ Implementacao da Etapa 1 do plano oficial de correcoes.
 - `index.html`
 - `background.html`
 - `README.md`
-- `docs/AI_CONTEXT.md`
+- `DEVELOPMENT.md`
 - `docs/IMPLEMENTATION_PLAN.md`
-- `docs/CHANGELOG_AI.md`
+- `CHANGELOG.md`
 - `dist/app.js`
 - `dist/background.js`
 
@@ -981,16 +981,15 @@ Consolidacao final da documentacao permanente.
 
 ### Arquivos modificados
 
-- `docs/AI_CONTEXT.md`
+- `DEVELOPMENT.md`
 - `docs/ARCHITECTURE.md`
 - `docs/AUDIT_HISTORY.md`
-- `docs/CHANGELOG_AI.md`
-- `docs/CONTRIBUTING_AI.md`
+- `CHANGELOG.md`
 
 ### Problemas corrigidos
 
 - Inconsistencia no fluxo documentado de restauracao de mapas.
-- Falta de um guia operacional definitivo para futuras IAs.
+- Falta de um guia operacional definitivo para futuras manutenções.
 - Falta de uma ordem oficial de leitura da documentacao.
 
 ### Riscos
@@ -1015,13 +1014,13 @@ Criacao da documentacao permanente do projeto.
 
 ### Arquivos modificados
 
-- `docs/AI_CONTEXT.md`
+- `DEVELOPMENT.md`
 - `docs/ARCHITECTURE.md`
 - `docs/DESIGN_DECISIONS.md`
 - `docs/AUDIT_HISTORY.md`
 - `docs/IMPLEMENTATION_PLAN.md`
 - `docs/TEST_CHECKLIST.md`
-- `docs/CHANGELOG_AI.md`
+- `CHANGELOG.md`
 
 ### Problemas corrigidos
 

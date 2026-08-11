@@ -94,7 +94,12 @@ function cloneSerializableValue(value, seen) {
       const clonedEntry = cloneSerializableValue(entry, seen);
 
       if (typeof clonedEntry !== "undefined") {
-        clone[key] = clonedEntry;
+        Object.defineProperty(clone, key, {
+          value: clonedEntry,
+          enumerable: true,
+          configurable: true,
+          writable: true,
+        });
       }
     }
 
@@ -887,15 +892,11 @@ function cloneDeckCard(card) {
 }
 
 function cloneUnknownFields(value, knownFields) {
-  const unknownFields = {};
-
-  for (const [key, entry] of Object.entries(value || {})) {
-    if (!knownFields.has(key)) {
-      unknownFields[key] = cloneSerializable(entry);
-    }
-  }
-
-  return unknownFields;
+  return Object.fromEntries(
+    Object.entries(value || {})
+      .filter(([key]) => !knownFields.has(key))
+      .map(([key, entry]) => [key, cloneSerializable(entry)]),
+  );
 }
 
 function cardsMatch(leftCards, rightCards) {
@@ -940,7 +941,7 @@ function requireNormalizedDeck(item, operation) {
   const metadata = getNormalizedDeck(item, operation, true);
 
   if (!metadata) {
-    throw new Error(`Esta pilha possui dados incompletos e nao pode ser ${operation}.`);
+    throw new Error(`Esta pilha possui dados incompletos e não pode ser ${operation}.`);
   }
 
   return metadata;
@@ -1323,21 +1324,21 @@ async function drawSingleDeck(OBR, buildImage, deckId, drawOffset, options) {
       const rollbackSucceeded = await rollbackDrawnCard(OBR, operation);
 
       if (rollbackSucceeded) {
-        throw new Error("Nao consegui montar a carta; a pilha foi restaurada.");
+        throw new Error("Não consegui montar a carta; a pilha foi restaurada.");
       }
     } catch (rollbackError) {
-      if (rollbackError.message === "Nao consegui montar a carta; a pilha foi restaurada.") {
+      if (rollbackError.message === "Não consegui montar a carta; a pilha foi restaurada.") {
         throw rollbackError;
       }
 
       console.warn("Nao consegui restaurar a pilha apos falha ao montar carta", rollbackError);
       throw new Error(
-        "Nao consegui montar a carta e tambem nao consegui restaurar a pilha automaticamente.",
+        "Não consegui montar a carta e também não consegui restaurar a pilha automaticamente.",
       );
     }
 
     throw new Error(
-      "Nao consegui montar a carta; a pilha mudou depois da compra e nao foi alterada de novo.",
+      "Não consegui montar a carta; a pilha mudou depois da compra e não foi alterada de novo.",
     );
   }
 
@@ -1353,17 +1354,17 @@ async function drawSingleDeck(OBR, buildImage, deckId, drawOffset, options) {
     } catch (rollbackError) {
       console.warn("Nao consegui restaurar a pilha apos falha ao comprar carta", rollbackError);
       throw new Error(
-        "Nao consegui criar a carta e tambem nao consegui restaurar a pilha automaticamente.",
+        "Não consegui criar a carta e também não consegui restaurar a pilha automaticamente.",
       );
     }
 
     if (rollbackSucceeded) {
-      throw new Error("Nao consegui criar a carta; a pilha foi restaurada.");
+      throw new Error("Não consegui criar a carta; a pilha foi restaurada.");
     }
 
     console.warn("Compra parcial sem rollback seguro", error);
     throw new Error(
-      "Nao consegui criar a carta; a pilha mudou depois da compra e nao foi alterada de novo.",
+      "Não consegui criar a carta; a pilha mudou depois da compra e não foi alterada de novo.",
     );
   }
 
@@ -1374,7 +1375,7 @@ async function drawSingleDeck(OBR, buildImage, deckId, drawOffset, options) {
     } catch (error) {
       console.warn("Carta comprada, mas nao consegui apagar a pilha temporaria vazia", error);
       await OBR.notification
-        .show("Carta comprada, mas nao consegui apagar a pilha vazia.", "WARNING")
+        .show("Carta comprada, mas não consegui apagar a pilha vazia.", "WARNING")
         .catch(() => {});
     }
   }
@@ -1568,7 +1569,7 @@ async function readCardById(OBR, cardId, stage) {
     return item || null;
   } catch (error) {
     logReturnFailure(`releitura da carta (${stage})`, error, { cardId });
-    throw new Error("Nao consegui reler a carta para devolver.");
+    throw new Error("Não consegui reler a carta para devolver.");
   }
 }
 
@@ -1578,7 +1579,7 @@ async function readDeckById(OBR, deckId, stage) {
     return item || null;
   } catch (error) {
     logReturnFailure(`releitura da pilha (${stage})`, error, { deckId });
-    throw new Error("Nao consegui reler a pilha de origem.");
+    throw new Error("Não consegui reler a pilha de origem.");
   }
 }
 
@@ -1690,7 +1691,7 @@ async function deleteReturnedCardOrReconcile(OBR, operation) {
   } catch (rollbackError) {
     logReturnFailure("rollback", rollbackError, operation);
     throw new Error(
-      "Nao consegui apagar a carta e tambem nao consegui restaurar a pilha automaticamente.",
+      "Não consegui apagar a carta e também não consegui restaurar a pilha automaticamente.",
     );
   }
 
@@ -1699,7 +1700,7 @@ async function deleteReturnedCardOrReconcile(OBR, operation) {
       cardId: operation.cardId,
       deckId: operation.deckId,
     });
-    throw new Error("Nao consegui apagar a carta; a pilha foi restaurada.");
+    throw new Error("Não consegui apagar a carta; a pilha foi restaurada.");
   }
 
   console.warn("Rollback recusado porque a pilha mudou apos a devolucao", {
@@ -1707,7 +1708,7 @@ async function deleteReturnedCardOrReconcile(OBR, operation) {
     deckId: operation.deckId,
   });
   throw new Error(
-    "Nao consegui apagar a carta; a pilha mudou depois da devolucao e nao foi alterada de novo.",
+    "Não consegui apagar a carta; a pilha mudou depois da devolução e não foi alterada de novo.",
   );
 }
 
@@ -1720,7 +1721,7 @@ async function returnSingleCardToDeck(OBR, cardId) {
   }
 
   if (!getNormalizedCard(initialCard, "devolucao", true)) {
-    throw new Error("Esta carta possui dados incompletos e nao pode ser devolvida.");
+    throw new Error("Esta carta possui dados incompletos e não pode ser devolvida.");
   }
 
   const sourceDeckId = getReturnSourceDeckId(initialCard);
@@ -1744,7 +1745,7 @@ async function returnSingleCardToDeck(OBR, cardId) {
     const cardMetadata = getNormalizedCard(currentCard, "devolucao", true);
 
     if (!cardMetadata) {
-      throw new Error("Esta carta possui dados incompletos e nao pode ser devolvida.");
+      throw new Error("Esta carta possui dados incompletos e não pode ser devolvida.");
     }
 
     const currentSourceDeckId = getReturnSourceDeckId(currentCard);
@@ -1769,7 +1770,7 @@ async function returnSingleCardToDeck(OBR, cardId) {
     }
 
     if (!getNormalizedDeck(sourceDeck, "devolucao", true)) {
-      throw new Error("A pilha de origem possui dados incompletos e nao aceita devolucao.");
+      throw new Error("A pilha de origem possui dados incompletos e não aceita devolução.");
     }
 
     let operation = null;
@@ -1778,7 +1779,7 @@ async function returnSingleCardToDeck(OBR, cardId) {
       operation = await applyReturnToDeck(OBR, currentCard, sourceDeckId);
     } catch (error) {
       logReturnFailure("updateItems", error, { cardId, deckId: sourceDeckId });
-      throw new Error("Nao consegui atualizar a pilha para devolver a carta.");
+      throw new Error("Não consegui atualizar a pilha para devolver a carta.");
     }
 
     if (!operation) {
@@ -2198,7 +2199,7 @@ async function getCurrentSingleSelectedImage(OBR, expectedItemId = null) {
   const item = items[0];
 
   if (!item || item.type !== "IMAGE") {
-    throw new Error("A imagem selecionada nao esta mais disponivel.");
+    throw new Error("A imagem selecionada não está mais disponível.");
   }
 
   return item;
@@ -2352,7 +2353,7 @@ async function validateSelectedColorToken(OBR, color, selectedTokenId) {
       requestedColor: color,
       explicitColor,
     });
-    throw new Error("O identificador selecionado nao possui uma cor valida.");
+    throw new Error("O identificador selecionado não possui uma cor válida.");
   }
 }
 
@@ -2369,7 +2370,7 @@ async function setActivePlayerColor(OBR, colorId, options = {}) {
 
   if (!color) {
     console.warn("Tentativa de selecionar uma cor invalida", { colorId });
-    throw new Error("Escolha uma cor valida.");
+    throw new Error("Escolha uma cor válida.");
   }
 
   return withPlayerColorOperation(async () => {
@@ -2386,7 +2387,7 @@ async function setActivePlayerColor(OBR, colorId, options = {}) {
         claimedBy: claimedBy.id,
       });
       throw new Error(
-        `${getColorLabel(color)} ja esta em uso por ${claimedBy.name || "outro jogador"}.`,
+        `${getColorLabel(color)} já está em uso por ${claimedBy.name || "outro jogador"}.`,
       );
     }
 
@@ -2410,7 +2411,7 @@ async function setActivePlayerColor(OBR, colorId, options = {}) {
         } catch (rollbackError) {
           console.error("Nao consegui restaurar a cor anterior do jogador", rollbackError);
           throw new Error(
-            "A cor entrou em conflito e nao consegui restaurar o estado anterior.",
+            "A cor entrou em conflito e não consegui restaurar o estado anterior.",
           );
         }
       }
@@ -2510,7 +2511,7 @@ async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelection = 
 
   if (!category) {
     console.warn("Categoria invalida durante o posicionamento", { categoryId });
-    throw new Error("Escolha uma categoria valida.");
+    throw new Error("Escolha uma categoria válida.");
   }
 
   const selectedItem = await getSingleSelectedImage(OBR, fallbackSelection);
@@ -2520,7 +2521,7 @@ async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelection = 
       itemId: selectedItem.id,
       category,
     });
-    throw new Error("A carta selecionada nao possui uma categoria valida.");
+    throw new Error("A carta selecionada não possui uma categoria válida.");
   }
 
   const [initialState, color] = await Promise.all([
@@ -2545,7 +2546,7 @@ async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelection = 
       ownerColor: foreignAssignment.color,
       requestedColor: color,
     });
-    throw new Error("Essa carta ja pertence ao espaco de outro jogador.");
+    throw new Error("Essa carta já pertence ao espaço de outro jogador.");
   }
 
   if (initialReferences.length) {
@@ -2579,7 +2580,7 @@ async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelection = 
     ]);
 
     if (currentItem.id !== selectedItem.id) {
-      throw new Error("A selecao mudou antes de posicionar a carta.");
+      throw new Error("A seleção mudou antes de posicionar a carta.");
     }
 
     if (currentColor !== color) {
@@ -2599,7 +2600,7 @@ async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelection = 
       console.warn("A carta foi movida antes de ocupar o slot", {
         itemId: selectedItem.id,
       });
-      throw new Error("A carta foi alterada por outra acao. Tente novamente.");
+      throw new Error("A carta foi alterada por outra ação. Tente novamente.");
     }
 
     const currentSlot = currentState.slots[color]?.[category];
@@ -2615,14 +2616,14 @@ async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelection = 
         expectedPreviousItemId,
         currentPreviousItemId,
       });
-      throw new Error("Esse slot foi alterado por outra acao. Tente novamente.");
+      throw new Error("Esse slot foi alterado por outra ação. Tente novamente.");
     }
 
     const currentReferences = getAssignmentReferences(currentState, currentItem.id);
     const currentForeignAssignment = getForeignAssignment(currentReferences, color);
 
     if (currentForeignAssignment) {
-      throw new Error("Essa carta ja pertence ao espaco de outro jogador.");
+      throw new Error("Essa carta já pertence ao espaço de outro jogador.");
     }
 
     if (currentReferences.length) {
@@ -2642,7 +2643,7 @@ async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelection = 
       await setSceneState(OBR, currentState);
     } catch (error) {
       console.error("Falha ao reservar o slot na metadata da cena", error);
-      throw new Error("Nao consegui reservar esse slot. Tente novamente.");
+      throw new Error("Não consegui reservar esse slot. Tente novamente.");
     }
 
     let reservedState = await getSceneState(OBR);
@@ -2662,7 +2663,7 @@ async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelection = 
       ).catch((error) => {
         console.error("Falha no rollback da reserva de slot", error);
       });
-      throw new Error("O slot entrou em conflito com outra acao. Tente novamente.");
+      throw new Error("O slot entrou em conflito com outra ação. Tente novamente.");
     }
 
     let latestItem;
@@ -2708,7 +2709,7 @@ async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelection = 
       ).catch((error) => {
         console.error("Falha no rollback da reserva invalidada", error);
       });
-      throw new Error("A carta ou o slot mudou durante a operacao. Tente novamente.");
+      throw new Error("A carta ou o slot mudou durante a operação. Tente novamente.");
     }
 
     const refreshedItems = await safeGetItems(OBR, [
@@ -2729,7 +2730,7 @@ async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelection = 
       ).catch((error) => {
         console.error("Falha no rollback apos a carta desaparecer", error);
       });
-      throw new Error("A carta selecionada nao esta mais disponivel.");
+      throw new Error("A carta selecionada não está mais disponível.");
     }
 
     const previousItem = expectedPreviousItemId
@@ -2805,7 +2806,7 @@ async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelection = 
         });
       }
 
-      throw new Error("Nao consegui posicionar a carta; o slot foi restaurado.");
+      throw new Error("Não consegui posicionar a carta; o slot foi restaurado.");
     }
 
     const finalState = await getSceneState(OBR);
@@ -2833,7 +2834,7 @@ async function placeSelectedCardInCategory(OBR, categoryId, fallbackSelection = 
       }).catch((error) => {
         console.error("Falha ao reconciliar um conflito posterior de slot", error);
       });
-      throw new Error("O slot mudou durante a operacao. A carta foi reconciliada.");
+      throw new Error("O slot mudou durante a operação. A carta foi reconciliada.");
     }
 
     return {
@@ -2947,7 +2948,7 @@ function requireNormalizedCard(item) {
       code: result.code,
       face: result.face,
     });
-    throw new Error("Esta carta possui dados incompletos e nao pode ser virada.");
+    throw new Error("Esta carta possui dados incompletos e não pode ser virada.");
   }
 
   return result.value;

@@ -37,7 +37,7 @@ function requireNormalizedCard(item) {
       code: result.code,
       face: result.face,
     });
-    throw new Error("Esta carta possui dados incompletos e nao pode ser virada.");
+    throw new Error("Esta carta possui dados incompletos e não pode ser virada.");
   }
 
   return result.value;

@@ -11,6 +11,8 @@
     "build": "node build.mjs",
     "build:preset-decks": "node scripts/build-preset-decks.mjs && node scripts/build-preset-cards.mjs",
     "build:preset-cards": "node scripts/build-preset-cards.mjs",
+    "build:scene-presets": "node scripts/build-scene-preset-index.mjs",
+    "audit:assets": "node scripts/audit-assets.mjs",
     "check": "node scripts/check-project.mjs",
     "prepare:github-assets": "node scripts/prepare-github-assets.mjs"
   },
