@@ -3,6 +3,7 @@ import {
   getPresetNameFromPath,
   normalizePresetAsset,
   normalizePresetLayer,
+  isPresetAssetConfigured,
   isPresetAssetReady,
 } from "./preset-assets.js";
 import { getConfiguredPrivateAssetPack } from "./asset-resolver.js";
@@ -50,6 +51,14 @@ export function isPresetDeckReady(deck) {
     deck?.cards?.length &&
       isPresetAssetReady(deck.back) &&
       deck.cards.every((card) => isPresetAssetReady(card.front)),
+  );
+}
+
+export function isPresetDeckConfigured(deck) {
+  return Boolean(
+    deck?.cards?.length &&
+      isPresetAssetConfigured(deck.back) &&
+      deck.cards.every((card) => isPresetAssetConfigured(card.front)),
   );
 }
 

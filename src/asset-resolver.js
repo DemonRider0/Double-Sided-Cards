@@ -562,6 +562,45 @@ export function resolveConfiguredAsset(reference, storage = getDefaultStorage())
   return getConfiguredAssetResolver(storage).resolve(reference);
 }
 
+export function collectPrivateAssetIds(value, options = {}) {
+  const resolver = options.resolver || getConfiguredAssetResolver(options.storage);
+  const assetIds = new Set();
+
+  function visit(entry) {
+    if (Array.isArray(entry)) {
+      entry.forEach(visit);
+      return;
+    }
+
+    if (!isRecord(entry)) {
+      if (typeof entry === "string") {
+        const assetId = resolver.getCanonicalId(entry);
+        if (assetId) {
+          assetIds.add(assetId);
+        }
+      }
+      return;
+    }
+
+    const rawReference = entry.assetId || entry.path || entry.url || "";
+    if (rawReference) {
+      const assetId = resolver.getCanonicalId(rawReference);
+      if (assetId) {
+        assetIds.add(assetId);
+        return;
+      } else if (typeof entry.assetId === "string" && entry.assetId.trim()) {
+        assetIds.add(entry.assetId.trim());
+        return;
+      }
+    }
+
+    Object.values(entry).forEach(visit);
+  }
+
+  visit(value);
+  return [...assetIds];
+}
+
 export function resolveAssetReferences(value, options = {}) {
   const resolver = options.resolver || getConfiguredAssetResolver(options.storage);
   const stats = {

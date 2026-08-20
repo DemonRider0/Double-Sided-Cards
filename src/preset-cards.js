@@ -4,6 +4,7 @@ import {
   getPresetNameFromPath,
   normalizePresetAsset,
   normalizePresetLayer,
+  isPresetAssetConfigured,
   isPresetAssetReady,
 } from "./preset-assets.js";
 import { getConfiguredPrivateAssetPack } from "./asset-resolver.js";
@@ -70,6 +71,11 @@ export async function loadPresetCardGroups(pack = getConfiguredPrivateAssetPack(
 export function isPresetCardReady(group, card) {
   const back = card?.back?.assetId || card?.back?.path ? card.back : group?.back;
   return Boolean(isPresetAssetReady(back) && isPresetAssetReady(card?.front));
+}
+
+export function isPresetCardConfigured(group, card) {
+  const back = card?.back?.assetId || card?.back?.path ? card.back : group?.back;
+  return Boolean(isPresetAssetConfigured(back) && isPresetAssetConfigured(card?.front));
 }
 
 async function buildFace(asset, label) {

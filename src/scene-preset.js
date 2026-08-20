@@ -638,17 +638,10 @@ export async function loadScenePresetEntries(pack = getConfiguredPrivateAssetPac
         Number.isInteger(summary?.itemCount) &&
         summary.itemCount > 0,
     );
-    const resolution = entry?.preset ? resolveAssetReferences(entry.preset) : null;
-
     return {
       definition,
       loadError: null,
-      ready: Boolean(
-        entry?.preset &&
-          resolution &&
-          resolution.unresolved === 0 &&
-          resolution.canonical === resolution.resolved,
-      ),
+      ready: Boolean(entry?.preset),
       summary: validSummary
         ? {
             savedAt: summary.savedAt,

@@ -17,7 +17,7 @@ Extensão para manipular cartas 2D com frente e verso dentro do Owlbear Rodeo. O
 No Owlbear Rodeo, adicione uma extensão personalizada usando este manifesto público:
 
 ```text
-https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=101
+https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=102
 ```
 
 Versão pública preparada: **1.0.0**.

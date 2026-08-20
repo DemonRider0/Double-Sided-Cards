@@ -29,12 +29,12 @@ import { applyDivinitySizing, needsDivinitySizing } from "./divinity-sizing.js";
 import { flipSelectedItems, getDoubleSidedCards } from "./flip.js";
 import {
   buildPresetDeckData,
-  isPresetDeckReady,
+  isPresetDeckConfigured,
   loadPresetDecks,
 } from "./preset-decks.js";
 import {
   buildPresetCardData,
-  isPresetCardReady,
+  isPresetCardConfigured,
   loadPresetCardGroups,
 } from "./preset-cards.js";
 import {
@@ -51,11 +51,13 @@ import {
 } from "./selection-board.js";
 import {
   clearPrivateAssetPack,
+  collectPrivateAssetIds,
   getPrivateAssetPackStatus,
   resolveAssetReferences,
 } from "./asset-resolver.js";
 import {
   configurePrivateAssetPack,
+  ensurePrivateAssetsLinked,
   linkPrivateAssetPackFromOwlbear,
   readPrivateAssetPackFiles,
   uploadPrivateAssetPack,
@@ -178,7 +180,39 @@ function updatePrivatePackControls(isConnected = Boolean(obr)) {
 
   elements.privatePackInfo.textContent =
     `${status.name || status.id}: ${status.total} assets, ${formatRuntimeSize(status.runtimeSize)} runtime; ` +
-    `${status.linked} vinculados, ${status.missing} faltantes.`;
+    `${status.linked} de ${status.total} assets vinculados. O vínculo restante acontece sob demanda.`;
+}
+
+function formatPrivateAssetList(assets) {
+  return assets.map(({ name, assetId }) => `${name} [${assetId}]`).join(", ");
+}
+
+async function ensurePrivateDependencies(value, actionLabel) {
+  const assetIds = collectPrivateAssetIds(value);
+  const result = await ensurePrivateAssetsLinked(assetIds, {
+    OBR: obr,
+    onMissing(missingAssets) {
+      const count = missingAssets.length;
+      setMessage(
+        `Faltam ${count} ${count === 1 ? "asset" : "assets"} para ${actionLabel}. ` +
+          `Selecione-${count === 1 ? "o" : "os"} no Owlbear e confirme: ` +
+          formatPrivateAssetList(missingAssets),
+        "warning",
+      );
+    },
+  });
+  updatePrivatePackControls(Boolean(obr));
+
+  if (result.missing.length) {
+    const count = result.missing.length;
+    throw new Error(
+      `Faltam ${count} ${count === 1 ? "asset" : "assets"} para ${actionLabel}. ` +
+        `Selecione-${count === 1 ? "o" : "os"} no Owlbear e confirme: ` +
+        formatPrivateAssetList(result.missingAssets),
+    );
+  }
+
+  return result;
 }
 
 async function showNotification(text, tone) {
@@ -890,8 +924,9 @@ async function createSceneFromPrivatePreset(presetId) {
   updateDefaultBoardControls(true);
   setMessage("Montando a nova cena com os assets vinculados...", "neutral");
   try {
-    const result = await createPrivateScene(obr, buildSceneUpload, entry.preset);
     const displayName = entry.definition.label || entry.definition.name;
+    await ensurePrivateDependencies(entry.preset, `criar ${displayName}`);
+    const result = await createPrivateScene(obr, buildSceneUpload, entry.preset);
     const fallback = result.usedCapturedGrid && result.usedCapturedFog
       ? ""
       : " O template legado usou o fallback do SDK para grid/fog ausentes.";
@@ -989,7 +1024,7 @@ function updateMissionDeckControls(isConnected = Boolean(obr)) {
 function updatePresetDeckControls(isConnected = Boolean(obr), syncDefaults = false) {
   const hasDecks = presetDecks.length > 0;
   const deck = hasDecks ? getSelectedPresetDeck() : null;
-  const isReady = isPresetDeckReady(deck);
+  const isReady = isPresetDeckConfigured(deck);
 
   elements.presetDeckSelect.disabled = !hasDecks;
   elements.presetDeckGridWidth.disabled = !hasDecks;
@@ -1041,7 +1076,7 @@ function populatePresetDeckSelect() {
   for (const deck of presetDecks) {
     const option = document.createElement("option");
     option.value = deck.id;
-    option.textContent = isPresetDeckReady(deck)
+    option.textContent = isPresetDeckConfigured(deck)
       ? `${deck.name} (${deck.cards.length})`
       : `${deck.name} (configurar imagens)`;
     elements.presetDeckSelect.append(option);
@@ -1055,7 +1090,7 @@ function updatePresetCardControls(isConnected = Boolean(obr), syncDefaults = fal
   const hasGroups = presetCardGroups.length > 0;
   const { group, card } = hasGroups ? getSelectedPresetCard() : { group: null, card: null };
   const hasCards = Boolean(group?.cards?.length);
-  const isReady = isPresetCardReady(group, card);
+  const isReady = isPresetCardConfigured(group, card);
 
   elements.presetCardGroupSelect.disabled = !hasGroups;
   elements.presetCardSelect.disabled = !hasCards;
@@ -1114,7 +1149,7 @@ function populatePresetCardSelect(syncDefaults = false) {
   for (const card of group.cards) {
     const option = document.createElement("option");
     option.value = card.id;
-    option.textContent = isPresetCardReady(group, card)
+    option.textContent = isPresetCardConfigured(group, card)
       ? card.name
       : `${card.name} (configurar imagens)`;
     elements.presetCardSelect.append(option);
@@ -1177,7 +1212,7 @@ async function configureSelectedPrivatePack(files) {
     setMessage(
       missingFiles
         ? `Pack configurado, mas ${missingFiles} arquivos canônicos não estavam na pasta selecionada.`
-        : "Pack configurado. Envie os assets ao Owlbear e depois vincule a seleção.",
+        : "Pack configurado. Envie os assets ao Owlbear; cada função pedirá somente os vínculos necessários.",
       missingFiles ? "warning" : "success",
     );
   } finally {
@@ -1231,7 +1266,7 @@ async function uploadSelectedPrivatePack() {
       },
     );
     setMessage(
-      `${result.uploaded} assets enviados ao Owlbear. Agora vincule os assets pelo seletor.`,
+      `${result.uploaded} assets enviados ao Owlbear. Os vínculos serão solicitados sob demanda.`,
       result.missingFiles ? "warning" : "success",
     );
   } finally {
@@ -1399,7 +1434,7 @@ async function createPresetDeck() {
     return;
   }
 
-  if (!isPresetDeckReady(deck)) {
+  if (!isPresetDeckConfigured(deck)) {
     setMessage("Esta pilha ainda precisa de verso e cartas no catálogo.", "warning");
     return;
   }
@@ -1408,6 +1443,7 @@ async function createPresetDeck() {
   setMessage("Criando pilha da biblioteca...", "neutral");
 
   try {
+    await ensurePrivateDependencies(deck, `criar a pilha "${deck.name}"`);
     const deckData = await buildPresetDeckData(deck);
     const gridWidth = getPresetDeckGridWidth();
     await addDeckToScene({
@@ -1437,7 +1473,7 @@ async function createPresetCard() {
     return;
   }
 
-  if (!isPresetCardReady(group, card)) {
+  if (!isPresetCardConfigured(group, card)) {
     setMessage("Esta carta ainda precisa de frente e verso no catálogo.", "warning");
     return;
   }
@@ -1446,6 +1482,11 @@ async function createPresetCard() {
   setMessage("Criando carta da biblioteca...", "neutral");
 
   try {
+    const back = card.back?.assetId || card.back?.path ? card.back : group.back;
+    await ensurePrivateDependencies(
+      { front: card.front, back },
+      `criar a carta "${card.name}"`,
+    );
     const cardData = await buildPresetCardData(group, card);
     const gridWidth = getPresetCardGridWidth();
     await addCardToScene({
@@ -1640,7 +1681,7 @@ async function init() {
   try {
     loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=101").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=102").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
   } catch (error) {

@@ -9,7 +9,7 @@ Este documento reúne as instruções operacionais do projeto Cartas Duplas. A d
 - Plataforma: Owlbear Rodeo.
 - Hospedagem pública: GitHub Pages.
 - Autoria: DemonRider.
-- Manifesto público da versão 1.0.0: `https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=101`.
+- Manifesto público da versão 1.0.0: `https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=102`.
 - Versão pública atual no manifesto: `1.0.0`.
 
 `package.json`, `package-lock.json` e `manifest.json` usam `1.0.0`. A unificação foi adotada para a primeira versão pública estável; versões históricas permanecem registradas no changelog e no histórico de auditorias.
@@ -106,7 +106,7 @@ O gerador canônico copia os bytes originais, calcula SHA-256 e não recomprime 
 
 O cache busting é manual. Alterações em JavaScript, HTML, CSS, manifesto ou background precisam seguir as regras de versão e cache descritas em [PROJECT_RULES.md](PROJECT_RULES.md). Não incremente versão ou parâmetros de cache em uma alteração exclusivamente documental.
 
-Na preparação final da versão `1.0.0`, o valor público adotado foi `v=101`. O mesmo valor invalida manifesto, entradas HTML, bundles, carregamento alternativo do SDK, estilos, ícones e URLs públicas montadas pelo background. Não altere caminhos ou IDs ao incrementar esse parâmetro em versões futuras.
+Na preparação final da versão `1.0.0`, o valor público adotado foi `v=102`. O mesmo valor invalida manifesto, entradas HTML, bundles, carregamento alternativo do SDK, estilos, ícones e URLs públicas montadas pelo background. Não altere caminhos ou IDs ao incrementar esse parâmetro em versões futuras.
 
 Antes de uma publicação futura, confirme que:
 

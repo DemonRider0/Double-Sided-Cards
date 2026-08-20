@@ -7143,7 +7143,7 @@ async function bootstrapPrivateSceneMetadata(OBR) {
 }
 
 function assetUrl(path) {
-  return `${new URL(`../${path}`, import.meta.url).toString()}?v=101`;
+  return `${new URL(`../${path}`, import.meta.url).toString()}?v=102`;
 }
 
 const COMMAND_REGISTRATION_DEBOUNCE_MS = 200;

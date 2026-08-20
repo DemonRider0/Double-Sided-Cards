@@ -5,6 +5,7 @@ import {
   getPrivateAssetUploadMime,
   isSupportedPrivateAssetPackVersion,
   installPrivateAssetPack,
+  readPrivateAssetState,
   savePrivateAssetBindings,
   validatePrivateAssetPack,
 } from "./asset-resolver.js";
@@ -571,12 +572,20 @@ function buildUniqueNameIndex(pack) {
   return index;
 }
 
-export function matchOwlbearAssetBindings(pack, selectedAssets) {
+export function matchOwlbearAssetBindings(pack, selectedAssets, options = {}) {
   const normalizedPack = validatePrivateAssetPack(pack);
   const resolver = createAssetResolver(normalizedPack);
   const nameIndex = buildUniqueNameIndex(normalizedPack);
+  const allowedAssetIds = options.assetIds
+    ? new Set(
+        [...options.assetIds]
+          .map((assetId) => resolver.getCanonicalId(assetId) || assetId)
+          .filter((assetId) => normalizedPack.assets[assetId]),
+      )
+    : null;
   const bindings = {};
   const unmatched = [];
+  const ignored = [];
 
   for (const selected of selectedAssets || []) {
     const assetId =
@@ -589,13 +598,178 @@ export function matchOwlbearAssetBindings(pack, selectedAssets) {
       continue;
     }
 
+    if (allowedAssetIds && !allowedAssetIds.has(assetId)) {
+      ignored.push(selected?.name || normalizedPack.assets[assetId].name || assetId);
+      continue;
+    }
+
     bindings[assetId] = {
       ...selected.image,
       name: selected.name,
     };
   }
 
-  return { bindings, unmatched };
+  return { bindings, unmatched, ignored };
+}
+
+function getFriendlyAssetName(asset, assetId) {
+  const name = String(asset?.name || asset?.owlbearName || "")
+    .replace(/^\d{13,}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-/i, "")
+    .trim();
+  return name || assetId;
+}
+
+function describePrivateAsset(pack, assetId) {
+  const asset = pack.assets[assetId];
+  return {
+    assetId,
+    name: getFriendlyAssetName(asset, assetId),
+    owlbearName: asset?.owlbearName || "",
+    typeHint: asset?.typeHint || null,
+  };
+}
+
+function getDirectedBindingSearch(pack, missingIds) {
+  if (missingIds.length === 1) {
+    const asset = pack.assets[missingIds[0]];
+    if (typeof asset?.owlbearName === "string" && asset.owlbearName.trim()) {
+      return asset.owlbearName.trim();
+    }
+  }
+
+  return typeof pack.bindingSearch === "string" && pack.bindingSearch.trim()
+    ? pack.bindingSearch.trim()
+    : "DSC";
+}
+
+function getDirectedTypeHint(pack, missingIds) {
+  const supported = new Set(["MAP", "PROP", "MOUNT", "CHARACTER", "ATTACHMENT", "NOTE"]);
+  const types = new Set(
+    missingIds.map((assetId) => pack.assets[assetId]?.typeHint).filter((type) => supported.has(type)),
+  );
+  return types.size === 1 ? [...types][0] : undefined;
+}
+
+export async function ensurePrivateAssetsLinked(assetIds, options = {}) {
+  const OBR = options.OBR;
+  const requestedInput = [
+    ...new Set(
+      [...(assetIds || [])]
+        .filter((assetId) => typeof assetId === "string" && assetId.trim())
+        .map((assetId) => assetId.trim()),
+    ),
+  ];
+  if (!requestedInput.length) {
+    return {
+      requested: [],
+      alreadyLinked: [],
+      prompted: false,
+      selected: 0,
+      linked: [],
+      missing: [],
+      linkedAssets: [],
+      missingAssets: [],
+      ignored: [],
+      unmatched: [],
+      search: "",
+      typeHint: null,
+    };
+  }
+
+  const storage = options.storage;
+  const state = readPrivateAssetState(storage);
+  if (!state) {
+    throw new Error("Configure o Private Asset Pack antes de vincular os assets.");
+  }
+
+  const resolver = createAssetResolver(state.pack);
+  const requested = [
+    ...new Set(
+      requestedInput.map((assetId) => resolver.getCanonicalId(assetId) || assetId),
+    ),
+  ];
+  const alreadyLinked = requested.filter((assetId) => Boolean(state.bindings[assetId]));
+  const missingBefore = requested.filter((assetId) => !state.bindings[assetId]);
+  const unknown = missingBefore.filter((assetId) => !state.pack.assets[assetId]);
+  const selectable = missingBefore.filter((assetId) => Boolean(state.pack.assets[assetId]));
+
+  if (!missingBefore.length) {
+    return {
+      requested,
+      alreadyLinked,
+      prompted: false,
+      selected: 0,
+      linked: [],
+      missing: [],
+      linkedAssets: [],
+      missingAssets: [],
+      ignored: [],
+      unmatched: [],
+      search: "",
+      typeHint: null,
+    };
+  }
+
+  if (!selectable.length) {
+    const missingAssets = unknown.map((assetId) => describePrivateAsset(state.pack, assetId));
+    return {
+      requested,
+      alreadyLinked,
+      prompted: false,
+      selected: 0,
+      linked: [],
+      missing: [...unknown],
+      linkedAssets: [],
+      missingAssets,
+      ignored: [],
+      unmatched: [],
+      search: "",
+      typeHint: null,
+    };
+  }
+
+  if (!OBR?.assets?.downloadImages) {
+    throw new Error("A API de assets do Owlbear não está disponível.");
+  }
+
+  const missingAssetsBefore = missingBefore.map((assetId) =>
+    describePrivateAsset(state.pack, assetId),
+  );
+  if (typeof options.onMissing === "function") {
+    await options.onMissing(missingAssetsBefore);
+  }
+
+  const search = getDirectedBindingSearch(state.pack, selectable);
+  const typeHint = getDirectedTypeHint(state.pack, selectable);
+  const selectedResult = await OBR.assets.downloadImages(true, search, typeHint);
+  const selected = Array.isArray(selectedResult) ? selectedResult : [];
+  const { bindings, unmatched, ignored } = matchOwlbearAssetBindings(state.pack, selected, {
+    assetIds: selectable,
+  });
+  if (Object.keys(bindings).length) {
+    savePrivateAssetBindings(bindings, storage);
+  }
+
+  const updatedState = readPrivateAssetState(storage);
+  const linked = selectable.filter(
+    (assetId) => !state.bindings[assetId] && Boolean(updatedState?.bindings[assetId]),
+  );
+  const missing = requested.filter((assetId) => !updatedState?.bindings[assetId]);
+
+  return {
+    requested,
+    alreadyLinked,
+    prompted: true,
+    selected: selected.length,
+    linked,
+    missing,
+    linkedAssets: linked.map((assetId) => describePrivateAsset(state.pack, assetId)),
+    missingAssets: missing.map((assetId) => describePrivateAsset(state.pack, assetId)),
+    ignored,
+    unmatched,
+    search,
+    typeHint: typeHint || null,
+  };
 }
 
 export async function linkPrivateAssetPackFromOwlbear(OBR, storage) {

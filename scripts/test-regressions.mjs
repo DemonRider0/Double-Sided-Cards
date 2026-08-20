@@ -17,6 +17,7 @@ import {
   PRIVATE_ASSET_MAX_FILE_SIZE,
   PRIVATE_ASSET_PACK_VERSION,
   PRIVATE_ASSET_STORAGE_KEY,
+  collectPrivateAssetIds,
   createAssetResolver,
   getPrivateAssetPackStatus,
   installPrivateAssetPack,
@@ -25,8 +26,8 @@ import {
   savePrivateAssetBindings,
   validatePrivateAssetPack,
 } from "../src/asset-resolver.js";
-import { loadPresetCardGroups } from "../src/preset-cards.js";
-import { loadPresetDecks } from "../src/preset-decks.js";
+import { isPresetCardConfigured, loadPresetCardGroups } from "../src/preset-cards.js";
+import { isPresetDeckConfigured, loadPresetDecks } from "../src/preset-decks.js";
 import {
   SCENE_BOOTSTRAP_MARKER_KEY,
   bootstrapPrivateSceneMetadata,
@@ -41,6 +42,7 @@ import {
   SELECTION_BOARD_KEY,
 } from "../src/selection-board.js";
 import {
+  ensurePrivateAssetsLinked,
   hydratePrivateAssetPackManifest,
   matchOwlbearAssetBindings,
   preparePrivateAssetUpload,
@@ -294,6 +296,7 @@ function createPrivatePackFixture() {
         width: 10,
         height: 20,
         mime: "image/png",
+        typeHint: "PROP",
       },
       [backId]: {
         file: `assets/${"b".repeat(64)}.png`,
@@ -304,6 +307,7 @@ function createPrivatePackFixture() {
         width: 10,
         height: 20,
         mime: "image/png",
+        typeHint: "PROP",
       },
     },
     aliases: {
@@ -527,6 +531,210 @@ async function testPrivateAssetArchitecture() {
     () => validatePrivateAssetPack(svgPack),
     /formato não suportado para upload no Owlbear/i,
   );
+}
+
+function createPrivateAssetDownload(pack, assetId, suffix = "png") {
+  const asset = pack.assets[assetId];
+  return {
+    name: asset.owlbearName,
+    description: `double-sided-cards-private-asset:${encodeURIComponent(assetId)}`,
+    image: {
+      url: `https://images.owlbear.rodeo/${assetId.slice(7, 19)}.${suffix}`,
+      width: asset.width,
+      height: asset.height,
+      mime: asset.mime,
+    },
+  };
+}
+
+async function testIncrementalPrivateAssetBindings() {
+  let emptySelectorCalls = 0;
+  const emptyResult = await ensurePrivateAssetsLinked(
+    [],
+    {
+      OBR: {
+        assets: {
+          async downloadImages() {
+            emptySelectorCalls += 1;
+            return [];
+          },
+        },
+      },
+    },
+  );
+  assert.equal(emptyResult.prompted, false);
+  assert.equal(emptySelectorCalls, 0);
+
+  const pack = createPrivatePackFixture();
+  const [frontId, backId] = Object.keys(pack.assets);
+  const resolver = createAssetResolver(pack);
+  const [cardGroup] = await loadPresetCardGroups(pack);
+  const card = cardGroup.cards[0];
+  const [deck] = await loadPresetDecks(pack);
+  const scene = pack.presets.scenes.tutorial.preset;
+  const cardReferences = {
+    front: card.front,
+    back: card.back?.assetId || card.back?.path ? card.back : cardGroup.back,
+  };
+
+  assert.deepEqual(
+    new Set(collectPrivateAssetIds(cardReferences, { resolver })),
+    new Set([frontId, backId]),
+  );
+  assert.deepEqual(
+    new Set(collectPrivateAssetIds(deck, { resolver })),
+    new Set([frontId, backId]),
+  );
+  assert.deepEqual(collectPrivateAssetIds(scene, { resolver }), [frontId]);
+  assert.equal(isPresetCardConfigured(cardGroup, card), true);
+  assert.equal(isPresetDeckConfigured(deck), true);
+  assert.equal((await loadScenePresetEntries(pack)).find((entry) => entry.definition.id === "tutorial").ready, true);
+
+  const storage = createMemoryStorage();
+  installPrivateAssetPack(pack, storage);
+  const originalFrontBinding = {
+    url: "https://images.owlbear.rodeo/already-linked-front.png",
+    width: 10,
+    height: 20,
+    mime: "image/png",
+  };
+  savePrivateAssetBindings({ [frontId]: originalFrontBinding }, storage);
+
+  const selectorCalls = [];
+  const missingNotices = [];
+  const OBR = {
+    assets: {
+      async downloadImages(...args) {
+        selectorCalls.push(args);
+        return [
+          createPrivateAssetDownload(pack, backId),
+          createPrivateAssetDownload(pack, frontId),
+        ];
+      },
+    },
+  };
+  const first = await ensurePrivateAssetsLinked(new Set([frontId, backId]), {
+    OBR,
+    storage,
+    onMissing(assets) {
+      missingNotices.push(assets);
+    },
+  });
+  assert.deepEqual(first.alreadyLinked, [frontId]);
+  assert.deepEqual(first.linked, [backId]);
+  assert.deepEqual(first.missing, []);
+  assert.equal(first.ignored.length, 1);
+  assert.deepEqual(missingNotices[0].map((asset) => asset.assetId), [backId]);
+  assert.deepEqual(selectorCalls[0], [true, pack.assets[backId].owlbearName, "PROP"]);
+  assert.equal(readPrivateAssetState(storage).bindings[frontId].url, originalFrontBinding.url);
+  assert.equal(readPrivateAssetState(storage).bindings[backId].url.includes("owlbear.rodeo"), true);
+
+  const second = await ensurePrivateAssetsLinked([frontId, backId], { OBR, storage });
+  assert.equal(second.prompted, false);
+  assert.equal(selectorCalls.length, 1);
+
+  const reloadedStorage = createMemoryStorage();
+  reloadedStorage.setItem(PRIVATE_ASSET_STORAGE_KEY, storage.getItem(PRIVATE_ASSET_STORAGE_KEY));
+  await ensurePrivateAssetsLinked([frontId, backId], { OBR, storage: reloadedStorage });
+  assert.equal(selectorCalls.length, 1);
+  assert.equal(getPrivateAssetPackStatus(reloadedStorage).linked, 2);
+
+  for (const dependency of [cardReferences, deck, scene]) {
+    const blockedStorage = createMemoryStorage();
+    installPrivateAssetPack(pack, blockedStorage);
+    let selectorCallsForOperation = 0;
+    let operationCalls = 0;
+    const result = await ensurePrivateAssetsLinked(
+      collectPrivateAssetIds(dependency, { resolver }),
+      {
+        OBR: {
+          assets: {
+            async downloadImages() {
+              selectorCallsForOperation += 1;
+              return [];
+            },
+          },
+        },
+        storage: blockedStorage,
+      },
+    );
+    if (!result.missing.length) {
+      operationCalls += 1;
+    }
+    assert.equal(selectorCallsForOperation, 1);
+    assert.equal(operationCalls, 0);
+    assert.ok(result.missing.length > 0);
+    assert.equal(result.missingAssets.every((asset) => asset.name && asset.assetId), true);
+  }
+
+  for (const dependency of [cardReferences, deck, scene]) {
+    const operationStorage = createMemoryStorage();
+    installPrivateAssetPack(pack, operationStorage);
+    let selectorCallsForOperation = 0;
+    let operationCalls = 0;
+    const dependencyIds = collectPrivateAssetIds(dependency, { resolver });
+    async function runOperation() {
+      const result = await ensurePrivateAssetsLinked(
+        dependencyIds,
+        {
+          OBR: {
+            assets: {
+              async downloadImages() {
+                selectorCallsForOperation += 1;
+                return dependencyIds.map((assetId) => createPrivateAssetDownload(pack, assetId));
+              },
+            },
+          },
+          storage: operationStorage,
+        },
+      );
+      if (!result.missing.length) {
+        operationCalls += 1;
+      }
+    }
+    await runOperation();
+    await runOperation();
+    assert.equal(selectorCallsForOperation, 1);
+    assert.equal(operationCalls, 2);
+  }
+
+  const partialStorage = createMemoryStorage();
+  installPrivateAssetPack(pack, partialStorage);
+  savePrivateAssetBindings({ [frontId]: originalFrontBinding }, partialStorage);
+  let partialSelectorCalls = 0;
+  let partialOperationCalls = 0;
+  async function runSceneOperation() {
+    const result = await ensurePrivateAssetsLinked(
+      collectPrivateAssetIds(scene, { resolver }),
+      {
+        OBR: {
+          assets: {
+            async downloadImages() {
+              partialSelectorCalls += 1;
+              return [];
+            },
+          },
+        },
+        storage: partialStorage,
+      },
+    );
+    if (!result.missing.length) {
+      partialOperationCalls += 1;
+    }
+  }
+  await runSceneOperation();
+  await runSceneOperation();
+  assert.equal(partialSelectorCalls, 0);
+  assert.equal(partialOperationCalls, 2);
+  assert.deepEqual(getPrivateAssetPackStatus(partialStorage), {
+    configured: true,
+    id: pack.id,
+    name: pack.name,
+    runtimeSize: 8,
+    total: 2,
+    linked: 1,
+    missing: 1,
+  });
 }
 
 function createImageUploadBuilderRecorder(record) {
@@ -1270,6 +1478,7 @@ async function testPrivateAssetPackGeneratorFormats() {
 
 await testConcurrentReturnIdempotency();
 await testPrivateAssetArchitecture();
+await testIncrementalPrivateAssetBindings();
 await testPrivateAssetUploadPreparation();
 await testPrivateSceneUploadArchitecture();
 await testRuntimeImageOptimizationPolicy();

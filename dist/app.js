@@ -3376,6 +3376,45 @@ function getPrivateAssetPackStatus(storage = getDefaultStorage()) {
   };
 }
 
+function collectPrivateAssetIds(value, options = {}) {
+  const resolver = options.resolver || getConfiguredAssetResolver(options.storage);
+  const assetIds = new Set();
+
+  function visit(entry) {
+    if (Array.isArray(entry)) {
+      entry.forEach(visit);
+      return;
+    }
+
+    if (!isRecord$2(entry)) {
+      if (typeof entry === "string") {
+        const assetId = resolver.getCanonicalId(entry);
+        if (assetId) {
+          assetIds.add(assetId);
+        }
+      }
+      return;
+    }
+
+    const rawReference = entry.assetId || entry.path || entry.url || "";
+    if (rawReference) {
+      const assetId = resolver.getCanonicalId(rawReference);
+      if (assetId) {
+        assetIds.add(assetId);
+        return;
+      } else if (typeof entry.assetId === "string" && entry.assetId.trim()) {
+        assetIds.add(entry.assetId.trim());
+        return;
+      }
+    }
+
+    Object.values(entry).forEach(visit);
+  }
+
+  visit(value);
+  return [...assetIds];
+}
+
 function resolveAssetReferences(value, options = {}) {
   const resolver = options.resolver || getConfiguredAssetResolver(options.storage);
   const stats = {
@@ -3529,6 +3568,16 @@ function isPresetAssetReady(asset) {
   return getConfiguredAssetResolver().isReady(asset);
 }
 
+function isPresetAssetConfigured(asset) {
+  return Boolean(
+    asset &&
+      typeof asset === "object" &&
+      ((typeof asset.assetId === "string" && asset.assetId.trim()) ||
+        (typeof asset.path === "string" && asset.path.trim()) ||
+        (typeof asset.url === "string" && asset.url.trim())),
+  );
+}
+
 function normalizePresetDeck(value, index) {
   const name = value?.name || `Pilha ${index + 1}`;
   const layer = normalizePresetLayer(value?.layer);
@@ -3572,6 +3621,14 @@ function isPresetDeckReady(deck) {
     deck?.cards?.length &&
       isPresetAssetReady(deck.back) &&
       deck.cards.every((card) => isPresetAssetReady(card.front)),
+  );
+}
+
+function isPresetDeckConfigured(deck) {
+  return Boolean(
+    deck?.cards?.length &&
+      isPresetAssetConfigured(deck.back) &&
+      deck.cards.every((card) => isPresetAssetConfigured(card.front)),
   );
 }
 
@@ -3665,6 +3722,11 @@ async function loadPresetCardGroups(pack = getConfiguredPrivateAssetPack()) {
 function isPresetCardReady(group, card) {
   const back = card?.back?.assetId || card?.back?.path ? card.back : group?.back;
   return Boolean(isPresetAssetReady(back) && isPresetAssetReady(card?.front));
+}
+
+function isPresetCardConfigured(group, card) {
+  const back = card?.back?.assetId || card?.back?.path ? card.back : group?.back;
+  return Boolean(isPresetAssetConfigured(back) && isPresetAssetConfigured(card?.front));
 }
 
 async function buildFace(asset, label) {
@@ -4174,17 +4236,10 @@ async function loadScenePresetEntries(pack = getConfiguredPrivateAssetPack()) {
         Number.isInteger(summary?.itemCount) &&
         summary.itemCount > 0,
     );
-    const resolution = entry?.preset ? resolveAssetReferences(entry.preset) : null;
-
     return {
       definition,
       loadError: null,
-      ready: Boolean(
-        entry?.preset &&
-          resolution &&
-          resolution.unresolved === 0 &&
-          resolution.canonical === resolution.resolved,
-      ),
+      ready: Boolean(entry?.preset),
       summary: validSummary
         ? {
             savedAt: summary.savedAt,
@@ -4783,12 +4838,20 @@ function buildUniqueNameIndex(pack) {
   return index;
 }
 
-function matchOwlbearAssetBindings(pack, selectedAssets) {
+function matchOwlbearAssetBindings(pack, selectedAssets, options = {}) {
   const normalizedPack = validatePrivateAssetPack(pack);
   const resolver = createAssetResolver(normalizedPack);
   const nameIndex = buildUniqueNameIndex(normalizedPack);
+  const allowedAssetIds = options.assetIds
+    ? new Set(
+        [...options.assetIds]
+          .map((assetId) => resolver.getCanonicalId(assetId) || assetId)
+          .filter((assetId) => normalizedPack.assets[assetId]),
+      )
+    : null;
   const bindings = {};
   const unmatched = [];
+  const ignored = [];
 
   for (const selected of selectedAssets || []) {
     const assetId =
@@ -4801,13 +4864,178 @@ function matchOwlbearAssetBindings(pack, selectedAssets) {
       continue;
     }
 
+    if (allowedAssetIds && !allowedAssetIds.has(assetId)) {
+      ignored.push(selected?.name || normalizedPack.assets[assetId].name || assetId);
+      continue;
+    }
+
     bindings[assetId] = {
       ...selected.image,
       name: selected.name,
     };
   }
 
-  return { bindings, unmatched };
+  return { bindings, unmatched, ignored };
+}
+
+function getFriendlyAssetName(asset, assetId) {
+  const name = String(asset?.name || asset?.owlbearName || "")
+    .replace(/^\d{13,}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-/i, "")
+    .trim();
+  return name || assetId;
+}
+
+function describePrivateAsset(pack, assetId) {
+  const asset = pack.assets[assetId];
+  return {
+    assetId,
+    name: getFriendlyAssetName(asset, assetId),
+    owlbearName: asset?.owlbearName || "",
+    typeHint: asset?.typeHint || null,
+  };
+}
+
+function getDirectedBindingSearch(pack, missingIds) {
+  if (missingIds.length === 1) {
+    const asset = pack.assets[missingIds[0]];
+    if (typeof asset?.owlbearName === "string" && asset.owlbearName.trim()) {
+      return asset.owlbearName.trim();
+    }
+  }
+
+  return typeof pack.bindingSearch === "string" && pack.bindingSearch.trim()
+    ? pack.bindingSearch.trim()
+    : "DSC";
+}
+
+function getDirectedTypeHint(pack, missingIds) {
+  const supported = new Set(["MAP", "PROP", "MOUNT", "CHARACTER", "ATTACHMENT", "NOTE"]);
+  const types = new Set(
+    missingIds.map((assetId) => pack.assets[assetId]?.typeHint).filter((type) => supported.has(type)),
+  );
+  return types.size === 1 ? [...types][0] : undefined;
+}
+
+async function ensurePrivateAssetsLinked(assetIds, options = {}) {
+  const OBR = options.OBR;
+  const requestedInput = [
+    ...new Set(
+      [...(assetIds || [])]
+        .filter((assetId) => typeof assetId === "string" && assetId.trim())
+        .map((assetId) => assetId.trim()),
+    ),
+  ];
+  if (!requestedInput.length) {
+    return {
+      requested: [],
+      alreadyLinked: [],
+      prompted: false,
+      selected: 0,
+      linked: [],
+      missing: [],
+      linkedAssets: [],
+      missingAssets: [],
+      ignored: [],
+      unmatched: [],
+      search: "",
+      typeHint: null,
+    };
+  }
+
+  const storage = options.storage;
+  const state = readPrivateAssetState(storage);
+  if (!state) {
+    throw new Error("Configure o Private Asset Pack antes de vincular os assets.");
+  }
+
+  const resolver = createAssetResolver(state.pack);
+  const requested = [
+    ...new Set(
+      requestedInput.map((assetId) => resolver.getCanonicalId(assetId) || assetId),
+    ),
+  ];
+  const alreadyLinked = requested.filter((assetId) => Boolean(state.bindings[assetId]));
+  const missingBefore = requested.filter((assetId) => !state.bindings[assetId]);
+  const unknown = missingBefore.filter((assetId) => !state.pack.assets[assetId]);
+  const selectable = missingBefore.filter((assetId) => Boolean(state.pack.assets[assetId]));
+
+  if (!missingBefore.length) {
+    return {
+      requested,
+      alreadyLinked,
+      prompted: false,
+      selected: 0,
+      linked: [],
+      missing: [],
+      linkedAssets: [],
+      missingAssets: [],
+      ignored: [],
+      unmatched: [],
+      search: "",
+      typeHint: null,
+    };
+  }
+
+  if (!selectable.length) {
+    const missingAssets = unknown.map((assetId) => describePrivateAsset(state.pack, assetId));
+    return {
+      requested,
+      alreadyLinked,
+      prompted: false,
+      selected: 0,
+      linked: [],
+      missing: [...unknown],
+      linkedAssets: [],
+      missingAssets,
+      ignored: [],
+      unmatched: [],
+      search: "",
+      typeHint: null,
+    };
+  }
+
+  if (!OBR?.assets?.downloadImages) {
+    throw new Error("A API de assets do Owlbear não está disponível.");
+  }
+
+  const missingAssetsBefore = missingBefore.map((assetId) =>
+    describePrivateAsset(state.pack, assetId),
+  );
+  if (typeof options.onMissing === "function") {
+    await options.onMissing(missingAssetsBefore);
+  }
+
+  const search = getDirectedBindingSearch(state.pack, selectable);
+  const typeHint = getDirectedTypeHint(state.pack, selectable);
+  const selectedResult = await OBR.assets.downloadImages(true, search, typeHint);
+  const selected = Array.isArray(selectedResult) ? selectedResult : [];
+  const { bindings, unmatched, ignored } = matchOwlbearAssetBindings(state.pack, selected, {
+    assetIds: selectable,
+  });
+  if (Object.keys(bindings).length) {
+    savePrivateAssetBindings(bindings, storage);
+  }
+
+  const updatedState = readPrivateAssetState(storage);
+  const linked = selectable.filter(
+    (assetId) => !state.bindings[assetId] && Boolean(updatedState?.bindings[assetId]),
+  );
+  const missing = requested.filter((assetId) => !updatedState?.bindings[assetId]);
+
+  return {
+    requested,
+    alreadyLinked,
+    prompted: true,
+    selected: selected.length,
+    linked,
+    missing,
+    linkedAssets: linked.map((assetId) => describePrivateAsset(state.pack, assetId)),
+    missingAssets: missing.map((assetId) => describePrivateAsset(state.pack, assetId)),
+    ignored,
+    unmatched,
+    search,
+    typeHint: typeHint || null,
+  };
 }
 
 async function linkPrivateAssetPackFromOwlbear(OBR, storage) {
@@ -4960,7 +5188,39 @@ function updatePrivatePackControls(isConnected = Boolean(obr)) {
 
   elements.privatePackInfo.textContent =
     `${status.name || status.id}: ${status.total} assets, ${formatRuntimeSize(status.runtimeSize)} runtime; ` +
-    `${status.linked} vinculados, ${status.missing} faltantes.`;
+    `${status.linked} de ${status.total} assets vinculados. O vínculo restante acontece sob demanda.`;
+}
+
+function formatPrivateAssetList(assets) {
+  return assets.map(({ name, assetId }) => `${name} [${assetId}]`).join(", ");
+}
+
+async function ensurePrivateDependencies(value, actionLabel) {
+  const assetIds = collectPrivateAssetIds(value);
+  const result = await ensurePrivateAssetsLinked(assetIds, {
+    OBR: obr,
+    onMissing(missingAssets) {
+      const count = missingAssets.length;
+      setMessage(
+        `Faltam ${count} ${count === 1 ? "asset" : "assets"} para ${actionLabel}. ` +
+          `Selecione-${count === 1 ? "o" : "os"} no Owlbear e confirme: ` +
+          formatPrivateAssetList(missingAssets),
+        "warning",
+      );
+    },
+  });
+  updatePrivatePackControls(Boolean(obr));
+
+  if (result.missing.length) {
+    const count = result.missing.length;
+    throw new Error(
+      `Faltam ${count} ${count === 1 ? "asset" : "assets"} para ${actionLabel}. ` +
+        `Selecione-${count === 1 ? "o" : "os"} no Owlbear e confirme: ` +
+        formatPrivateAssetList(result.missingAssets),
+    );
+  }
+
+  return result;
 }
 
 async function showNotification(text, tone) {
@@ -5672,8 +5932,9 @@ async function createSceneFromPrivatePreset(presetId) {
   updateDefaultBoardControls(true);
   setMessage("Montando a nova cena com os assets vinculados...", "neutral");
   try {
-    const result = await createPrivateScene(obr, buildSceneUpload, entry.preset);
     const displayName = entry.definition.label || entry.definition.name;
+    await ensurePrivateDependencies(entry.preset, `criar ${displayName}`);
+    const result = await createPrivateScene(obr, buildSceneUpload, entry.preset);
     const fallback = result.usedCapturedGrid && result.usedCapturedFog
       ? ""
       : " O template legado usou o fallback do SDK para grid/fog ausentes.";
@@ -5761,7 +6022,7 @@ function updateMissionDeckControls(isConnected = Boolean(obr)) {
 function updatePresetDeckControls(isConnected = Boolean(obr), syncDefaults = false) {
   const hasDecks = presetDecks.length > 0;
   const deck = hasDecks ? getSelectedPresetDeck() : null;
-  const isReady = isPresetDeckReady(deck);
+  const isReady = isPresetDeckConfigured(deck);
 
   elements.presetDeckSelect.disabled = !hasDecks;
   elements.presetDeckGridWidth.disabled = !hasDecks;
@@ -5813,7 +6074,7 @@ function populatePresetDeckSelect() {
   for (const deck of presetDecks) {
     const option = document.createElement("option");
     option.value = deck.id;
-    option.textContent = isPresetDeckReady(deck)
+    option.textContent = isPresetDeckConfigured(deck)
       ? `${deck.name} (${deck.cards.length})`
       : `${deck.name} (configurar imagens)`;
     elements.presetDeckSelect.append(option);
@@ -5827,7 +6088,7 @@ function updatePresetCardControls(isConnected = Boolean(obr), syncDefaults = fal
   const hasGroups = presetCardGroups.length > 0;
   const { group, card } = hasGroups ? getSelectedPresetCard() : { group: null, card: null };
   const hasCards = Boolean(group?.cards?.length);
-  const isReady = isPresetCardReady(group, card);
+  const isReady = isPresetCardConfigured(group, card);
 
   elements.presetCardGroupSelect.disabled = !hasGroups;
   elements.presetCardSelect.disabled = !hasCards;
@@ -5886,7 +6147,7 @@ function populatePresetCardSelect(syncDefaults = false) {
   for (const card of group.cards) {
     const option = document.createElement("option");
     option.value = card.id;
-    option.textContent = isPresetCardReady(group, card)
+    option.textContent = isPresetCardConfigured(group, card)
       ? card.name
       : `${card.name} (configurar imagens)`;
     elements.presetCardSelect.append(option);
@@ -5949,7 +6210,7 @@ async function configureSelectedPrivatePack(files) {
     setMessage(
       missingFiles
         ? `Pack configurado, mas ${missingFiles} arquivos canônicos não estavam na pasta selecionada.`
-        : "Pack configurado. Envie os assets ao Owlbear e depois vincule a seleção.",
+        : "Pack configurado. Envie os assets ao Owlbear; cada função pedirá somente os vínculos necessários.",
       missingFiles ? "warning" : "success",
     );
   } finally {
@@ -6003,7 +6264,7 @@ async function uploadSelectedPrivatePack() {
       },
     );
     setMessage(
-      `${result.uploaded} assets enviados ao Owlbear. Agora vincule os assets pelo seletor.`,
+      `${result.uploaded} assets enviados ao Owlbear. Os vínculos serão solicitados sob demanda.`,
       result.missingFiles ? "warning" : "success",
     );
   } finally {
@@ -6171,7 +6432,7 @@ async function createPresetDeck() {
     return;
   }
 
-  if (!isPresetDeckReady(deck)) {
+  if (!isPresetDeckConfigured(deck)) {
     setMessage("Esta pilha ainda precisa de verso e cartas no catálogo.", "warning");
     return;
   }
@@ -6180,6 +6441,7 @@ async function createPresetDeck() {
   setMessage("Criando pilha da biblioteca...", "neutral");
 
   try {
+    await ensurePrivateDependencies(deck, `criar a pilha "${deck.name}"`);
     const deckData = await buildPresetDeckData(deck);
     const gridWidth = getPresetDeckGridWidth();
     await addDeckToScene({
@@ -6209,7 +6471,7 @@ async function createPresetCard() {
     return;
   }
 
-  if (!isPresetCardReady(group, card)) {
+  if (!isPresetCardConfigured(group, card)) {
     setMessage("Esta carta ainda precisa de frente e verso no catálogo.", "warning");
     return;
   }
@@ -6218,6 +6480,11 @@ async function createPresetCard() {
   setMessage("Criando carta da biblioteca...", "neutral");
 
   try {
+    const back = card.back?.assetId || card.back?.path ? card.back : group.back;
+    await ensurePrivateDependencies(
+      { front: card.front, back },
+      `criar a carta "${card.name}"`,
+    );
     const cardData = await buildPresetCardData(group, card);
     const gridWidth = getPresetCardGridWidth();
     await addCardToScene({
@@ -6412,7 +6679,7 @@ async function init() {
   try {
     loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=101").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=102").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
   } catch (error) {

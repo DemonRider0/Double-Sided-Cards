@@ -113,3 +113,13 @@ export async function buildPresetFace(asset, missingAssetMessage) {
 export function isPresetAssetReady(asset) {
   return getConfiguredAssetResolver().isReady(asset);
 }
+
+export function isPresetAssetConfigured(asset) {
+  return Boolean(
+    asset &&
+      typeof asset === "object" &&
+      ((typeof asset.assetId === "string" && asset.assetId.trim()) ||
+        (typeof asset.path === "string" && asset.path.trim()) ||
+        (typeof asset.url === "string" && asset.url.trim())),
+  );
+}
