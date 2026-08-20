@@ -171,7 +171,7 @@ compare-and-swap para fechar essa janela.
 ```mermaid
 flowchart TD
   A["Usuario escolhe Tutorial ou Missao"] --> B["Resolver assetId para ImageContent vinculado"]
-  B --> C["Recusar se houver vinculos faltantes"]
+  B --> C["Recusar sem abrir seletores se algum asset estiver inacessivel"]
   C --> D["Validar template privado"]
   D --> E["Adicionar marcador de bootstrap a item existente"]
   E --> F["Montar SceneUpload com items, grid e fog"]
@@ -186,6 +186,8 @@ referências internas permanecem consistentes sem remapeamento especulativo. Com
 `SceneUpload` não possui metadata arbitrária de cena, somente o selection board
 é transportado por um marcador idempotente em um item existente. Metadata de
 outras extensões não é propagada como metadata da nova cena.
+O fluxo permanece disponível apenas quando todos os `ImageContent` necessários já
+estão vinculados; caso contrário, a interface orienta o vínculo manual.
 
 ## Persistencia dos metadados
 
@@ -218,7 +220,7 @@ O painel usa o SDK para:
 - mostrar estado de conexao;
 - listar jogadores e cores.
 - enviar arquivos canônicos com `OBR.assets.uploadImages`;
-- selecionar e vincular assets do usuario com `OBR.assets.downloadImages`.
+- selecionar e vincular assets do usuario com `OBR.assets.downloadImages`, somente por ação manual explícita.
 
 ### Background
 
@@ -274,7 +276,7 @@ presets/decks.json            # biblioteca privada de pilhas por assetId
 presets/scenes/*.json         # mapas privados por assetId
 ```
 
-Ao selecionar a pasta, o painel hidrata os JSONs e persiste apenas dados e vinculos; binarios nunca entram no `localStorage`. `uploadImages` envia os arquivos, mas no SDK 3.1.0 retorna `void`. O usuario precisa entao selecionar os assets em `downloadImages`; o nome/descricao gerados carregam o ID canonico e permitem montar o vinculo persistente.
+Ao selecionar a pasta, o painel hidrata os JSONs e persiste apenas dados e vinculos; binarios nunca entram no `localStorage`. No SDK 3.1.0, `uploadImages` não fornece à extensão os URLs dos assets enviados. O vínculo depende da seleção manual do usuário em `downloadImages`, e nenhum fluxo exige vincular o pack inteiro.
 
 Sem pack, os loaders retornam listas vazias e os botoes de presets permanecem desabilitados. O restante da extensao nao depende desse estado opcional.
 

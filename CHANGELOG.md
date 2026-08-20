@@ -14,13 +14,14 @@ Preparação da primeira versão pública estável.
 - Melhorias de acessibilidade, responsividade mobile e feedback das operações do painel.
 - Reforço das fronteiras de confiança de metadados, presets, URLs e servidor administrativo local.
 - Build, geradores e verificações reproduzíveis, além de documentação consolidada para uso e manutenção.
-- Versão unificada em `1.0.0`, descrição pública atualizada e cache busting consolidado em `v=100`.
+- Versão unificada em `1.0.0`, descrição pública atualizada e cache busting consolidado em `v=103`.
 - Separação do Core público e do Private Asset Pack, com assets privados no Owlbear, resolução canônica por SHA-256, aliases legados e funcionamento normal sem pack.
+- Private Asset Pack simplificado: upload e vínculos são opcionais, operações não abrem mais o seletor automaticamente e cenas privadas só são criadas quando todos os assets necessários já estão acessíveis.
 
 ### Limitação conhecida
 
 - Em concorrência distribuída rara, dois clientes devolvendo simultaneamente a mesma instância de carta ainda podem duplicar sua entrada na pilha; retries e repetições locais permanecem protegidos. O limite técnico está documentado em `DEVELOPMENT.md` e `docs/ARCHITECTURE.md`.
-- O SDK 3.1.0 não retorna ID/URL em `uploadImages`; depois do envio, o usuário precisa selecionar os assets uma vez para persistir os vínculos neste navegador.
+- O SDK 3.1.0 não expõe os URLs de `uploadImages`; cada asset privado necessário depende de seleção manual no Owlbear, sem requisito de vincular o pack inteiro.
 
 ## 2026-07-17 - Encerramento formal do plano S-01 a S-20
 

@@ -127,11 +127,11 @@ Este documento registra decisões técnicas importantes. Uma decisão só deve s
 | Campo | Conteudo |
 | --- | --- |
 | Problema | Mapas pessoais precisam ser restauraveis sem publicar conteudo protegido nem quebrar URLs antigas. |
-| Decisao | Salvar mapas no Private Asset Pack, usando `assetId` canonico e aliases legados. |
-| Justificativa tecnica | O pack fornece o JSON e o resolvedor troca IDs/aliases por assets pertencentes ao usuario no Owlbear antes de recriar itens via SDK. |
+| Decisao | Salvar mapas no Private Asset Pack, usando `assetId` canonico e aliases legados; criar/restaurar automaticamente apenas quando todos os bindings necessários existirem. |
+| Justificativa tecnica | O pack fornece o JSON e o resolvedor troca IDs/aliases por assets pertencentes ao usuario no Owlbear. O SDK 3.1.0 não fornece os URLs de `uploadImages`, então o vínculo depende da seleção manual do usuário. |
 | Alternativas consideradas | Instruir cada usuario a montar cenas, usar backups manuais do Owlbear. |
-| Vantagens | Core publico independente, restauracao reproduzivel e compatibilidade centralizada. |
-| Desvantagens | Exige pack e vinculo local; o SDK nao retorna os IDs depois de `uploadImages`. |
+| Vantagens | Core publico independente, compatibilidade centralizada e restauração segura quando os assets estão acessíveis. |
+| Desvantagens | Assets privados sem binding precisam ser vinculados manualmente antes do uso. |
 | Nao alterar quando | O projeto depender de tabuleiros oficiais prontos. |
 
 ## 12. Divindades com tamanho especial

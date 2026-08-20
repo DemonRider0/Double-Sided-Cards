@@ -26,12 +26,13 @@ Este checklist deve ser usado antes de publicar mudanças no GitHub Pages e tamb
 ## Private Asset Pack
 
 - Selecionar a pasta que contem `private-asset-pack.json`.
-- Confirmar a contagem de assets canônicos e pendentes exibida no painel.
-- Usar **Enviar ao Owlbear** e confirmar que os assets aparecem na biblioteca privada da conta.
-- Usar **Vincular assets** em uma ou mais seleções incrementais e confirmar que vínculos anteriores são preservados até a contagem pendente chegar a zero.
+- Confirmar nome, tamanho, assets disponíveis e vínculos existentes exibidos no painel, sem indicação de etapa obrigatória.
+- Usar **Upload opcional** e confirmar que os assets aparecem na biblioteca privada da conta.
+- Usar **Vincular manualmente** para uma seleção parcial e confirmar que vínculos anteriores são preservados sem exigir o pack inteiro.
+- Tentar usar uma carta, pilha ou cena sem o binding necessário; confirmar a orientação de vínculo manual e que nenhum seletor abre automaticamente.
 - Fechar e reabrir o painel; confirmar que pack e vínculos continuam configurados.
 - Dar F5 na sala; confirmar que nao e necessario selecionar o pack novamente.
-- Criar uma carta e uma pilha de cada biblioteca relevante e confirmar frente, verso, tamanho, camada e ordem.
+- Com os bindings necessários disponíveis, criar uma carta e uma pilha de cada biblioteca relevante e confirmar frente, verso, tamanho, camada e ordem.
 - Abrir uma cena antiga com URL de GitHub Pages, `localhost/.local-assets` ou ID Owlbear conhecido; usar **Sincronizar cena** e confirmar migracao para o asset privado correto.
 - Confirmar que duas referencias aliases do mesmo conteudo usam a mesma imagem canônica.
 - Remover apenas a configuracao local do pack; confirmar que o Core continua carregando e que os assets enviados permanecem na conta do Owlbear.
@@ -215,7 +216,7 @@ Checklist:
 - Comprar carta por botao.
 - Embaralhar por botao.
 - Devolver carta por botao.
-- Criar uma cena privada e abri-la pelo Atlas, se permitido para o usuário.
+- Criar uma cena privada e abri-la pelo Atlas somente quando todos os assets do template estiverem acessíveis, se permitido para o usuário.
 - Confirmar que imagens nao ficam piscando/desfocadas.
 - Confirmar que assets grandes nao travam o navegador.
 - Confirmar que painel nao fica inutilizavel.

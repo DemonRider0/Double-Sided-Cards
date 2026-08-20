@@ -3,14 +3,14 @@
   "version": "1.0.0",
   "manifest_version": 1,
   "author": "DemonRider",
-  "icon": "/Double-Sided-Cards/icons/card.svg?v=102",
+  "icon": "/Double-Sided-Cards/icons/card.svg?v=103",
   "description": "Gerencia cartas com frente e verso, pilhas, bibliotecas, criação de cenas e jogadores por cor no Owlbear Rodeo.",
   "action": {
     "title": "Cartas",
-    "icon": "/Double-Sided-Cards/icons/card.svg?v=102",
-    "popover": "/Double-Sided-Cards/index.html?v=102",
+    "icon": "/Double-Sided-Cards/icons/card.svg?v=103",
+    "popover": "/Double-Sided-Cards/index.html?v=103",
     "height": 680,
     "width": 420
   },
-  "background_url": "/Double-Sided-Cards/background.html?v=102"
+  "background_url": "/Double-Sided-Cards/background.html?v=103"
 }

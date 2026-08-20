@@ -135,7 +135,7 @@ Este arquivo registra as regras permanentes do projeto. Qualquer alteração fut
   - Reacoes Heroicas: largura 1.25, camada Mount.
   - Herois: largura 6, camada Mount, origin X 885.00 e origin Y 531.50.
   - Herois Montaria: largura 1, camada Mount.
-- Depois do vinculo do pack, a versao publica deve criar essas cartas a partir de assets pertencentes ao usuario no Owlbear, nunca de binarios protegidos no GitHub Pages.
+- Quando os bindings necessários estiverem disponíveis, a versao publica deve criar essas cartas a partir de assets pertencentes ao usuario no Owlbear, nunca de binarios protegidos no GitHub Pages.
 
 ## Camadas
 
@@ -187,6 +187,7 @@ Este arquivo registra as regras permanentes do projeto. Qualquer alteração fut
 - Criar Tutorial ou Missao deve gerar uma cena independente sem modificar a cena aberta.
 - Nao apagar, renomear ou substituir presets de cena sem pedido explicito.
 - Sem Private Asset Pack, a extensao deve carregar normalmente e apenas informar que nao ha mapas privados cadastrados.
+- A criação ou restauração automática só fica disponível quando todos os `ImageContent` necessários já estiverem acessíveis; nunca abrir seletores automaticamente para completar bindings.
 - Ao alterar mapas privados, preservar IDs e transformar caminhos/URLs historicos em aliases para assets canonicos.
 
 ## Publicacao e assets
@@ -196,6 +197,7 @@ Este arquivo registra as regras permanentes do projeto. Qualquer alteração fut
 - A fonte do Private Asset Pack deve ficar fora do repositorio publico e manter os binarios originais; o runtime v2 derivado usa `assetId` logico estavel e `blobSha256` para os bytes otimizados.
 - Caminhos, URLs e IDs historicos conhecidos devem ser preservados como aliases; nao remover compatibilidade porque uma referencia parece inativa.
 - O resolvedor central deve converter `assetId` ou alias para a URL retornada pela biblioteca privada do usuario no Owlbear.
+- Upload e vínculo são opcionais; o Core não exige vincular o pack inteiro.
 - A configuracao do pack e seus vinculos devem persistir por origem do navegador; nao incluir URLs privadas no repositorio.
 - Nao reintroduzir o fluxo que copia `.local-assets` para `assets/local-assets` para publicacao.
 
@@ -223,7 +225,7 @@ Este arquivo registra as regras permanentes do projeto. Qualquer alteração fut
 - Confirmar que o cache `?v=...` foi incrementado.
 - Confirmar que nao ha binarios ou manifests privados no Core publico.
 - Confirmar que a instalacao sem pack carrega sem erro e deixa bibliotecas/mapas pessoais indisponiveis.
-- Confirmar que o pack privado vincula assets do Owlbear e restaura aliases antigos sem `Image Unavailable`.
+- Confirmar que bindings manuais preservam aliases antigos e que a ausência de binding não altera itens ou metadados existentes.
 - Confirmar que cartas, pilhas, mapas salvos, atalhos e botoes principais continuam funcionando.
 - Testar pelo menos:
   - virar carta
@@ -231,7 +233,7 @@ Este arquivo registra as regras permanentes do projeto. Qualquer alteração fut
   - embaralhar pilha
   - devolver para pilha
   - criar pilha com selecao
-  - criar cena Tutorial
-  - criar cena Missao 0.5
+  - criar cena Tutorial, quando todos os assets necessários estiverem acessíveis
+  - criar cena Missao 0.5, quando todos os assets necessários estiverem acessíveis
   - selecao de jogador por cor
   - slots de raca, classe e divindade

@@ -2,6 +2,12 @@
 
 Este arquivo consolida auditorias realizadas durante o desenvolvimento. Use-o como histórico técnico e como entrada para planos de correção.
 
+## 2026-08-20 - Encerramento da vinculação automática
+
+- O fluxo sob demanda foi removido: `downloadImages` só é chamado pelo botão explícito de vínculo manual.
+- Upload e bindings do Private Asset Pack são opcionais; Core, aliases, metadados e cenas antigas permanecem preservados sem pack completo.
+- A criação/restauração automática de templates privados só é habilitada quando todos os `ImageContent` necessários já estão acessíveis pelo Owlbear.
+
 ## 2026-08-11 - Separacao do Core e Private Asset Pack
 
 - O Core deixou de hospedar `preset-cards`, `preset-decks`, `scene-presets` e `local-assets`; instalacoes sem pack continuam carregando com as bibliotecas e mapas pessoais indisponiveis.

@@ -9,6 +9,8 @@ import {
   SELECTION_BOARD_KEY,
 } from "./selection-board.js";
 import {
+  createAssetResolver,
+  getConfiguredAssetResolver,
   getConfiguredPrivateAssetPack,
   resolveAssetReferences,
 } from "./asset-resolver.js";
@@ -18,6 +20,11 @@ const ITEM_CHUNK_SIZE = 80;
 const RESTORE_MARKER_VERSION = 1;
 export const SCENE_RESTORE_MARKER_KEY = `${EXTENSION_ID}/scene-restore`;
 export const SCENE_BOOTSTRAP_MARKER_KEY = `${EXTENSION_ID}/scene-bootstrap`;
+
+function describeUnavailablePrivateAssets(count) {
+  return `${count} ${count === 1 ? "asset privado não está acessível" : "assets privados não estão acessíveis"}`;
+}
+
 export const SCENE_PRESETS = [
   {
     id: "tutorial",
@@ -517,7 +524,7 @@ export function buildPrivateSceneUpload(buildSceneUpload, preset, options = {}) 
   const resolution = resolveAssetReferences(preset, options);
   if (resolution.unresolved) {
     const error = new Error(
-      `A cena não pode ser criada: faltam ${resolution.unresolved} assets vinculados ao Owlbear.`,
+      `A cena não pode ser criada: ${describeUnavailablePrivateAssets(resolution.unresolved)} como vínculo no Owlbear. Vincule manualmente antes de tentar novamente.`,
     );
     error.name = "MissingPrivateAssetBindingsError";
     error.missingBindings = resolution.unresolved;
@@ -600,18 +607,23 @@ function restoreItemState(item, presetItem) {
 
 export async function loadScenePreset(
   definition,
-  pack = getConfiguredPrivateAssetPack(),
+  pack,
+  options = {},
 ) {
-  const entry = pack?.presets?.scenes?.[definition.id];
+  const configuredPack = pack === undefined ? getConfiguredPrivateAssetPack() : pack;
+  const resolver =
+    options.resolver ||
+    (pack === undefined ? getConfiguredAssetResolver() : createAssetResolver(configuredPack));
+  const entry = configuredPack?.presets?.scenes?.[definition.id];
   if (!entry?.preset) {
     return null;
   }
 
   try {
-    const resolution = resolveAssetReferences(entry.preset);
+    const resolution = resolveAssetReferences(entry.preset, { resolver });
     if (resolution.unresolved) {
       throw new Error(
-        `${resolution.unresolved} assets do mapa ainda não foram vinculados ao Owlbear.`,
+        `${describeUnavailablePrivateAssets(resolution.unresolved)} como vínculo no Owlbear.`,
       );
     }
     const normalized = {
@@ -626,12 +638,20 @@ export async function loadScenePreset(
   }
 }
 
-export async function loadScenePresetEntries(pack = getConfiguredPrivateAssetPack()) {
+export async function loadScenePresetEntries(pack, options = {}) {
+  const configuredPack = pack === undefined ? getConfiguredPrivateAssetPack() : pack;
+  const resolver =
+    options.resolver ||
+    (pack === undefined ? getConfiguredAssetResolver() : createAssetResolver(configuredPack));
+
   return SCENE_PRESETS.map((fallbackDefinition) => {
-    const entry = pack?.presets?.scenes?.[fallbackDefinition.id];
+    const entry = configuredPack?.presets?.scenes?.[fallbackDefinition.id];
     const definition = entry?.definition
       ? { ...fallbackDefinition, ...entry.definition, id: fallbackDefinition.id }
       : fallbackDefinition;
+    const resolution = entry?.preset
+      ? resolveAssetReferences(entry.preset, { resolver })
+      : null;
     const summary = entry?.summary;
     const validSummary = Boolean(
       typeof summary?.savedAt === "string" &&
@@ -641,7 +661,8 @@ export async function loadScenePresetEntries(pack = getConfiguredPrivateAssetPac
     return {
       definition,
       loadError: null,
-      ready: Boolean(entry?.preset),
+      ready: Boolean(entry?.preset && !resolution?.unresolved),
+      unresolvedAssetIds: resolution?.unresolvedIds || [],
       summary: validSummary
         ? {
             savedAt: summary.savedAt,
@@ -1674,7 +1695,7 @@ async function performRestore(OBR, preset, options, operation) {
   const resolution = resolveAssetReferences(preset);
   if (resolution.unresolved) {
     throw new SceneRestoreError(
-      `${resolution.unresolved} assets privados ainda não foram vinculados ao Owlbear.`,
+      `${describeUnavailablePrivateAssets(resolution.unresolved)} como vínculo no Owlbear. Vincule manualmente antes de restaurar a cena.`,
       {
         code: "PRIVATE_ASSETS_NOT_LINKED",
         stage: "validation",

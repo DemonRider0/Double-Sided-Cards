@@ -9,7 +9,7 @@ Este documento reúne as instruções operacionais do projeto Cartas Duplas. A d
 - Plataforma: Owlbear Rodeo.
 - Hospedagem pública: GitHub Pages.
 - Autoria: DemonRider.
-- Manifesto público da versão 1.0.0: `https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=102`.
+- Manifesto público da versão 1.0.0: `https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=103`.
 - Versão pública atual no manifesto: `1.0.0`.
 
 `package.json`, `package-lock.json` e `manifest.json` usam `1.0.0`. A unificação foi adotada para a primeira versão pública estável; versões históricas permanecem registradas no changelog e no histórico de auditorias.
@@ -85,11 +85,11 @@ O manifesto externo contém o catálogo de assets canônicos, aliases legados e 
 O fluxo no painel é:
 
 1. **Selecionar pack** lê a pasta e persiste manifests, presets e aliases no armazenamento do navegador.
-2. **Enviar ao Owlbear** usa `OBR.assets.uploadImages` para copiar os arquivos canônicos para a biblioteca privada do usuário.
-3. **Vincular assets** usa `OBR.assets.downloadImages(true, ...)`; o usuário seleciona os assets e a extensão persiste o mapa `assetId → ImageContent` retornado pelo Owlbear.
-4. Bibliotecas, criação de cenas no Atlas e o reparo de cenas antigas passam a resolver IDs e aliases para essas URLs do Owlbear.
+2. **Upload opcional** usa `OBR.assets.uploadImages` para copiar os arquivos canônicos para a biblioteca privada do usuário.
+3. **Vincular manualmente** usa `OBR.assets.downloadImages(true, ...)`; o usuário seleciona os assets desejados e a extensão persiste o mapa `assetId → ImageContent` retornado pelo Owlbear.
+4. Bibliotecas e cenas usam somente os vínculos já disponíveis; uma operação sem o binding necessário é recusada antes de alterar a cena.
 
-O SDK `3.1.0` retorna `Promise<void>` em `uploadImages`: o upload não informa o ID/URL criado. Por isso, envio e vínculo são duas ações separadas. O vínculo persiste no `localStorage` da origem da extensão; outro navegador, perfil ou origem precisa selecionar os assets novamente. Os binários permanecem na conta do usuário no Owlbear mesmo se a configuração local do pack for removida.
+O SDK `3.1.0` não expõe uma API pública para obter programaticamente os URLs dos assets privados recém-enviados. O vínculo depende da seleção pelo usuário no Owlbear e persiste no `localStorage` da origem da extensão. Não é necessário vincular o pack inteiro.
 
 Para gerar um pack a partir de uma árvore privada compatível com o layout histórico, use um destino fora deste repositório:
 
@@ -106,7 +106,7 @@ O gerador canônico copia os bytes originais, calcula SHA-256 e não recomprime 
 
 O cache busting é manual. Alterações em JavaScript, HTML, CSS, manifesto ou background precisam seguir as regras de versão e cache descritas em [PROJECT_RULES.md](PROJECT_RULES.md). Não incremente versão ou parâmetros de cache em uma alteração exclusivamente documental.
 
-Na preparação final da versão `1.0.0`, o valor público adotado foi `v=102`. O mesmo valor invalida manifesto, entradas HTML, bundles, carregamento alternativo do SDK, estilos, ícones e URLs públicas montadas pelo background. Não altere caminhos ou IDs ao incrementar esse parâmetro em versões futuras.
+Na preparação final da versão `1.0.0`, o valor público adotado foi `v=103`. O mesmo valor invalida manifesto, entradas HTML, bundles, carregamento alternativo do SDK, estilos, ícones e URLs públicas montadas pelo background. Não altere caminhos ou IDs ao incrementar esse parâmetro em versões futuras.
 
 Antes de uma publicação futura, confirme que:
 
@@ -128,7 +128,7 @@ Quando houver uma etapa de publicação autorizada, a configuração documentada
 - O Owlbear SDK não oferece transação distribuída completa entre itens e metadados. Filas e locks locais reduzem corridas, mas não eliminam todas as janelas entre contas.
 - O GitHub Pages é estático e não grava novos arquivos em runtime.
 - O Core não hospeda presets nem imagens privadas; sem pack, as bibliotecas e os mapas pessoais ficam vazios, mas a extensão continua carregando.
-- URLs do Owlbear são obtidas exclusivamente pela seleção do usuário na API de assets e são persistidas por origem do navegador.
+- URLs privadas do Owlbear são obtidas exclusivamente pela seleção manual do usuário e são persistidas por origem do navegador.
 - O painel e o background rodam em contextos separados.
 - A diferença intencional entre a versão pública e a pasta local está registrada em [PROJECT_RULES.md](PROJECT_RULES.md).
 

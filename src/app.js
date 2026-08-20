@@ -51,13 +51,11 @@ import {
 } from "./selection-board.js";
 import {
   clearPrivateAssetPack,
-  collectPrivateAssetIds,
   getPrivateAssetPackStatus,
   resolveAssetReferences,
 } from "./asset-resolver.js";
 import {
   configurePrivateAssetPack,
-  ensurePrivateAssetsLinked,
   linkPrivateAssetPackFromOwlbear,
   readPrivateAssetPackFiles,
   uploadPrivateAssetPack,
@@ -179,40 +177,26 @@ function updatePrivatePackControls(isConnected = Boolean(obr)) {
   }
 
   elements.privatePackInfo.textContent =
-    `${status.name || status.id}: ${status.total} assets, ${formatRuntimeSize(status.runtimeSize)} runtime; ` +
-    `${status.linked} de ${status.total} assets vinculados. O vínculo restante acontece sob demanda.`;
+    `${status.name || status.id}: ${status.total} assets disponíveis, ` +
+    `${formatRuntimeSize(status.runtimeSize)}; ${status.linked} assets vinculados neste navegador.`;
 }
 
-function formatPrivateAssetList(assets) {
-  return assets.map(({ name, assetId }) => `${name} [${assetId}]`).join(", ");
+function formatPrivateAssetIds(assetIds) {
+  return assetIds.join(", ");
 }
 
-async function ensurePrivateDependencies(value, actionLabel) {
-  const assetIds = collectPrivateAssetIds(value);
-  const result = await ensurePrivateAssetsLinked(assetIds, {
-    OBR: obr,
-    onMissing(missingAssets) {
-      const count = missingAssets.length;
-      setMessage(
-        `Faltam ${count} ${count === 1 ? "asset" : "assets"} para ${actionLabel}. ` +
-          `Selecione-${count === 1 ? "o" : "os"} no Owlbear e confirme: ` +
-          formatPrivateAssetList(missingAssets),
-        "warning",
-      );
-    },
-  });
-  updatePrivatePackControls(Boolean(obr));
-
-  if (result.missing.length) {
-    const count = result.missing.length;
+function requirePrivateDependencies(value, actionLabel) {
+  const resolution = resolveAssetReferences(value);
+  if (resolution.unresolved) {
+    const count = resolution.unresolved;
     throw new Error(
-      `Faltam ${count} ${count === 1 ? "asset" : "assets"} para ${actionLabel}. ` +
-        `Selecione-${count === 1 ? "o" : "os"} no Owlbear e confirme: ` +
-        formatPrivateAssetList(result.missingAssets),
+      `Não é possível ${actionLabel}: ${count} ${count === 1 ? "asset privado necessário não está acessível" : "assets privados necessários não estão acessíveis"} ` +
+        `como vínculo no Owlbear. Use “Vincular manualmente” e selecione ${count === 1 ? "este asset" : "estes assets"}: ` +
+        formatPrivateAssetIds(resolution.unresolvedIds),
     );
   }
 
-  return result;
+  return resolution;
 }
 
 async function showNotification(text, tone) {
@@ -421,22 +405,31 @@ function updateDefaultBoardControls(isConnected = Boolean(obr)) {
     return;
   }
 
-  const parts = scenePresetEntries.map(({ definition, preset, ready, summary }) => {
-    const details = preset || summary;
-    const displayName = definition.label || definition.name;
-    if (!details) {
-      return `${displayName}: não cadastrado`;
-    }
-    if (!ready) {
-      return `${displayName}: aguardando vínculo dos assets privados`;
-    }
+  const parts = scenePresetEntries.map(
+    ({ definition, preset, ready, summary, unresolvedAssetIds }) => {
+      const details = preset || summary;
+      const displayName = definition.label || definition.name;
+      if (!details) {
+        return `${displayName}: não cadastrado`;
+      }
+      if (!ready) {
+        const count = unresolvedAssetIds?.length || 0;
+        return (
+          `${displayName}: criação automática indisponível; ${count} ` +
+          `${count === 1 ? "asset precisa" : "assets precisam"} ser ` +
+          `vinculado${count === 1 ? "" : "s"} manualmente no Owlbear`
+        );
+      }
 
-    const itemLabel = details.itemCount === 1 ? "1 item" : `${details.itemCount} itens`;
-    const environment = details.grid || details.fog ? "grid/fog capturados" : "grid/fog legado";
-    return `${displayName}: ${itemLabel}, salvo em ${formatPresetDate(details.savedAt)}, ${environment}`;
-  });
+      const itemLabel = details.itemCount === 1 ? "1 item" : `${details.itemCount} itens`;
+      const environment = details.grid || details.fog ? "grid/fog capturados" : "grid/fog legado";
+      return `${displayName}: ${itemLabel}, salvo em ${formatPresetDate(details.savedAt)}, ${environment}`;
+    },
+  );
 
-  elements.defaultBoardInfo.textContent = parts.join(" | ");
+  elements.defaultBoardInfo.textContent =
+    "A criação automática depende de todos os assets da cena estarem acessíveis pelo Owlbear. " +
+    parts.join(" | ");
 }
 
 async function refreshDefaultBoardInfo() {
@@ -925,7 +918,7 @@ async function createSceneFromPrivatePreset(presetId) {
   setMessage("Montando a nova cena com os assets vinculados...", "neutral");
   try {
     const displayName = entry.definition.label || entry.definition.name;
-    await ensurePrivateDependencies(entry.preset, `criar ${displayName}`);
+    requirePrivateDependencies(entry.preset, `criar ${displayName}`);
     const result = await createPrivateScene(obr, buildSceneUpload, entry.preset);
     const fallback = result.usedCapturedGrid && result.usedCapturedFog
       ? ""
@@ -1212,7 +1205,7 @@ async function configureSelectedPrivatePack(files) {
     setMessage(
       missingFiles
         ? `Pack configurado, mas ${missingFiles} arquivos canônicos não estavam na pasta selecionada.`
-        : "Pack configurado. Envie os assets ao Owlbear; cada função pedirá somente os vínculos necessários.",
+        : "Pack configurado. O upload e o vínculo manual no Owlbear são recursos opcionais.",
       missingFiles ? "warning" : "success",
     );
   } finally {
@@ -1266,7 +1259,7 @@ async function uploadSelectedPrivatePack() {
       },
     );
     setMessage(
-      `${result.uploaded} assets enviados ao Owlbear. Os vínculos serão solicitados sob demanda.`,
+      `${result.uploaded} assets enviados ao Owlbear. Para usar um asset privado, vincule-o manualmente quando desejar.`,
       result.missingFiles ? "warning" : "success",
     );
   } finally {
@@ -1293,7 +1286,7 @@ async function linkConfiguredPrivatePack() {
       : "";
     setMessage(
       result.linked
-        ? `${result.linked} assets reconhecidos nesta seleção incremental; ${packStatus.linked} vinculados no total e ${packStatus.missing} faltantes. ` +
+        ? `${result.linked} assets reconhecidos nesta seleção; ${packStatus.linked} vinculados neste navegador. ` +
           `${result.unmatched.length} selecionados não corresponderam ao pack.${suffix}`
         : `Nenhum dos ${result.selected} assets selecionados correspondeu ao manifesto; os ${packStatus.linked} vínculos anteriores foram preservados.`,
       result.linked ? (result.unmatched.length ? "warning" : "success") : "warning",
@@ -1443,7 +1436,7 @@ async function createPresetDeck() {
   setMessage("Criando pilha da biblioteca...", "neutral");
 
   try {
-    await ensurePrivateDependencies(deck, `criar a pilha "${deck.name}"`);
+    requirePrivateDependencies(deck, `criar a pilha "${deck.name}"`);
     const deckData = await buildPresetDeckData(deck);
     const gridWidth = getPresetDeckGridWidth();
     await addDeckToScene({
@@ -1483,7 +1476,7 @@ async function createPresetCard() {
 
   try {
     const back = card.back?.assetId || card.back?.path ? card.back : group.back;
-    await ensurePrivateDependencies(
+    requirePrivateDependencies(
       { front: card.front, back },
       `criar a carta "${card.name}"`,
     );
@@ -1681,7 +1674,7 @@ async function init() {
   try {
     loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=102").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=103").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
   } catch (error) {
