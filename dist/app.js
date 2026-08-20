@@ -2819,9 +2819,17 @@ async function flipSelectedItems(OBR, fallbackSelection = []) {
 const PRIVATE_ASSET_STATE_VERSION = 1;
 
 const PRIVATE_ASSET_PACK_FORMAT = "double-sided-cards-private-asset-pack";
-const PRIVATE_ASSET_PACK_VERSION = 1;
+const PRIVATE_ASSET_PACK_VERSION = 2;
+const PRIVATE_ASSET_PACK_SUPPORTED_VERSIONS = Object.freeze([1, 2]);
 const PRIVATE_ASSET_STORAGE_KEY =
   "br.demonrider.double-sided-cards/private-asset-pack";
+const PRIVATE_ASSET_MAX_FILE_SIZE = 25_000_000;
+const PRIVATE_ASSET_UPLOAD_FORMATS = Object.freeze({
+  ".jpeg": "image/jpeg",
+  ".jpg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp",
+});
 
 let cachedStorage = null;
 let cachedRawState = undefined;
@@ -2846,6 +2854,13 @@ function getDefaultStorage() {
 
 function normalizeSlashes(value) {
   return String(value || "").replaceAll("\\", "/");
+}
+
+function getPrivateAssetUploadMime(value) {
+  const fileName = normalizeSlashes(value).split("/").filter(Boolean).pop() || "";
+  const extensionIndex = fileName.lastIndexOf(".");
+  const extension = extensionIndex >= 0 ? fileName.slice(extensionIndex).toLowerCase() : "";
+  return PRIVATE_ASSET_UPLOAD_FORMATS[extension] || null;
 }
 
 function safeDecode(value) {
@@ -2952,11 +2967,23 @@ function assertSafeRelativePath(value, label) {
   return normalized;
 }
 
+function normalizeSha256(value, label) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!/^sha256:[0-9a-f]{64}$/.test(normalized)) {
+    throw new Error(`${label} precisa ser um SHA-256 no formato sha256:<hex>.`);
+  }
+  return normalized;
+}
+
+function isSupportedPrivateAssetPackVersion(version) {
+  return PRIVATE_ASSET_PACK_SUPPORTED_VERSIONS.includes(version);
+}
+
 function validatePrivateAssetPack(value) {
   if (
     !isRecord$2(value) ||
     value.format !== PRIVATE_ASSET_PACK_FORMAT ||
-    value.version !== PRIVATE_ASSET_PACK_VERSION ||
+    !isSupportedPrivateAssetPackVersion(value.version) ||
     typeof value.id !== "string" ||
     !value.id.trim() ||
     !isRecord$2(value.assets) ||
@@ -2966,16 +2993,57 @@ function validatePrivateAssetPack(value) {
     throw new Error("O Private Asset Pack possui uma estrutura inválida.");
   }
 
+  const sourceFormatVersion = value.version;
   const pack = clone$1(value);
+  pack.version = PRIVATE_ASSET_PACK_VERSION;
+  pack.sourceFormatVersion = sourceFormatVersion;
   for (const [assetId, asset] of Object.entries(pack.assets)) {
     if (!assetId || !isRecord$2(asset)) {
       throw new Error("O Private Asset Pack possui um asset canônico inválido.");
     }
     asset.file = assertSafeRelativePath(asset.file, `O asset ${assetId}`);
+    const logicalSha256 = normalizeSha256(assetId, `O asset lógico ${assetId}`);
+    asset.blobSha256 = normalizeSha256(
+      sourceFormatVersion === 1 ? asset.blobSha256 || logicalSha256 : asset.blobSha256,
+      `O hash físico do asset ${assetId}`,
+    );
+    const expectedMime = getPrivateAssetUploadMime(asset.file);
+    if (!expectedMime) {
+      throw new Error(
+        `O asset ${assetId} usa um formato não suportado para upload no Owlbear: ${asset.file}.`,
+      );
+    }
+    const declaredMime =
+      typeof asset.mime === "string" ? asset.mime.trim().toLowerCase() : "";
+    if (declaredMime !== expectedMime) {
+      throw new Error(
+        `O asset ${assetId} possui MIME incompatível: ${declaredMime || "não informado"}; esperado ${expectedMime}.`,
+      );
+    }
+    asset.mime = expectedMime;
+    if (
+      !Number.isFinite(asset.size) ||
+      asset.size <= 0 ||
+      asset.size > PRIVATE_ASSET_MAX_FILE_SIZE
+    ) {
+      throw new Error(
+        `O asset ${assetId} possui tamanho incompatível com o plano Fledgling: ${asset.size || 0} bytes; máximo ${PRIVATE_ASSET_MAX_FILE_SIZE} bytes.`,
+      );
+    }
     if (typeof asset.owlbearName !== "string" || !asset.owlbearName.trim()) {
       throw new Error(`O asset ${assetId} não possui nome para o Owlbear.`);
     }
+    if (
+      !Number.isInteger(asset.width) ||
+      asset.width <= 0 ||
+      !Number.isInteger(asset.height) ||
+      asset.height <= 0
+    ) {
+      throw new Error(`O asset ${assetId} não possui dimensões válidas.`);
+    }
   }
+
+  pack.runtimeSize = Object.values(pack.assets).reduce((total, asset) => total + asset.size, 0);
 
   for (const [alias, assetId] of Object.entries(pack.aliases)) {
     if (!alias || typeof assetId !== "string" || !pack.assets[assetId]) {
@@ -3301,6 +3369,7 @@ function getPrivateAssetPackStatus(storage = getDefaultStorage()) {
     configured: Boolean(state),
     id: state?.pack.id || "",
     name: state?.pack.name || "",
+    runtimeSize: state?.pack.runtimeSize || 0,
     total,
     linked,
     missing: Math.max(0, total - linked),
@@ -3625,9 +3694,8 @@ async function buildPresetCardData(group, card) {
 }
 
 const PRESET_VERSION = 1;
-const ITEM_CHUNK_SIZE = 80;
-const RESTORE_MARKER_VERSION = 1;
 const SCENE_RESTORE_MARKER_KEY = `${EXTENSION_ID}/scene-restore`;
+const SCENE_BOOTSTRAP_MARKER_KEY = `${EXTENSION_ID}/scene-bootstrap`;
 const SCENE_PRESETS = [
   {
     id: "tutorial",
@@ -3641,14 +3709,6 @@ const SCENE_PRESETS = [
     restoreLabel: "Restaurar a Missão 0.5 (não oficial)",
   },
 ];
-const READONLY_UPDATE_KEYS = new Set([
-  "id",
-  "type",
-  "createdUserId",
-  "lastModified",
-  "lastModifiedUserId",
-]);
-let activeRestorePromise = null;
 
 class SceneRestoreError extends Error {
   constructor(
@@ -3670,60 +3730,6 @@ function isRecord$1(value) {
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
-}
-
-function chunk(values, size = ITEM_CHUNK_SIZE) {
-  const chunks = [];
-
-  for (let index = 0; index < values.length; index += size) {
-    chunks.push(values.slice(index, index + size));
-  }
-
-  return chunks;
-}
-
-function valuesEqual(left, right) {
-  if (Object.is(left, right)) {
-    return true;
-  }
-
-  if (Array.isArray(left) || Array.isArray(right)) {
-    return (
-      Array.isArray(left) &&
-      Array.isArray(right) &&
-      left.length === right.length &&
-      left.every((value, index) => valuesEqual(value, right[index]))
-    );
-  }
-
-  if (!isRecord$1(left) || !isRecord$1(right)) {
-    return false;
-  }
-
-  const leftKeys = Object.keys(left).sort();
-  const rightKeys = Object.keys(right).sort();
-  return (
-    leftKeys.length === rightKeys.length &&
-    leftKeys.every(
-      (key, index) => key === rightKeys[index] && valuesEqual(left[key], right[key]),
-    )
-  );
-}
-
-function getRestorableItemState(item) {
-  return Object.fromEntries(
-    Object.entries(item).filter(([key]) => !READONLY_UPDATE_KEYS.has(key)),
-  );
-}
-
-function itemMatchesTarget(item, target) {
-  return Boolean(
-    item &&
-      target &&
-      item.id === target.id &&
-      item.type === target.type &&
-      valuesEqual(getRestorableItemState(item), getRestorableItemState(target)),
-  );
 }
 
 function assertSerializable(value, path = "preset", ancestors = new Set()) {
@@ -3863,6 +3869,46 @@ function validatePresetBoardIntegrity(preset, itemIds) {
   }
 }
 
+function validateOptionalSceneEnvironment(value) {
+  if (value.grid !== undefined) {
+    const grid = value.grid;
+    if (
+      !isRecord$1(grid) ||
+      !Number.isFinite(grid.dpi) ||
+      grid.dpi <= 0 ||
+      typeof grid.scale !== "string" ||
+      !grid.scale.trim() ||
+      typeof grid.color !== "string" ||
+      !grid.color.trim() ||
+      !Number.isFinite(grid.opacity) ||
+      grid.opacity < 0 ||
+      grid.opacity > 1 ||
+      !new Set(["SOLID", "DASHED", "DOTTED"]).has(grid.lineType) ||
+      !new Set(["CHEBYSHEV", "ALTERNATING", "EUCLIDEAN", "MANHATTAN"]).has(
+        grid.measurement,
+      ) ||
+      !new Set(["SQUARE", "HEX_VERTICAL", "HEX_HORIZONTAL", "DIMETRIC", "ISOMETRIC"]).has(
+        grid.type,
+      )
+    ) {
+      throw new Error("O grid capturado do mapa é inválido.");
+    }
+  }
+  if (value.fog !== undefined) {
+    const fog = value.fog;
+    if (
+      !isRecord$1(fog) ||
+      typeof fog.filled !== "boolean" ||
+      typeof fog.color !== "string" ||
+      !fog.color.trim() ||
+      !Number.isFinite(fog.strokeWidth) ||
+      fog.strokeWidth < 0
+    ) {
+      throw new Error("A fog capturada do mapa é inválida.");
+    }
+  }
+}
+
 function validateCardAndDeckMetadata(item) {
   for (const [key, value] of Object.entries(item.metadata || {})) {
     const isCardOrDeck =
@@ -3946,6 +3992,7 @@ function validateScenePreset(
   }
 
   try {
+    validateOptionalSceneEnvironment(value);
     validatePresetBoardIntegrity(value, ids);
     if (publicMode) {
       validatePublicReferences(value);
@@ -3971,7 +4018,12 @@ function getScenePresetDefinition(presetId) {
   return definition;
 }
 
-function createDefaultBoardPreset(items, metadata, definition = SCENE_PRESETS[0]) {
+function createDefaultBoardPreset(
+  items,
+  metadata,
+  definition = SCENE_PRESETS[0],
+  environment = {},
+) {
   const presetMetadata = clone(metadata || {});
   delete presetMetadata[SCENE_RESTORE_MARKER_KEY];
 
@@ -3983,49 +4035,131 @@ function createDefaultBoardPreset(items, metadata, definition = SCENE_PRESETS[0]
     itemCount: items.length,
     items: clone(items),
     metadata: presetMetadata,
+    ...(environment.grid ? { grid: clone(environment.grid) } : {}),
+    ...(environment.fog ? { fog: clone(environment.fog) } : {}),
   };
 }
 
-function restoreItemState(item, presetItem) {
-  for (const key of Object.keys(item)) {
-    if (!READONLY_UPDATE_KEYS.has(key) && !(key in presetItem)) {
-      delete item[key];
-    }
+async function captureApiGroup(entries) {
+  if (entries.some(([, method]) => typeof method !== "function")) {
+    return null;
   }
-
-  for (const [key, value] of Object.entries(presetItem)) {
-    if (!READONLY_UPDATE_KEYS.has(key)) {
-      item[key] = clone(value);
-    }
+  try {
+    const values = await Promise.all(entries.map(([, method]) => method()));
+    return Object.fromEntries(entries.map(([key], index) => [key, values[index]]));
+  } catch (error) {
+    console.warn("[scene-preset] Não foi possível capturar parte de grid/fog.", error);
+    return null;
   }
 }
 
-async function loadScenePreset(
-  definition,
-  pack = getConfiguredPrivateAssetPack(),
-) {
-  const entry = pack?.presets?.scenes?.[definition.id];
-  if (!entry?.preset) {
-    return null;
-  }
+async function captureSceneEnvironment(OBR) {
+  const [gridValues, fog] = await Promise.all([
+    captureApiGroup([
+      ["dpi", OBR?.scene?.grid?.getDpi?.bind(OBR.scene.grid)],
+      ["scale", OBR?.scene?.grid?.getScale?.bind(OBR.scene.grid)],
+      ["color", OBR?.scene?.grid?.getColor?.bind(OBR.scene.grid)],
+      ["opacity", OBR?.scene?.grid?.getOpacity?.bind(OBR.scene.grid)],
+      ["lineType", OBR?.scene?.grid?.getLineType?.bind(OBR.scene.grid)],
+      ["measurement", OBR?.scene?.grid?.getMeasurement?.bind(OBR.scene.grid)],
+      ["type", OBR?.scene?.grid?.getType?.bind(OBR.scene.grid)],
+    ]),
+    captureApiGroup([
+      ["filled", OBR?.scene?.fog?.getFilled?.bind(OBR.scene.fog)],
+      ["color", OBR?.scene?.fog?.getColor?.bind(OBR.scene.fog)],
+      ["strokeWidth", OBR?.scene?.fog?.getStrokeWidth?.bind(OBR.scene.fog)],
+    ]),
+  ]);
+  const grid = gridValues
+    ? {
+        ...gridValues,
+        scale:
+          typeof gridValues.scale === "string"
+            ? gridValues.scale
+            : gridValues.scale?.raw,
+      }
+    : null;
+  return {
+    ...(grid && typeof grid.scale === "string" ? { grid } : {}),
+    ...(fog ? { fog } : {}),
+  };
+}
 
-  try {
-    const resolution = resolveAssetReferences(entry.preset);
-    if (resolution.unresolved) {
-      throw new Error(
-        `${resolution.unresolved} assets do mapa ainda não foram vinculados ao Owlbear.`,
-      );
-    }
-    const normalized = {
-      ...resolution.value,
-      id: resolution.value.id || definition.id,
-      name: resolution.value.name || definition.name,
-    };
-    return validateScenePreset(normalized);
-  } catch (error) {
-    console.error(`[scene-preset] Preset invalido em ${definition.id}.`, error);
-    return null;
+function addSceneBootstrapMarker(items, metadata) {
+  const selectionBoard = metadata?.[SELECTION_BOARD_KEY];
+  if (!selectionBoard || !items.length) {
+    return items;
   }
+  const markedItems = clone(items);
+  markedItems[0].metadata = {
+    ...(markedItems[0].metadata || {}),
+    [SCENE_BOOTSTRAP_MARKER_KEY]: {
+      version: 1,
+      completed: false,
+      selectionBoard: clone(selectionBoard),
+    },
+  };
+  return markedItems;
+}
+
+function applySceneEnvironment(builder, preset) {
+  const grid = preset.grid;
+  const fog = preset.fog;
+  if (grid) {
+    if (typeof grid.scale === "string") builder.gridScale(grid.scale);
+    if (typeof grid.color === "string") builder.gridColor(grid.color);
+    if (Number.isFinite(grid.opacity)) builder.gridOpacity(grid.opacity);
+    if (typeof grid.lineType === "string") builder.gridLineType(grid.lineType);
+    if (typeof grid.measurement === "string") builder.gridMeasurement(grid.measurement);
+    if (typeof grid.type === "string") builder.gridType(grid.type);
+  }
+  if (fog) {
+    if (typeof fog.filled === "boolean") builder.fogFilled(fog.filled);
+    if (typeof fog.color === "string") builder.fogColor(fog.color);
+    if (Number.isFinite(fog.strokeWidth)) builder.fogStrokeWidth(fog.strokeWidth);
+  }
+  const upload = builder.build();
+  if (grid && Number.isFinite(grid.dpi) && grid.dpi > 0) {
+    // O SDK 3.1.0 tipa SceneUpload.grid.dpi, mas o builder não expõe um setter para DPI.
+    upload.grid.dpi = grid.dpi;
+  }
+  return upload;
+}
+
+function buildPrivateSceneUpload(buildSceneUpload, preset, options = {}) {
+  if (typeof buildSceneUpload !== "function") {
+    throw new Error("O construtor de SceneUpload do Owlbear não está disponível.");
+  }
+  const resolution = resolveAssetReferences(preset, options);
+  if (resolution.unresolved) {
+    const error = new Error(
+      `A cena não pode ser criada: faltam ${resolution.unresolved} assets vinculados ao Owlbear.`,
+    );
+    error.name = "MissingPrivateAssetBindingsError";
+    error.missingBindings = resolution.unresolved;
+    error.missingAssetIds = resolution.unresolvedIds;
+    throw error;
+  }
+  const normalized = validateScenePreset(resolution.value, { publicMode: true });
+  const items = addSceneBootstrapMarker(normalized.items, normalized.metadata);
+  const builder = buildSceneUpload().name(normalized.name).items(items);
+  const upload = applySceneEnvironment(builder, normalized);
+  return {
+    upload,
+    itemCount: items.length,
+    idsPreserved: items.every((item, index) => item.id === normalized.items[index].id),
+    usedCapturedGrid: Boolean(normalized.grid),
+    usedCapturedFog: Boolean(normalized.fog),
+  };
+}
+
+async function createPrivateScene(OBR, buildSceneUpload, preset, options = {}) {
+  if (!OBR?.assets?.uploadScenes) {
+    throw new Error("A API de criação de cenas do Owlbear não está disponível.");
+  }
+  const result = buildPrivateSceneUpload(buildSceneUpload, preset, options);
+  await OBR.assets.uploadScenes([result.upload]);
+  return result;
 }
 
 async function loadScenePresetEntries(pack = getConfiguredPrivateAssetPack()) {
@@ -4057,18 +4191,19 @@ async function loadScenePresetEntries(pack = getConfiguredPrivateAssetPack()) {
             itemCount: summary.itemCount,
           }
         : null,
-      preset: null,
+      preset: entry?.preset || null,
     };
   });
 }
 
 async function saveScenePreset(OBR, presetId) {
   const definition = getScenePresetDefinition(presetId);
-  const [items, metadata] = await Promise.all([
+  const [items, metadata, environment] = await Promise.all([
     OBR.scene.items.getItems(),
     OBR.scene.getMetadata(),
+    captureSceneEnvironment(OBR),
   ]);
-  const preset = createDefaultBoardPreset(items, metadata, definition);
+  const preset = createDefaultBoardPreset(items, metadata, definition, environment);
   const response = await fetch(`./__scene_preset?id=${encodeURIComponent(definition.id)}`, {
     method: "POST",
     headers: {
@@ -4086,1146 +4221,7 @@ async function saveScenePreset(OBR, presetId) {
   return response.json();
 }
 
-function createOperationToken() {
-  if (globalThis.crypto?.randomUUID) {
-    return globalThis.crypto.randomUUID();
-  }
-
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function isRestoreMarker(value) {
-  return Boolean(
-    isRecord$1(value) &&
-      value.version === RESTORE_MARKER_VERSION &&
-      typeof value.token === "string" &&
-      value.token &&
-      typeof value.playerId === "string" &&
-      value.playerId &&
-      typeof value.presetId === "string" &&
-      value.presetId &&
-      typeof value.startedAt === "string" &&
-      value.startedAt,
-  );
-}
-
-async function getRestoreIdentity(OBR) {
-  const [playerId, connectionId] = await Promise.all([
-    OBR.player.getId(),
-    OBR.player.getConnectionId().catch(() => ""),
-  ]);
-
-  if (!playerId) {
-    throw new SceneRestoreError("Não consegui identificar o jogador atual.", {
-      code: "PLAYER_UNAVAILABLE",
-      stage: "marker",
-    });
-  }
-
-  return { playerId, connectionId: connectionId || "" };
-}
-
-async function classifyExistingMarker(OBR, marker, { includeLocalLock = true } = {}) {
-  if (!marker) {
-    return includeLocalLock && activeRestorePromise
-      ? { state: "local", marker: null }
-      : { state: "free", marker: null };
-  }
-
-  if (!isRestoreMarker(marker)) {
-    return { state: "orphan", marker };
-  }
-
-  const identity = await getRestoreIdentity(OBR);
-  if (
-    marker.playerId === identity.playerId &&
-    marker.connectionId === identity.connectionId
-  ) {
-    return includeLocalLock && activeRestorePromise
-      ? { state: "active", marker, owner: "current" }
-      : { state: "orphan", marker, owner: "current" };
-  }
-
-  let players;
-  try {
-    players = await OBR.party.getPlayers();
-  } catch (error) {
-    console.error("[scene-preset] Falha ao verificar o proprietario do marcador.", error);
-    return { state: "active", marker, owner: "unknown" };
-  }
-
-  const ownerIsConnected = players.some(
-    (player) =>
-      player.id === marker.playerId &&
-      (!marker.connectionId || player.connectionId === marker.connectionId),
-  );
-  return ownerIsConnected
-    ? { state: "active", marker, owner: "party" }
-    : { state: "orphan", marker };
-}
-
-async function getSceneRestoreStatus(OBR) {
-  if (activeRestorePromise) {
-    return { state: "local", marker: null };
-  }
-
-  const metadata = await OBR.scene.getMetadata();
-  return classifyExistingMarker(OBR, metadata[SCENE_RESTORE_MARKER_KEY]);
-}
-
-async function acquireRestoreMarker(OBR, operation, allowOrphanRecovery) {
-  const metadata = await OBR.scene.getMetadata();
-  const existing = metadata[SCENE_RESTORE_MARKER_KEY];
-  const status = await classifyExistingMarker(OBR, existing, { includeLocalLock: false });
-
-  if (status.state === "active") {
-    throw new SceneRestoreError("Já existe uma restauração em andamento nesta cena.", {
-      code: "RESTORE_ACTIVE",
-      stage: "marker",
-    });
-  }
-  if (status.state === "orphan" && !allowOrphanRecovery) {
-    throw new SceneRestoreError(
-      "Existe uma restauração interrompida. Confirme a recuperação antes de continuar.",
-      {
-        code: "ORPHAN_RESTORE",
-        stage: "marker",
-      },
-    );
-  }
-
-  const marker = {
-    version: RESTORE_MARKER_VERSION,
-    token: operation.token,
-    playerId: operation.playerId,
-    connectionId: operation.connectionId,
-    presetId: operation.presetId,
-    startedAt: operation.startedAt,
-    phase: "preparing",
-  };
-
-  await OBR.scene.setMetadata({
-    [SCENE_RESTORE_MARKER_KEY]: marker,
-  });
-  const observed = (await OBR.scene.getMetadata())[SCENE_RESTORE_MARKER_KEY];
-  if (!isRestoreMarker(observed) || observed.token !== operation.token) {
-    throw new SceneRestoreError("Outra restauração assumiu a cena.", {
-      code: "RESTORE_CONFLICT",
-      stage: "marker",
-    });
-  }
-
-  operation.phase = marker.phase;
-}
-
-async function requireRestoreOwnership(OBR, operation) {
-  const marker = (await OBR.scene.getMetadata())[SCENE_RESTORE_MARKER_KEY];
-  if (!isRestoreMarker(marker) || marker.token !== operation.token) {
-    throw new SceneRestoreError("A restauração perdeu o controle da cena.", {
-      code: "RESTORE_MARKER_LOST",
-      stage: operation.phase,
-      partial: true,
-    });
-  }
-  return marker;
-}
-
-async function setRestorePhase(OBR, operation, phase) {
-  const marker = await requireRestoreOwnership(OBR, operation);
-  await OBR.scene.setMetadata({
-    [SCENE_RESTORE_MARKER_KEY]: {
-      ...marker,
-      phase,
-    },
-  });
-  operation.phase = phase;
-  const observed = await requireRestoreOwnership(OBR, operation);
-  if (observed.phase !== phase) {
-    throw new SceneRestoreError("Não consegui confirmar a fase da restauração.", {
-      code: "RESTORE_MARKER_UPDATE_FAILED",
-      stage: phase,
-      partial: true,
-    });
-  }
-}
-
-async function releaseRestoreMarker(OBR, operation) {
-  const marker = (await OBR.scene.getMetadata())[SCENE_RESTORE_MARKER_KEY];
-  if (!isRestoreMarker(marker) || marker.token !== operation.token) {
-    return false;
-  }
-
-  await OBR.scene.setMetadata({
-    [SCENE_RESTORE_MARKER_KEY]: null,
-  });
-  const observed = (await OBR.scene.getMetadata())[SCENE_RESTORE_MARKER_KEY];
-  return !observed;
-}
-
-function createRestorationPlan(preset, currentItems, currentMetadata) {
-  try {
-    assertSerializable(currentItems, "itens atuais");
-    assertSerializable(currentMetadata, "metadata atual");
-  } catch (error) {
-    throw stageError(
-      "A cena atual possui dados que não podem ser restaurados com segurança.",
-      "INVALID_CURRENT_SCENE",
-      "planning",
-      error,
-      false,
-    );
-  }
-
-  const targetItems = clone(preset.items);
-  const currentItemCopies = clone(currentItems);
-  const currentIds = new Set();
-  for (const item of currentItemCopies) {
-    if (!item?.id || currentIds.has(item.id)) {
-      throw stageError(
-        "A cena atual possui IDs ausentes ou duplicados.",
-        "INVALID_CURRENT_SCENE",
-        "planning",
-        null,
-        false,
-      );
-    }
-    currentIds.add(item.id);
-  }
-
-  const targetById = new Map(targetItems.map((item) => [item.id, item]));
-  const currentById = new Map(currentItemCopies.map((item) => [item.id, item]));
-  const updates = [];
-  const additions = [];
-  const replacements = [];
-  const deletions = [];
-
-  for (const target of targetItems) {
-    const current = currentById.get(target.id);
-    if (!current) {
-      additions.push(target);
-    } else if (current.type !== target.type) {
-      replacements.push({ before: current, target });
-    } else if (!itemMatchesTarget(current, target)) {
-      updates.push({ before: current, target });
-    }
-  }
-
-  for (const current of currentItemCopies) {
-    if (!targetById.has(current.id)) {
-      deletions.push(current);
-    }
-  }
-
-  const targetMetadata = clone(preset.metadata);
-  const metadataBefore = {};
-  for (const key of Object.keys(targetMetadata)) {
-    metadataBefore[key] = {
-      exists: Object.prototype.hasOwnProperty.call(currentMetadata, key),
-      value: Object.prototype.hasOwnProperty.call(currentMetadata, key)
-        ? clone(currentMetadata[key])
-        : null,
-    };
-  }
-
-  const plan = {
-    presetId: preset.id,
-    targetItems,
-    targetMetadata,
-    updates,
-    additions,
-    replacements,
-    deletions,
-    metadataBefore,
-  };
-  assertSerializable(plan, "plano");
-  return plan;
-}
-
-function createJournal(plan) {
-  return {
-    added: [],
-    updated: [],
-    replacements: plan.replacements.map((entry) => ({
-      before: entry.before,
-      target: entry.target,
-      deleted: false,
-      added: false,
-    })),
-    deleted: [],
-    metadataKeys: [],
-  };
-}
-
-function journalHasMutations(journal) {
-  return Boolean(
-    journal.added.length ||
-      journal.updated.length ||
-      journal.replacements.some((entry) => entry.deleted || entry.added) ||
-      journal.deleted.length ||
-      journal.metadataKeys.length,
-  );
-}
-
-function recordById(values, value) {
-  const valueId = value.id || value.target?.id;
-  if (!valueId || !values.some((entry) => (entry.id || entry.target?.id) === valueId)) {
-    values.push(value);
-  }
-}
-
-async function getItemsByIds(OBR, ids) {
-  return ids.length ? OBR.scene.items.getItems(ids) : [];
-}
-
-function mapItems(items) {
-  return new Map(items.map((item) => [item.id, item]));
-}
-
-function stageError(message, code, stage, cause, partial = true) {
-  return new SceneRestoreError(message, {
-    code,
-    stage,
-    cause,
-    partial,
-  });
-}
-
-async function applyAdditions(OBR, operation, entries, journal) {
-  if (!entries.length) {
-    return;
-  }
-
-  await setRestorePhase(OBR, operation, "adding");
-  for (const targets of chunk(entries)) {
-    await requireRestoreOwnership(OBR, operation);
-    const before = mapItems(await getItemsByIds(OBR, targets.map((item) => item.id)));
-    const missing = [];
-
-    for (const target of targets) {
-      const current = before.get(target.id);
-      if (!current) {
-        missing.push(target);
-      } else if (!itemMatchesTarget(current, target)) {
-        throw stageError(
-          `O item ${target.id} apareceu com outro estado durante a restauração.`,
-          "ADD_CONFLICT",
-          "adding",
-          null,
-          journalHasMutations(journal),
-        );
-      }
-    }
-
-    if (!missing.length) {
-      continue;
-    }
-
-    let addError = null;
-    try {
-      await OBR.scene.items.addItems(clone(missing));
-    } catch (error) {
-      addError = error;
-      console.error("[scene-preset] Falha ao adicionar itens do mapa.", error);
-    }
-
-    let after;
-    try {
-      after = mapItems(await getItemsByIds(OBR, missing.map((item) => item.id)));
-    } catch (error) {
-      for (const target of missing) {
-        recordById(journal.added, target);
-      }
-      console.error("[scene-preset] Falha ao confirmar itens adicionados.", error);
-      throw stageError(
-        "Falha ao confirmar os itens adicionados.",
-        "ADD_OBSERVE_FAILED",
-        "adding",
-        error,
-      );
-    }
-    for (const target of missing) {
-      if (itemMatchesTarget(after.get(target.id), target)) {
-        recordById(journal.added, target);
-      }
-    }
-
-    if (addError) {
-      throw stageError(
-        "Falha ao adicionar itens do mapa.",
-        "ADD_FAILED",
-        "adding",
-        addError,
-      );
-    }
-    if (missing.some((target) => !itemMatchesTarget(after.get(target.id), target))) {
-      throw stageError(
-        "Nem todos os itens adicionados foram confirmados.",
-        "ADD_VERIFY_FAILED",
-        "adding",
-      );
-    }
-  }
-}
-
-async function applyUpdates(OBR, operation, entries, journal) {
-  if (!entries.length) {
-    return;
-  }
-
-  await setRestorePhase(OBR, operation, "updating");
-  for (const group of chunk(entries)) {
-    await requireRestoreOwnership(OBR, operation);
-    const ids = group.map((entry) => entry.target.id);
-    const currentItems = await getItemsByIds(OBR, ids);
-    const currentById = mapItems(currentItems);
-
-    for (const entry of group) {
-      if (!valuesEqual(currentById.get(entry.before.id), entry.before)) {
-        throw stageError(
-          `O item ${entry.before.id} mudou durante a restauração.`,
-          "UPDATE_CONFLICT",
-          "updating",
-          null,
-          journalHasMutations(journal),
-        );
-      }
-    }
-
-    let updateError = null;
-    try {
-      await OBR.scene.items.updateItems(currentItems, (draftItems) => {
-        for (const item of draftItems) {
-          const target = group.find((entry) => entry.target.id === item.id)?.target;
-          if (target) {
-            restoreItemState(item, target);
-          }
-        }
-      });
-    } catch (error) {
-      updateError = error;
-      console.error("[scene-preset] Falha ao atualizar itens do mapa.", error);
-    }
-
-    let after;
-    try {
-      after = mapItems(await getItemsByIds(OBR, ids));
-    } catch (error) {
-      for (const entry of group) {
-        recordById(journal.updated, entry);
-      }
-      console.error("[scene-preset] Falha ao confirmar itens atualizados.", error);
-      throw stageError(
-        "Falha ao confirmar os itens atualizados.",
-        "UPDATE_OBSERVE_FAILED",
-        "updating",
-        error,
-      );
-    }
-    for (const entry of group) {
-      if (itemMatchesTarget(after.get(entry.target.id), entry.target)) {
-        recordById(journal.updated, entry);
-      }
-    }
-
-    if (updateError) {
-      throw stageError(
-        "Falha ao atualizar itens do mapa.",
-        "UPDATE_FAILED",
-        "updating",
-        updateError,
-      );
-    }
-    if (group.some((entry) => !itemMatchesTarget(after.get(entry.target.id), entry.target))) {
-      throw stageError(
-        "Nem todos os itens atualizados foram confirmados.",
-        "UPDATE_VERIFY_FAILED",
-        "updating",
-      );
-    }
-  }
-}
-
-async function applyReplacements(OBR, operation, entries, journal) {
-  if (!entries.length) {
-    return;
-  }
-
-  await setRestorePhase(OBR, operation, "replacing");
-  for (const group of chunk(entries)) {
-    await requireRestoreOwnership(OBR, operation);
-    const ids = group.map((entry) => entry.target.id);
-    const currentById = mapItems(await getItemsByIds(OBR, ids));
-
-    for (const entry of group) {
-      if (!valuesEqual(currentById.get(entry.before.id), entry.before)) {
-        throw stageError(
-          `O item ${entry.before.id} mudou antes de ser substituido.`,
-          "REPLACE_CONFLICT",
-          "replacing",
-          null,
-          journalHasMutations(journal),
-        );
-      }
-    }
-
-    let deleteError = null;
-    try {
-      await OBR.scene.items.deleteItems(ids);
-    } catch (error) {
-      deleteError = error;
-      console.error("[scene-preset] Falha ao remover itens incompativeis.", error);
-    }
-
-    let afterDelete;
-    try {
-      afterDelete = mapItems(await getItemsByIds(OBR, ids));
-    } catch (error) {
-      for (const entry of group) {
-        const journalEntry = journal.replacements.find(
-          (candidate) => candidate.target.id === entry.target.id,
-        );
-        journalEntry.deleted = true;
-      }
-      console.error("[scene-preset] Falha ao confirmar itens removidos.", error);
-      throw stageError(
-        "Falha ao confirmar os itens removidos.",
-        "REPLACE_DELETE_OBSERVE_FAILED",
-        "replacing",
-        error,
-      );
-    }
-    for (const entry of group) {
-      if (!afterDelete.has(entry.before.id)) {
-        const journalEntry = journal.replacements.find(
-          (candidate) => candidate.target.id === entry.target.id,
-        );
-        journalEntry.deleted = true;
-      }
-    }
-
-    if (deleteError) {
-      throw stageError(
-        "Falha ao remover itens incompativeis.",
-        "REPLACE_DELETE_FAILED",
-        "replacing",
-        deleteError,
-      );
-    }
-    if (afterDelete.size) {
-      throw stageError(
-        "Nem todos os itens incompativeis foram removidos.",
-        "REPLACE_DELETE_VERIFY_FAILED",
-        "replacing",
-      );
-    }
-
-    await requireRestoreOwnership(OBR, operation);
-    let addError = null;
-    try {
-      await OBR.scene.items.addItems(clone(group.map((entry) => entry.target)));
-    } catch (error) {
-      addError = error;
-      console.error("[scene-preset] Falha ao recriar itens incompativeis.", error);
-    }
-
-    let afterAdd;
-    try {
-      afterAdd = mapItems(await getItemsByIds(OBR, ids));
-    } catch (error) {
-      for (const entry of group) {
-        const journalEntry = journal.replacements.find(
-          (candidate) => candidate.target.id === entry.target.id,
-        );
-        journalEntry.added = true;
-      }
-      console.error("[scene-preset] Falha ao confirmar itens recriados.", error);
-      throw stageError(
-        "Falha ao confirmar os itens recriados.",
-        "REPLACE_ADD_OBSERVE_FAILED",
-        "replacing",
-        error,
-      );
-    }
-    for (const entry of group) {
-      if (itemMatchesTarget(afterAdd.get(entry.target.id), entry.target)) {
-        const journalEntry = journal.replacements.find(
-          (candidate) => candidate.target.id === entry.target.id,
-        );
-        journalEntry.added = true;
-      }
-    }
-
-    if (addError) {
-      throw stageError(
-        "Falha ao recriar itens incompativeis.",
-        "REPLACE_ADD_FAILED",
-        "replacing",
-        addError,
-      );
-    }
-    if (group.some((entry) => !itemMatchesTarget(afterAdd.get(entry.target.id), entry.target))) {
-      throw stageError(
-        "Nem todos os itens recriados foram confirmados.",
-        "REPLACE_ADD_VERIFY_FAILED",
-        "replacing",
-      );
-    }
-  }
-}
-
-async function applyTargetMetadata(OBR, operation, plan, journal) {
-  const targetEntries = Object.entries(plan.targetMetadata);
-  if (!targetEntries.length) {
-    return;
-  }
-
-  await setRestorePhase(OBR, operation, "metadata");
-  await requireRestoreOwnership(OBR, operation);
-  let metadataError = null;
-  try {
-    await OBR.scene.setMetadata(clone(plan.targetMetadata));
-  } catch (error) {
-    metadataError = error;
-    console.error("[scene-preset] Falha ao atualizar metadata da cena.", error);
-  }
-
-  let after;
-  try {
-    after = await OBR.scene.getMetadata();
-  } catch (error) {
-    journal.metadataKeys.push(
-      ...Object.keys(plan.targetMetadata).filter(
-        (key) => !journal.metadataKeys.includes(key),
-      ),
-    );
-    console.error("[scene-preset] Falha ao confirmar metadata da cena.", error);
-    throw stageError(
-      "Falha ao confirmar a metadata da cena.",
-      "METADATA_OBSERVE_FAILED",
-      "metadata",
-      error,
-    );
-  }
-  for (const [key, target] of targetEntries) {
-    if (valuesEqual(after[key], target)) {
-      journal.metadataKeys.push(key);
-    }
-  }
-
-  if (metadataError) {
-    throw stageError(
-      "Falha ao atualizar metadata da cena.",
-      "METADATA_FAILED",
-      "metadata",
-      metadataError,
-    );
-  }
-  if (targetEntries.some(([key, target]) => !valuesEqual(after[key], target))) {
-    throw stageError(
-      "A metadata da cena não foi confirmada.",
-      "METADATA_VERIFY_FAILED",
-      "metadata",
-    );
-  }
-}
-
-async function applyDeletions(OBR, operation, entries, journal) {
-  if (!entries.length) {
-    return;
-  }
-
-  await setRestorePhase(OBR, operation, "deleting");
-  for (const targets of chunk(entries)) {
-    await requireRestoreOwnership(OBR, operation);
-    const ids = targets.map((item) => item.id);
-    const currentById = mapItems(await getItemsByIds(OBR, ids));
-    const existing = [];
-
-    for (const target of targets) {
-      const current = currentById.get(target.id);
-      if (!current) {
-        continue;
-      }
-      if (!valuesEqual(current, target)) {
-        throw stageError(
-          `O item extra ${target.id} mudou durante a restauração.`,
-          "DELETE_CONFLICT",
-          "deleting",
-          null,
-          journalHasMutations(journal),
-        );
-      }
-      existing.push(target);
-    }
-
-    if (!existing.length) {
-      continue;
-    }
-
-    let deleteError = null;
-    try {
-      await OBR.scene.items.deleteItems(existing.map((item) => item.id));
-    } catch (error) {
-      deleteError = error;
-      console.error("[scene-preset] Falha ao remover itens extras.", error);
-    }
-
-    let after;
-    try {
-      after = mapItems(
-        await getItemsByIds(OBR, existing.map((item) => item.id)),
-      );
-    } catch (error) {
-      for (const target of existing) {
-        recordById(journal.deleted, target);
-      }
-      console.error("[scene-preset] Falha ao confirmar itens extras removidos.", error);
-      throw stageError(
-        "Falha ao confirmar os itens extras removidos.",
-        "DELETE_OBSERVE_FAILED",
-        "deleting",
-        error,
-      );
-    }
-    for (const target of existing) {
-      if (!after.has(target.id)) {
-        recordById(journal.deleted, target);
-      }
-    }
-
-    if (deleteError) {
-      throw stageError(
-        "Falha ao remover itens extras.",
-        "DELETE_FAILED",
-        "deleting",
-        deleteError,
-      );
-    }
-    if (after.size) {
-      throw stageError(
-        "Nem todos os itens extras foram removidos.",
-        "DELETE_VERIFY_FAILED",
-        "deleting",
-      );
-    }
-  }
-}
-
-function verifySelectionBoardResult(metadata, items) {
-  const board = metadata[SELECTION_BOARD_KEY];
-  if (!isRecord$1(board)) {
-    return;
-  }
-
-  const ids = new Set(items.map((item) => item.id));
-  for (const categories of Object.values(board.assigned || {})) {
-    if (!isRecord$1(categories)) {
-      continue;
-    }
-    for (const itemId of Object.values(categories)) {
-      if (itemId && !ids.has(itemId)) {
-        throw new Error(`Um slot aponta para o item ausente ${itemId}.`);
-      }
-    }
-  }
-
-  const colors = new Set(
-    items
-      .map((item) => item.metadata?.[COLOR_TOKEN_KEY]?.color)
-      .filter((color) => typeof color === "string"),
-  );
-  for (const color of PLAYER_COLORS) {
-    if (!colors.has(color.id)) {
-      throw new Error(`O identificador ${color.label} não foi restaurado.`);
-    }
-  }
-}
-
-async function verifyRestoration(OBR, operation, plan) {
-  await setRestorePhase(OBR, operation, "verifying");
-  const [items, metadata] = await Promise.all([
-    OBR.scene.items.getItems(),
-    OBR.scene.getMetadata(),
-  ]);
-  const ids = items.map((item) => item.id);
-  if (new Set(ids).size !== ids.length) {
-    throw stageError(
-      "A cena restaurada possui IDs duplicados.",
-      "FINAL_VERIFY_FAILED",
-      "verifying",
-    );
-  }
-  if (items.length !== plan.targetItems.length) {
-    throw stageError(
-      "A quantidade final de itens não corresponde ao mapa salvo.",
-      "FINAL_VERIFY_FAILED",
-      "verifying",
-    );
-  }
-
-  const currentById = mapItems(items);
-  for (const target of plan.targetItems) {
-    if (!itemMatchesTarget(currentById.get(target.id), target)) {
-      throw stageError(
-        `O item ${target.id} não corresponde ao mapa salvo.`,
-        "FINAL_VERIFY_FAILED",
-        "verifying",
-      );
-    }
-  }
-
-  for (const [key, target] of Object.entries(plan.targetMetadata)) {
-    if (!valuesEqual(metadata[key], target)) {
-      throw stageError(
-        `A metadata ${key} não corresponde ao mapa salvo.`,
-        "FINAL_VERIFY_FAILED",
-        "verifying",
-      );
-    }
-  }
-
-  try {
-    verifySelectionBoardResult(metadata, items);
-  } catch (error) {
-    throw stageError(
-      error.message,
-      "FINAL_VERIFY_FAILED",
-      "verifying",
-      error,
-    );
-  }
-
-  await requireRestoreOwnership(OBR, operation);
-}
-
-async function rollbackRestoration(OBR, operation, plan, journal) {
-  const errors = [];
-  const fail = (label, error) => {
-    errors.push({ label, error });
-    console.error(`[scene-preset] Rollback: ${label}.`, error);
-  };
-
-  try {
-    await setRestorePhase(OBR, operation, "rolling-back");
-  } catch (error) {
-    fail("marcador indisponível; rollback recusado", error);
-    return { complete: false, refused: true, errors };
-  }
-
-  const addedTargets = [
-    ...journal.added,
-    ...journal.replacements.filter((entry) => entry.added).map((entry) => entry.target),
-  ];
-  for (const targets of chunk(addedTargets)) {
-    try {
-      await requireRestoreOwnership(OBR, operation);
-      const currentById = mapItems(await getItemsByIds(OBR, targets.map((item) => item.id)));
-      const safeIds = [];
-      for (const target of targets) {
-        const current = currentById.get(target.id);
-        if (!current) {
-          continue;
-        }
-        if (!itemMatchesTarget(current, target)) {
-          throw new Error(`O item ${target.id} foi alterado depois da restauração.`);
-        }
-        safeIds.push(target.id);
-      }
-      if (safeIds.length) {
-        await OBR.scene.items.deleteItems(safeIds);
-        const remaining = await getItemsByIds(OBR, safeIds);
-        if (remaining.length) {
-          throw new Error("Alguns itens adicionados permaneceram na cena.");
-        }
-      }
-    } catch (error) {
-      fail("não foi possível remover itens adicionados", error);
-    }
-  }
-
-  const deletedOriginals = [
-    ...journal.deleted,
-    ...journal.replacements.filter((entry) => entry.deleted).map((entry) => entry.before),
-  ];
-  for (const targets of chunk(deletedOriginals)) {
-    try {
-      await requireRestoreOwnership(OBR, operation);
-      const currentById = mapItems(await getItemsByIds(OBR, targets.map((item) => item.id)));
-      const missing = [];
-      for (const target of targets) {
-        const current = currentById.get(target.id);
-        if (!current) {
-          missing.push(target);
-        } else if (!valuesEqual(current, target)) {
-          throw new Error(`O ID ${target.id} agora pertence a outro estado.`);
-        }
-      }
-      if (missing.length) {
-        await OBR.scene.items.addItems(clone(missing));
-        const restored = mapItems(await getItemsByIds(OBR, missing.map((item) => item.id)));
-        if (missing.some((item) => !itemMatchesTarget(restored.get(item.id), item))) {
-          throw new Error("Alguns itens apagados não foram restaurados.");
-        }
-      }
-    } catch (error) {
-      fail("não foi possível readicionar itens apagados", error);
-    }
-  }
-
-  for (const entries of chunk(journal.updated)) {
-    try {
-      await requireRestoreOwnership(OBR, operation);
-      const ids = entries.map((entry) => entry.target.id);
-      const currentItems = await getItemsByIds(OBR, ids);
-      const currentById = mapItems(currentItems);
-      const toRestore = [];
-      for (const entry of entries) {
-        const current = currentById.get(entry.target.id);
-        if (valuesEqual(current, entry.before)) {
-          continue;
-        }
-        if (!itemMatchesTarget(current, entry.target)) {
-          throw new Error(`O item ${entry.target.id} mudou depois da atualização.`);
-        }
-        toRestore.push(current);
-      }
-      if (toRestore.length) {
-        await OBR.scene.items.updateItems(toRestore, (draftItems) => {
-          for (const item of draftItems) {
-            const before = entries.find((entry) => entry.before.id === item.id)?.before;
-            if (before) {
-              restoreItemState(item, before);
-            }
-          }
-        });
-        const restored = mapItems(await getItemsByIds(OBR, ids));
-        if (
-          entries.some(
-            (entry) => !itemMatchesTarget(restored.get(entry.before.id), entry.before),
-          )
-        ) {
-          throw new Error("Alguns itens atualizados não voltaram ao estado anterior.");
-        }
-      }
-    } catch (error) {
-      fail("não foi possível restaurar itens atualizados", error);
-    }
-  }
-
-  if (journal.metadataKeys.length) {
-    try {
-      await requireRestoreOwnership(OBR, operation);
-      const currentMetadata = await OBR.scene.getMetadata();
-      const patch = {};
-      for (const key of journal.metadataKeys) {
-        const target = plan.targetMetadata[key];
-        const previous = plan.metadataBefore[key];
-        if (valuesEqual(currentMetadata[key], previous.exists ? previous.value : undefined)) {
-          continue;
-        }
-        if (!valuesEqual(currentMetadata[key], target)) {
-          throw new Error(`A metadata ${key} mudou depois da restauração.`);
-        }
-        patch[key] = previous.exists ? clone(previous.value) : null;
-      }
-      if (Object.keys(patch).length) {
-        await OBR.scene.setMetadata(patch);
-        const restoredMetadata = await OBR.scene.getMetadata();
-        for (const [key, value] of Object.entries(patch)) {
-          const previous = plan.metadataBefore[key];
-          const restored = previous.exists
-            ? valuesEqual(restoredMetadata[key], value)
-            : !Object.prototype.hasOwnProperty.call(restoredMetadata, key) ||
-              restoredMetadata[key] === null;
-          if (!restored) {
-            throw new Error(`A metadata ${key} não voltou ao estado anterior.`);
-          }
-        }
-      }
-    } catch (error) {
-      fail("não foi possível restaurar metadata", error);
-    }
-  }
-
-  if (errors.length) {
-    try {
-      await setRestorePhase(OBR, operation, "recovery-required");
-    } catch (error) {
-      fail("não foi possível manter o marcador de recuperação", error);
-    }
-    return { complete: false, refused: false, errors };
-  }
-
-  try {
-    const released = await releaseRestoreMarker(OBR, operation);
-    if (!released) {
-      throw new Error("O marcador não pertence mais a esta operação.");
-    }
-  } catch (error) {
-    fail("não foi possível limpar o marcador", error);
-    return { complete: false, refused: false, errors };
-  }
-
-  console.info("[scene-preset] Rollback concluido.");
-  return { complete: true, refused: false, errors: [] };
-}
-
-async function performRestore(OBR, preset, options, operation) {
-  const resolution = resolveAssetReferences(preset);
-  if (resolution.unresolved) {
-    throw new SceneRestoreError(
-      `${resolution.unresolved} assets privados ainda não foram vinculados ao Owlbear.`,
-      {
-        code: "PRIVATE_ASSETS_NOT_LINKED",
-        stage: "validation",
-      },
-    );
-  }
-  const validatedPreset = validateScenePreset(resolution.value, {
-    publicMode: options.publicMode ?? isPublicRuntime(),
-  });
-  let markerAcquired = false;
-  let plan = null;
-  let journal = null;
-  let verified = false;
-
-  try {
-    await acquireRestoreMarker(OBR, operation, Boolean(options.allowOrphanRecovery));
-    markerAcquired = true;
-
-    const [currentItems, currentMetadata] = await Promise.all([
-      OBR.scene.items.getItems(),
-      OBR.scene.getMetadata(),
-    ]);
-    plan = createRestorationPlan(validatedPreset, currentItems, currentMetadata);
-    journal = createJournal(plan);
-
-    await applyAdditions(OBR, operation, plan.additions, journal);
-    await applyUpdates(OBR, operation, plan.updates, journal);
-    await applyReplacements(OBR, operation, plan.replacements, journal);
-    await applyTargetMetadata(OBR, operation, plan, journal);
-    await applyDeletions(OBR, operation, plan.deletions, journal);
-    await verifyRestoration(OBR, operation, plan);
-    verified = true;
-
-    const released = await releaseRestoreMarker(OBR, operation);
-    if (!released) {
-      throw stageError(
-        "O mapa foi restaurado, mas o controle da operação mudou antes da limpeza.",
-        "MARKER_RELEASE_FAILED",
-        "completed",
-        null,
-        true,
-      );
-    }
-
-    return {
-      added: plan.additions.length + plan.replacements.length,
-      deleted: plan.deletions.length + plan.replacements.length,
-      updated: plan.updates.length,
-    };
-  } catch (error) {
-    console.error(
-      `[scene-preset] Restauracao falhou na fase ${error.stage || operation.phase}.`,
-      error,
-    );
-
-    if (verified) {
-      throw error;
-    }
-
-    if (!markerAcquired) {
-      throw error;
-    }
-
-    if (!journal || !journalHasMutations(journal)) {
-      try {
-        await releaseRestoreMarker(OBR, operation);
-      } catch (releaseError) {
-        console.error("[scene-preset] Falha ao limpar marcador sem mutacoes.", releaseError);
-      }
-      throw error;
-    }
-
-    if (error.code === "RESTORE_MARKER_LOST") {
-      throw new SceneRestoreError(
-        "A restauração foi interrompida por outra operação. Confira a cena antes de tentar novamente.",
-        {
-          code: error.code,
-          stage: error.stage,
-          partial: true,
-          cause: error,
-        },
-      );
-    }
-
-    console.warn("[scene-preset] Iniciando rollback condicional.");
-    const rollback = await rollbackRestoration(OBR, operation, plan, journal);
-    if (rollback.complete) {
-      throw new SceneRestoreError(
-        "Não consegui restaurar o mapa; as mudanças seguras foram desfeitas.",
-        {
-          code: error.code,
-          stage: error.stage,
-          partial: false,
-          cause: error,
-        },
-      );
-    }
-
-    throw new SceneRestoreError(
-      "A restauração falhou parcialmente. Confira a cena antes de tentar novamente.",
-      {
-        code: error.code,
-        stage: error.stage,
-        partial: true,
-        cause: error,
-      },
-    );
-  }
-}
-
-async function restoreDefaultBoardPreset(OBR, preset, options = {}) {
-  if (activeRestorePromise) {
-    throw new SceneRestoreError("Uma restauração já está em andamento neste painel.", {
-      code: "LOCAL_RESTORE_ACTIVE",
-      stage: "local-lock",
-    });
-  }
-
-  const operationPromise = (async () => {
-    const identity = await getRestoreIdentity(OBR);
-    const operation = {
-      token: createOperationToken(),
-      playerId: identity.playerId,
-      connectionId: identity.connectionId,
-      presetId: preset?.id || "unknown",
-      startedAt: new Date().toISOString(),
-      phase: "preparing",
-    };
-    return performRestore(OBR, preset, options, operation);
-  })();
-
-  activeRestorePromise = operationPromise;
-  try {
-    return await operationPromise;
-  } finally {
-    if (activeRestorePromise === operationPromise) {
-      activeRestorePromise = null;
-    }
-  }
-}
-
 const ASSET_DESCRIPTION_PREFIX = "double-sided-cards-private-asset:";
-const IMAGE_MIME_BY_EXTENSION = new Map([
-  [".avif", "image/avif"],
-  [".gif", "image/gif"],
-  [".jpeg", "image/jpeg"],
-  [".jpg", "image/jpeg"],
-  [".png", "image/png"],
-  [".svg", "image/svg+xml"],
-  [".webp", "image/webp"],
-]);
 
 function isRecord(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -5305,7 +4301,7 @@ async function hydratePrivateAssetPackManifest(manifest, readJson) {
   if (
     !isRecord(manifest) ||
     manifest.format !== PRIVATE_ASSET_PACK_FORMAT ||
-    manifest.version !== PRIVATE_ASSET_PACK_VERSION ||
+    !isSupportedPrivateAssetPackVersion(manifest.version) ||
     !isRecord(manifest.presets)
   ) {
     throw new Error("O manifesto do Private Asset Pack é inválido.");
@@ -5326,6 +4322,8 @@ async function hydratePrivateAssetPackManifest(manifest, readJson) {
         id: sceneId,
         name: sceneEntry.name || preset.name || sceneId,
         label: sceneEntry.label,
+        createLabel:
+          sceneEntry.createLabel || `Criar cena ${sceneEntry.label || sceneEntry.name || preset.name || sceneId}`,
         restoreLabel:
           sceneEntry.restoreLabel || `Restaurar ${sceneEntry.label || sceneEntry.name || preset.name || sceneId}`,
       },
@@ -5482,24 +4480,6 @@ function getAssetFileName(asset) {
   return normalizePath(asset?.file).split("/").filter(Boolean).pop() || "";
 }
 
-function getAssetMime(asset, fileName, originalFile) {
-  const manifestMime = typeof asset?.mime === "string" ? asset.mime.trim().toLowerCase() : "";
-  if (manifestMime) {
-    return manifestMime;
-  }
-
-  const browserMime =
-    typeof originalFile?.type === "string" ? originalFile.type.trim().toLowerCase() : "";
-  if (browserMime) {
-    return browserMime;
-  }
-
-  const extensionIndex = fileName.lastIndexOf(".");
-  return IMAGE_MIME_BY_EXTENSION.get(
-    extensionIndex >= 0 ? fileName.slice(extensionIndex).toLowerCase() : "",
-  );
-}
-
 function assertPreparedFile(file, expectedName, expectedMime, expectedSize) {
   if (!file || typeof file.arrayBuffer !== "function") {
     throw createPreparationError(
@@ -5549,11 +4529,20 @@ async function preparePrivateAssetUpload(buildImageUpload, file, assetId, asset)
     );
   }
 
-  const mime = getAssetMime(asset, expectedName, file);
-  if (!mime || !mime.startsWith("image/")) {
+  const mime = getPrivateAssetUploadMime(expectedName);
+  const manifestMime =
+    typeof asset?.mime === "string" ? asset.mime.trim().toLowerCase() : "";
+  const browserMime = typeof file.type === "string" ? file.type.trim().toLowerCase() : "";
+  if (!mime) {
     throw createPreparationError(
       "validação do arquivo",
-      `MIME inválido para ${expectedName}: ${mime || "não informado"}.`,
+      `Formato não suportado para upload privado no Owlbear: ${expectedName}.`,
+    );
+  }
+  if (manifestMime !== mime || (browserMime && browserMime !== mime)) {
+    throw createPreparationError(
+      "validação do arquivo",
+      `MIME inválido para ${expectedName}: manifesto ${manifestMime || "não informado"}, navegador ${browserMime || "não informado"}; esperado ${mime}.`,
     );
   }
 
@@ -5831,7 +4820,11 @@ async function linkPrivateAssetPackFromOwlbear(OBR, storage) {
     throw new Error("Configure o Private Asset Pack antes de vincular os assets.");
   }
 
-  const selected = await OBR.assets.downloadImages(true, "DSC");
+  const search =
+    typeof pack.bindingSearch === "string" && pack.bindingSearch.trim()
+      ? pack.bindingSearch.trim()
+      : "DSC";
+  const selected = await OBR.assets.downloadImages(true, search);
   const { bindings, unmatched } = matchOwlbearAssetBindings(pack, selected);
   if (Object.keys(bindings).length) {
     savePrivateAssetBindings(bindings, storage);
@@ -5841,6 +4834,7 @@ async function linkPrivateAssetPackFromOwlbear(OBR, storage) {
     selected: selected.length,
     linked: Object.keys(bindings).length,
     unmatched,
+    search,
   };
 }
 
@@ -5876,8 +4870,8 @@ const elements = {
   privatePackLinkButton: document.querySelector("#privatePackLinkButton"),
   privatePackClearButton: document.querySelector("#privatePackClearButton"),
   privatePackInfo: document.querySelector("#privatePackInfo"),
+  developmentSaveSceneButtons: [...document.querySelectorAll("[data-save-scene-preset]")],
   createScenePresetButtons: [...document.querySelectorAll("[data-create-scene-preset]")],
-  restoreScenePresetButtons: [...document.querySelectorAll("[data-restore-scene-preset]")],
   defaultBoardInfo: document.querySelector("#defaultBoardInfo"),
   connectionStatus: document.querySelector("#connectionStatus"),
   message: document.querySelector("#message"),
@@ -5886,13 +4880,14 @@ const elements = {
 let obr = null;
 let buildImage = null;
 let buildImageUpload = null;
+let buildSceneUpload = null;
 let lastCardSelection = [];
 let lastDeckSelection = [];
 let lastFlipSelection = [];
 let presetDecks = [];
 let presetCardGroups = [];
 let scenePresetEntries = [];
-let sceneRestoreRunning = false;
+let sceneCreationRunning = false;
 let privatePackRunning = false;
 let selectedPrivatePack = null;
 let colorAssignmentsRefreshTimer = null;
@@ -5964,8 +4959,8 @@ function updatePrivatePackControls(isConnected = Boolean(obr)) {
   }
 
   elements.privatePackInfo.textContent =
-    `${status.name || status.id}: ${status.linked} de ${status.total} assets vinculados ao Owlbear` +
-    (status.missing ? `; faltam ${status.missing}.` : ".");
+    `${status.name || status.id}: ${status.total} assets, ${formatRuntimeSize(status.runtimeSize)} runtime; ` +
+    `${status.linked} vinculados, ${status.missing} faltantes.`;
 }
 
 async function showNotification(text, tone) {
@@ -6139,22 +5134,32 @@ function formatPresetDate(value) {
   }
 }
 
+function formatRuntimeSize(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "0 MiB";
+  }
+  return `${(bytes / 1024 / 1024).toLocaleString("pt-BR", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })} MiB`;
+}
+
 function updateDefaultBoardControls(isConnected = Boolean(obr)) {
   const entriesById = new Map(scenePresetEntries.map((entry) => [entry.definition.id, entry]));
 
-  for (const button of elements.createScenePresetButtons) {
+  for (const button of elements.developmentSaveSceneButtons) {
     button.hidden = true;
     button.disabled = true;
   }
 
-  for (const button of elements.restoreScenePresetButtons) {
-    const entry = entriesById.get(button.dataset.restoreScenePreset);
+  for (const button of elements.createScenePresetButtons) {
+    const entry = entriesById.get(button.dataset.createScenePreset);
     button.disabled =
-      sceneRestoreRunning || !isConnected || !entry?.ready || !(entry?.preset || entry?.summary);
+      sceneCreationRunning || !isConnected || !entry?.ready || !(entry?.preset || entry?.summary);
   }
 
   if (!scenePresetEntries.length) {
-    elements.defaultBoardInfo.textContent = "Carregando mapas salvos...";
+    elements.defaultBoardInfo.textContent = "Carregando templates privados...";
     return;
   }
 
@@ -6175,7 +5180,8 @@ function updateDefaultBoardControls(isConnected = Boolean(obr)) {
     }
 
     const itemLabel = details.itemCount === 1 ? "1 item" : `${details.itemCount} itens`;
-    return `${displayName}: ${itemLabel}, salvo em ${formatPresetDate(details.savedAt)}`;
+    const environment = details.grid || details.fog ? "grid/fog capturados" : "grid/fog legado";
+    return `${displayName}: ${itemLabel}, salvo em ${formatPresetDate(details.savedAt)}, ${environment}`;
   });
 
   elements.defaultBoardInfo.textContent = parts.join(" | ");
@@ -6646,73 +5652,38 @@ async function createDefaultBoardFromCurrentScene(presetId) {
   await showNotification("Mapa salvo criado.", "SUCCESS");
 }
 
-async function restoreDefaultBoard(presetId) {
-  if (!obr) {
-    setMessage("Abra esta extensão dentro do Owlbear para restaurar o tabuleiro.", "warning");
+async function createSceneFromPrivatePreset(presetId) {
+  if (!obr || !buildSceneUpload) {
+    setMessage("Abra esta extensão dentro do Owlbear para criar a cena.", "warning");
     return;
   }
-
-  if (sceneRestoreRunning) {
-    setMessage("Já existe uma restauração em andamento neste painel.", "warning");
+  if (sceneCreationRunning) {
+    setMessage("Já existe uma criação de cena em andamento neste painel.", "warning");
     return;
   }
 
   const entry = getScenePresetEntry(presetId);
-
-  if (!(entry?.preset || entry?.summary) || !entry.ready) {
-    setMessage("Esse mapa salvo ainda não foi cadastrado na extensão.", "warning");
-    await showNotification("Mapa salvo não cadastrado.", "WARNING");
+  if (!entry?.preset) {
+    setMessage("Esse template privado não está configurado no pack.", "warning");
     return;
   }
 
-  sceneRestoreRunning = true;
+  sceneCreationRunning = true;
   updateDefaultBoardControls(true);
-  setMessage("Verificando a restauração...", "neutral");
-
+  setMessage("Montando a nova cena com os assets vinculados...", "neutral");
   try {
-    const restoreStatus = await getSceneRestoreStatus(obr);
-    if (restoreStatus.state === "local" || restoreStatus.state === "active") {
-      const message = "Já existe uma restauração em andamento nesta cena.";
-      setMessage(message, "warning");
-      await showNotification(message, "WARNING");
-      return;
-    }
-
-    const recoveringOrphan = restoreStatus.state === "orphan";
-    const recoveryWarning = recoveringOrphan
-      ? "\n\nFoi encontrada uma restauração interrompida. Continuar assumirá o controle dela."
-      : "";
-    const confirmed = window.confirm(
-      `${entry.definition.restoreLabel} vai substituir a cena atual. Não inicie outra restauração em outra conta durante o processo.${recoveryWarning}\n\nContinuar?`,
+    const result = await createPrivateScene(obr, buildSceneUpload, entry.preset);
+    const displayName = entry.definition.label || entry.definition.name;
+    const fallback = result.usedCapturedGrid && result.usedCapturedFog
+      ? ""
+      : " O template legado usou o fallback do SDK para grid/fog ausentes.";
+    setMessage(
+      `${displayName} criado com ${result.itemCount} itens e enviado ao Atlas.${fallback}`,
+      fallback ? "warning" : "success",
     );
-
-    if (!confirmed) {
-      setMessage("", "neutral");
-      return;
-    }
-
-    setMessage("Restaurando...", "warning");
-    const preset = entry.preset || (await loadScenePreset(entry.definition));
-    if (!preset) {
-      throw new Error("Não consegui carregar esse mapa salvo.");
-    }
-    entry.preset = preset;
-    entry.summary = {
-      itemCount: preset.itemCount,
-      savedAt: preset.savedAt,
-    };
-
-    const result = await restoreDefaultBoardPreset(obr, preset, {
-      allowOrphanRecovery: recoveringOrphan,
-    });
-    const message = `Cena restaurada: ${result.updated} atualizados, ${result.added} recriados, ${result.deleted} removidos.`;
-    setMessage(message, "success");
-    await showNotification(
-      `${entry.definition.label || entry.definition.name} restaurado.`,
-      "SUCCESS",
-    );
+    await showNotification(`${displayName} criado no Atlas.`, "SUCCESS");
   } finally {
-    sceneRestoreRunning = false;
+    sceneCreationRunning = false;
     updateDefaultBoardControls(Boolean(obr));
   }
 }
@@ -7052,14 +6023,16 @@ async function linkConfiguredPrivatePack() {
   try {
     const result = await linkPrivateAssetPackFromOwlbear(obr);
     await reloadPrivateContent();
+    const packStatus = getPrivateAssetPackStatus();
     const stats = await repairSceneMetadata();
     const suffix = stats.assets
       ? ` ${stats.assets} referências da cena atual foram migradas.`
       : "";
     setMessage(
       result.linked
-        ? `${result.linked} assets vinculados de ${result.selected} selecionados.${suffix}`
-        : "Nenhum asset selecionado correspondeu ao manifesto do pack.",
+        ? `${result.linked} assets reconhecidos nesta seleção incremental; ${packStatus.linked} vinculados no total e ${packStatus.missing} faltantes. ` +
+          `${result.unmatched.length} selecionados não corresponderam ao pack.${suffix}`
+        : `Nenhum dos ${result.selected} assets selecionados correspondeu ao manifesto; os ${packStatus.linked} vínculos anteriores foram preservados.`,
       result.linked ? (result.unmatched.length ? "warning" : "success") : "warning",
     );
   } finally {
@@ -7418,16 +6391,16 @@ async function init() {
       await showNotification(message, "SUCCESS");
     }, "Sincronizando a cena..."),
   );
-  for (const button of elements.createScenePresetButtons) {
+  for (const button of elements.developmentSaveSceneButtons) {
     button.addEventListener("click", () =>
-      runPanelAction(button, () => createDefaultBoardFromCurrentScene(button.dataset.createScenePreset)),
+      runPanelAction(button, () => createDefaultBoardFromCurrentScene(button.dataset.saveScenePreset)),
     );
   }
-  for (const button of elements.restoreScenePresetButtons) {
+  for (const button of elements.createScenePresetButtons) {
     button.addEventListener("click", () => {
-      restoreDefaultBoard(button.dataset.restoreScenePreset).catch((error) => {
+      createSceneFromPrivatePreset(button.dataset.createScenePreset).catch((error) => {
         console.error(error);
-        setMessage(getErrorMessage(error, "Não consegui restaurar o mapa salvo."), "error");
+        setMessage(getErrorMessage(error, "Não consegui criar a cena no Atlas."), "error");
       });
     });
   }
@@ -7439,16 +6412,16 @@ async function init() {
   try {
     loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=100").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=101").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
   } catch (error) {
     console.warn(error);
     setConnectionStatus("Sem conexão ao SDK", false);
     refreshDefaultBoardInfo().catch((presetError) => {
-      console.warn("Nao consegui carregar os mapas salvos", presetError);
+      console.warn("Nao consegui carregar os templates privados", presetError);
       elements.defaultBoardInfo.textContent =
-        "Não consegui carregar os mapas salvos. Reabra o painel para tentar novamente.";
+        "Não consegui carregar os templates privados. Reabra o painel para tentar novamente.";
     });
     setMessage(
       `A tela carregou, mas ainda não conectou ao Owlbear: ${getErrorMessage(error)}`,
@@ -7460,6 +6433,7 @@ async function init() {
   obr = loaded.OBR;
   buildImage = loaded.sdk.buildImage;
   buildImageUpload = loaded.sdk.buildImageUpload;
+  buildSceneUpload = loaded.sdk.buildSceneUpload;
   obr.broadcast
     .sendMessage(COMMANDS_CHANNEL, { type: "register-commands" }, { destination: "LOCAL" })
     .catch((error) => {

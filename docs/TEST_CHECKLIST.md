@@ -28,7 +28,7 @@ Este checklist deve ser usado antes de publicar mudanças no GitHub Pages e tamb
 - Selecionar a pasta que contem `private-asset-pack.json`.
 - Confirmar a contagem de assets canônicos e pendentes exibida no painel.
 - Usar **Enviar ao Owlbear** e confirmar que os assets aparecem na biblioteca privada da conta.
-- Usar **Vincular assets**, selecionar os itens enviados e confirmar que a contagem pendente chega a zero.
+- Usar **Vincular assets** em uma ou mais seleções incrementais e confirmar que vínculos anteriores são preservados até a contagem pendente chegar a zero.
 - Fechar e reabrir o painel; confirmar que pack e vínculos continuam configurados.
 - Dar F5 na sala; confirmar que nao e necessario selecionar o pack novamente.
 - Criar uma carta e uma pilha de cada biblioteca relevante e confirmar frente, verso, tamanho, camada e ordem.
@@ -184,7 +184,7 @@ Checklist:
 - Tentar pegar carta que esta no slot de outro jogador.
 - Usar `Devolver origem`.
 
-## Restauracao de mapas
+## Criacao de cenas privadas
 
 Para cada mapa:
 
@@ -193,12 +193,15 @@ Para cada mapa:
 
 Checklist:
 
-- Abrir cena vazia.
-- Restaurar mapa.
+- Manter aberta uma cena com itens de controle.
+- Criar a cena pelo botão correspondente e confirmar que a cena aberta não mudou.
+- Abrir no Atlas a nova cena criada.
 - Confirmar quantidade aproximada de itens.
 - Confirmar que cartas/pilhas aparecem sem erro.
 - Confirmar que slots e identificadores funcionam.
-- Confirmar que bibliotecas funcionam depois da restauracao.
+- Confirmar que o selection board foi inicializado e que metadata de outras extensões não foi copiada como metadata da cena.
+- Criar o mesmo template novamente e confirmar cenas independentes.
+- Confirmar que bibliotecas funcionam depois da criação.
 - Confirmar que `Jogadores e cores` atualiza.
 - Testar no desktop.
 - Testar no celular.
@@ -212,7 +215,7 @@ Checklist:
 - Comprar carta por botao.
 - Embaralhar por botao.
 - Devolver carta por botao.
-- Restaurar mapa, se permitido para o usuario.
+- Criar uma cena privada e abri-la pelo Atlas, se permitido para o usuário.
 - Confirmar que imagens nao ficam piscando/desfocadas.
 - Confirmar que assets grandes nao travam o navegador.
 - Confirmar que painel nao fica inutilizavel.
@@ -236,7 +239,7 @@ Checklist:
 ## Regressao rapida antes de jogar
 
 - Abrir painel.
-- Restaurar mapa correto.
+- Criar e abrir a cena correta pelo Atlas.
 - Escolher cor.
 - Escolher raca.
 - Escolher classe.

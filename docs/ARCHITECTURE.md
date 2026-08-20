@@ -166,30 +166,26 @@ clientes podem ler a pilha antes de qualquer um observar o marcador do outro e
 acrescentar a mesma instancia. O SDK nao oferece transacao distribuida ou
 compare-and-swap para fechar essa janela.
 
-### Restaurar mapa salvo
+### Criar cena privada
 
 ```mermaid
 flowchart TD
-  A["Usuario confirma restauracao"] --> B["Carregar e validar preset completo"]
-  B --> C["Inspecionar marcador de restauracao"]
-  C --> D["Adquirir marcador distribuido da cena"]
-  D --> E["Reler cena e calcular plano"]
-  E --> F["Adicionar itens ausentes"]
-  F --> G["Atualizar ou substituir itens do preset"]
-  G --> H["Aplicar metadata gerenciada do preset"]
-  H --> I["Apagar itens extras por ultimo"]
-  I --> J["Verificar estado final"]
-  J --> K["Liberar marcador"]
-  F -. "Falha parcial" .-> L["Rollback condicional pelo diario"]
-  G -. "Falha parcial" .-> L
-  H -. "Falha parcial" .-> L
-  I -. "Falha parcial" .-> L
+  A["Usuario escolhe Tutorial ou Missao"] --> B["Resolver assetId para ImageContent vinculado"]
+  B --> C["Recusar se houver vinculos faltantes"]
+  C --> D["Validar template privado"]
+  D --> E["Adicionar marcador de bootstrap a item existente"]
+  E --> F["Montar SceneUpload com items, grid e fog"]
+  F --> G["OBR.assets.uploadScenes"]
+  G --> H["Nova cena aparece no Atlas"]
+  H --> I["Background aplica selection board ao abrir"]
 ```
 
-A restauracao usa um marcador versionado na metadata da cena para coordenacao
-entre contas. O marcador e consultivo porque o SDK nao fornece compare-and-swap;
-por isso cada fase relê a posse, operacoes concorrentes sao interrompidas e a
-recuperacao de marcador orfao exige confirmacao explicita.
+O upload não lê, apaga ou atualiza itens da cena aberta. IDs de itens do template
+são preservados porque `SceneUpload.items` aceita `Item[]`; assim `attachedTo` e
+referências internas permanecem consistentes sem remapeamento especulativo. Como
+`SceneUpload` não possui metadata arbitrária de cena, somente o selection board
+é transportado por um marcador idempotente em um item existente. Metadata de
+outras extensões não é propagada como metadata da nova cena.
 
 ## Persistencia dos metadados
 
@@ -202,7 +198,7 @@ A extensao nao usa banco externo. O estado de jogo fica distribuido assim:
 | Contagem visual da pilha | Texto do item da pilha |
 | Cor ativa do jogador | Metadata do jogador |
 | Ocupacao dos slots | Metadata da cena |
-| Coordenacao temporaria de restauracao | Metadata interna versionada da cena |
+| Bootstrap temporário de cena privada | Metadata interna versionada de um item existente |
 | Configuracao do Private Asset Pack | `localStorage` da origem da extensao |
 | Vinculos `assetId -> ImageContent` | `localStorage` da origem da extensao |
 | Mapas e bibliotecas pessoais | JSON no pack privado, carregado no armazenamento local |
@@ -263,7 +259,7 @@ flowchart LR
   aliases --> resolver
   resolver --> binding["vínculo persistido"]
   binding --> owl["ImageContent do asset do usuário no Owlbear"]
-  owl --> consumers["cartas, pilhas, mapas e reparo de cena"]
+  owl --> consumers["cartas, pilhas, SceneUpload e reparo de cena antiga"]
 ```
 
 O normalizador reconhece URLs completas do GitHub Pages, caminhos relativos antigos, variantes `localhost/.local-assets`, URLs aninhadas que o reparo historico ja tratava e IDs antigos de `images.owlbear.rodeo`. O alias aponta para um unico ID `sha256:<hash>`, permitindo remover copias fisicas sem apagar identificadores antigos.
@@ -271,8 +267,8 @@ O normalizador reconhece URLs completas do GitHub Pages, caminhos relativos anti
 O pack privado usa:
 
 ```text
-private-asset-pack.json       # catalogo canonico, aliases e indice de presets
-assets/<sha256>.<extensao>    # um arquivo original por conteudo exato
+private-asset-pack.json       # assets logicos, blobSha256, aliases e indice de presets
+assets/<assetId>.<extensao>   # representacao runtime PNG/WebP/JPEG
 presets/cards.json            # biblioteca privada de cartas por assetId
 presets/decks.json            # biblioteca privada de pilhas por assetId
 presets/scenes/*.json         # mapas privados por assetId
@@ -292,8 +288,10 @@ flowchart LR
   dist --> public
   icons["icons/"] --> public
   manifest["manifest.json"] --> public
-  source["árvore privada histórica"] --> packBuild["build:private-asset-pack"]
-  packBuild --> private["Private Asset Pack fora do Core"]
+  source["fonte privada original"] --> packBuild["build:private-asset-pack (lossless)"]
+  packBuild --> canonical["pack canônico v1 fora do Core"]
+  canonical --> optimize["optimize:private-asset-pack"]
+  optimize --> private["runtime pack v2 fora do Core"]
 ```
 
 Comandos principais:
@@ -302,6 +300,7 @@ Comandos principais:
 | --- | --- |
 | `npm run build` | Gera bundles em `dist/`. |
 | `npm run build:private-asset-pack -- --source <origem> --output <dir>` | Migra uma arvore privada historica para um pack canonico fora do Core, sem recompressao. |
+| `npm run optimize:private-asset-pack -- --source-pack <dir> --output <runtime>` | Gera o runtime v2 sem alterar a fonte; `assetId` é lógico e `blobSha256` valida os bytes. |
 | `npm run check:private-asset-pack -- --pack <dir>` | Verifica hashes, aliases e presets privados. |
 | `npm run test:regressions` | Testa resolvedor, aliases, ausencia de pack e regressao de pilhas. |
 | `node dev-server.mjs 5180` | Servidor local de teste. |

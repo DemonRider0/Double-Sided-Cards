@@ -8,7 +8,7 @@ Extensão para manipular cartas 2D com frente e verso dentro do Owlbear Rodeo. O
 - compra, embaralhamento e devolução de cartas para a pilha de origem;
 - bibliotecas privadas opcionais de cartas e pilhas;
 - criação de pilha temporária a partir de cinco cartas selecionadas;
-- restauração de mapas configurados no Private Asset Pack;
+- criação de cenas independentes a partir dos templates privados Tutorial e Missão 0.5;
 - seleção de jogador por cor e slots de raça, classe e divindade;
 - ações pelo painel, pelos comandos do tabuleiro e por atalhos de teclado.
 
@@ -17,7 +17,7 @@ Extensão para manipular cartas 2D com frente e verso dentro do Owlbear Rodeo. O
 No Owlbear Rodeo, adicione uma extensão personalizada usando este manifesto público:
 
 ```text
-https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=100
+https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=101
 ```
 
 Versão pública preparada: **1.0.0**.
@@ -29,7 +29,7 @@ Uma instalação sem Private Asset Pack continua funcional para cartas e pilhas 
 ## Uso básico
 
 1. Abra o painel **Cartas** dentro de uma sala do Owlbear Rodeo.
-2. Se um Private Asset Pack estiver configurado, escolha um mapa salvo. A restauração pede confirmação e altera a cena atual.
+2. Se um Private Asset Pack estiver configurado e vinculado, use **Criar cena Tutorial** ou **Criar cena Missão 0.5 (não oficial)**. A nova cena aparece no Atlas sem alterar a cena aberta.
 3. Quando o mapa utilizar seleção por jogador, escolha sua cor pelo identificador correspondente no tabuleiro.
 4. Com um pack configurado e vinculado, use a seção **Biblioteca** para criar uma cópia de uma pilha ou carta cadastrada. As bibliotecas não são consumidas durante a partida.
 5. Selecione uma carta ou pilha e use as ações do painel ou do próprio tabuleiro para virar, comprar, embaralhar ou devolver.
@@ -52,7 +52,7 @@ No mobile, as ações essenciais também estão disponíveis por botões; o uso 
 - A carta comprada respeita a face atual da pilha.
 - A devolução envia a carta para o fundo da pilha.
 - Compra e devolução por arrasto não fazem parte do fluxo atual.
-- A restauração de mapas deve ser feita na cena que pode receber o tabuleiro preparado.
+- Templates privados podem ser criados repetidamente como cenas independentes no Atlas.
 - Algumas ações dependem das permissões concedidas ao jogador na sala do Owlbear Rodeo.
 
 ## Autoria

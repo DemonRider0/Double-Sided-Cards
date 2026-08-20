@@ -1,9 +1,17 @@
 const PRIVATE_ASSET_STATE_VERSION = 1;
 
 export const PRIVATE_ASSET_PACK_FORMAT = "double-sided-cards-private-asset-pack";
-export const PRIVATE_ASSET_PACK_VERSION = 1;
+export const PRIVATE_ASSET_PACK_VERSION = 2;
+export const PRIVATE_ASSET_PACK_SUPPORTED_VERSIONS = Object.freeze([1, 2]);
 export const PRIVATE_ASSET_STORAGE_KEY =
   "br.demonrider.double-sided-cards/private-asset-pack";
+export const PRIVATE_ASSET_MAX_FILE_SIZE = 25_000_000;
+export const PRIVATE_ASSET_UPLOAD_FORMATS = Object.freeze({
+  ".jpeg": "image/jpeg",
+  ".jpg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp",
+});
 
 let cachedStorage = null;
 let cachedRawState = undefined;
@@ -28,6 +36,13 @@ function getDefaultStorage() {
 
 function normalizeSlashes(value) {
   return String(value || "").replaceAll("\\", "/");
+}
+
+export function getPrivateAssetUploadMime(value) {
+  const fileName = normalizeSlashes(value).split("/").filter(Boolean).pop() || "";
+  const extensionIndex = fileName.lastIndexOf(".");
+  const extension = extensionIndex >= 0 ? fileName.slice(extensionIndex).toLowerCase() : "";
+  return PRIVATE_ASSET_UPLOAD_FORMATS[extension] || null;
 }
 
 function safeDecode(value) {
@@ -134,11 +149,23 @@ function assertSafeRelativePath(value, label) {
   return normalized;
 }
 
+function normalizeSha256(value, label) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!/^sha256:[0-9a-f]{64}$/.test(normalized)) {
+    throw new Error(`${label} precisa ser um SHA-256 no formato sha256:<hex>.`);
+  }
+  return normalized;
+}
+
+export function isSupportedPrivateAssetPackVersion(version) {
+  return PRIVATE_ASSET_PACK_SUPPORTED_VERSIONS.includes(version);
+}
+
 export function validatePrivateAssetPack(value) {
   if (
     !isRecord(value) ||
     value.format !== PRIVATE_ASSET_PACK_FORMAT ||
-    value.version !== PRIVATE_ASSET_PACK_VERSION ||
+    !isSupportedPrivateAssetPackVersion(value.version) ||
     typeof value.id !== "string" ||
     !value.id.trim() ||
     !isRecord(value.assets) ||
@@ -148,16 +175,57 @@ export function validatePrivateAssetPack(value) {
     throw new Error("O Private Asset Pack possui uma estrutura inválida.");
   }
 
+  const sourceFormatVersion = value.version;
   const pack = clone(value);
+  pack.version = PRIVATE_ASSET_PACK_VERSION;
+  pack.sourceFormatVersion = sourceFormatVersion;
   for (const [assetId, asset] of Object.entries(pack.assets)) {
     if (!assetId || !isRecord(asset)) {
       throw new Error("O Private Asset Pack possui um asset canônico inválido.");
     }
     asset.file = assertSafeRelativePath(asset.file, `O asset ${assetId}`);
+    const logicalSha256 = normalizeSha256(assetId, `O asset lógico ${assetId}`);
+    asset.blobSha256 = normalizeSha256(
+      sourceFormatVersion === 1 ? asset.blobSha256 || logicalSha256 : asset.blobSha256,
+      `O hash físico do asset ${assetId}`,
+    );
+    const expectedMime = getPrivateAssetUploadMime(asset.file);
+    if (!expectedMime) {
+      throw new Error(
+        `O asset ${assetId} usa um formato não suportado para upload no Owlbear: ${asset.file}.`,
+      );
+    }
+    const declaredMime =
+      typeof asset.mime === "string" ? asset.mime.trim().toLowerCase() : "";
+    if (declaredMime !== expectedMime) {
+      throw new Error(
+        `O asset ${assetId} possui MIME incompatível: ${declaredMime || "não informado"}; esperado ${expectedMime}.`,
+      );
+    }
+    asset.mime = expectedMime;
+    if (
+      !Number.isFinite(asset.size) ||
+      asset.size <= 0 ||
+      asset.size > PRIVATE_ASSET_MAX_FILE_SIZE
+    ) {
+      throw new Error(
+        `O asset ${assetId} possui tamanho incompatível com o plano Fledgling: ${asset.size || 0} bytes; máximo ${PRIVATE_ASSET_MAX_FILE_SIZE} bytes.`,
+      );
+    }
     if (typeof asset.owlbearName !== "string" || !asset.owlbearName.trim()) {
       throw new Error(`O asset ${assetId} não possui nome para o Owlbear.`);
     }
+    if (
+      !Number.isInteger(asset.width) ||
+      asset.width <= 0 ||
+      !Number.isInteger(asset.height) ||
+      asset.height <= 0
+    ) {
+      throw new Error(`O asset ${assetId} não possui dimensões válidas.`);
+    }
   }
+
+  pack.runtimeSize = Object.values(pack.assets).reduce((total, asset) => total + asset.size, 0);
 
   for (const [alias, assetId] of Object.entries(pack.aliases)) {
     if (!alias || typeof assetId !== "string" || !pack.assets[assetId]) {
@@ -483,6 +551,7 @@ export function getPrivateAssetPackStatus(storage = getDefaultStorage()) {
     configured: Boolean(state),
     id: state?.pack.id || "",
     name: state?.pack.name || "",
+    runtimeSize: state?.pack.runtimeSize || 0,
     total,
     linked,
     missing: Math.max(0, total - linked),

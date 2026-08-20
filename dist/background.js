@@ -1982,12 +1982,12 @@ const CATEGORY_IDS = new Set(CARD_CATEGORIES.map((category) => category.id));
 const selectionOperationTails = new Map();
 let playerColorOperationTail = Promise.resolve();
 
-function isRecord$1(value) {
+function isRecord$2(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 function copyDefinedRecord(value) {
-  if (!isRecord$1(value)) {
+  if (!isRecord$2(value)) {
     return {};
   }
 
@@ -2092,7 +2092,7 @@ function createEmptyState() {
 function normalizeState(value) {
   const emptyState = createEmptyState();
 
-  if (!isRecord$1(value)) {
+  if (!isRecord$2(value)) {
     return emptyState;
   }
 
@@ -6279,6 +6279,83 @@ class ImageUploadBuilder {
     }
 }
 
+class SceneUploadBuilder {
+    constructor() {
+        this._upload = {
+            name: "New Scene",
+            fog: { filled: false, style: { color: "#222222", strokeWidth: 5 } },
+            grid: {
+                dpi: 150,
+                scale: "5ft",
+                style: {
+                    lineColor: "LIGHT",
+                    lineOpacity: 0.4,
+                    lineType: "DASHED",
+                    lineWidth: 2,
+                },
+                measurement: "CHEBYSHEV",
+                type: "SQUARE",
+            },
+            items: [],
+        };
+    }
+    name(name) {
+        this._upload.name = name;
+        return this;
+    }
+    fogFilled(filled) {
+        this._upload.fog.filled = filled;
+        return this;
+    }
+    fogColor(color) {
+        this._upload.fog.style.color = color;
+        return this;
+    }
+    fogStrokeWidth(width) {
+        this._upload.fog.style.strokeWidth = width;
+        return this;
+    }
+    gridScale(scale) {
+        this._upload.grid.scale = scale;
+        return this;
+    }
+    gridColor(color) {
+        this._upload.grid.style.lineColor = color;
+        return this;
+    }
+    gridOpacity(opacity) {
+        this._upload.grid.style.lineOpacity = opacity;
+        return this;
+    }
+    gridLineType(lineType) {
+        this._upload.grid.style.lineType = lineType;
+        return this;
+    }
+    gridMeasurement(measurement) {
+        this._upload.grid.measurement = measurement;
+        return this;
+    }
+    gridType(type) {
+        this._upload.grid.type = type;
+        return this;
+    }
+    items(items) {
+        this._upload.items = items;
+        return this;
+    }
+    baseMap(baseMap) {
+        this._upload.baseMap = baseMap;
+        return this;
+    }
+    thumbnail(thumbnail) {
+        this._upload.thumbnail = thumbnail;
+        return this;
+    }
+    build() {
+        return this._upload;
+    }
+}
+
 /**
  *  base64.ts
  *
@@ -6471,6 +6548,9 @@ function buildLabel() {
 function buildImageUpload(file) {
     return new ImageUploadBuilder(file);
 }
+function buildSceneUpload() {
+    return new SceneUploadBuilder();
+}
 
 function isInOwlbearFrame() {
   return window.parent !== window;
@@ -6482,7 +6562,7 @@ async function loadOwlbearSdk(timeoutMs = 5000) {
   }
 
   if (OBR.isReady) {
-    return { OBR, sdk: { buildImage, buildImageUpload, buildLabel } };
+    return { OBR, sdk: { buildImage, buildImageUpload, buildLabel, buildSceneUpload } };
   }
 
   await new Promise((resolve, reject) => {
@@ -6503,26 +6583,34 @@ async function loadOwlbearSdk(timeoutMs = 5000) {
     });
   });
 
-  return { OBR, sdk: { buildImage, buildImageUpload, buildLabel } };
+  return { OBR, sdk: { buildImage, buildImageUpload, buildLabel, buildSceneUpload } };
 }
 
 const PRIVATE_ASSET_STATE_VERSION = 1;
 
 const PRIVATE_ASSET_PACK_FORMAT = "double-sided-cards-private-asset-pack";
-const PRIVATE_ASSET_PACK_VERSION = 1;
+const PRIVATE_ASSET_PACK_VERSION = 2;
+const PRIVATE_ASSET_PACK_SUPPORTED_VERSIONS = Object.freeze([1, 2]);
 const PRIVATE_ASSET_STORAGE_KEY =
   "br.demonrider.double-sided-cards/private-asset-pack";
+const PRIVATE_ASSET_MAX_FILE_SIZE = 25_000_000;
+const PRIVATE_ASSET_UPLOAD_FORMATS = Object.freeze({
+  ".jpeg": "image/jpeg",
+  ".jpg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp",
+});
 
 let cachedStorage = null;
 let cachedRawState = undefined;
 let cachedState = null;
 let cachedResolver = null;
 
-function isRecord(value) {
+function isRecord$1(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-function clone(value) {
+function clone$1(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
 }
 
@@ -6536,6 +6624,13 @@ function getDefaultStorage() {
 
 function normalizeSlashes(value) {
   return String(value || "").replaceAll("\\", "/");
+}
+
+function getPrivateAssetUploadMime(value) {
+  const fileName = normalizeSlashes(value).split("/").filter(Boolean).pop() || "";
+  const extensionIndex = fileName.lastIndexOf(".");
+  const extension = extensionIndex >= 0 ? fileName.slice(extensionIndex).toLowerCase() : "";
+  return PRIVATE_ASSET_UPLOAD_FORMATS[extension] || null;
 }
 
 function safeDecode(value) {
@@ -6642,30 +6737,83 @@ function assertSafeRelativePath(value, label) {
   return normalized;
 }
 
+function normalizeSha256(value, label) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!/^sha256:[0-9a-f]{64}$/.test(normalized)) {
+    throw new Error(`${label} precisa ser um SHA-256 no formato sha256:<hex>.`);
+  }
+  return normalized;
+}
+
+function isSupportedPrivateAssetPackVersion(version) {
+  return PRIVATE_ASSET_PACK_SUPPORTED_VERSIONS.includes(version);
+}
+
 function validatePrivateAssetPack(value) {
   if (
-    !isRecord(value) ||
+    !isRecord$1(value) ||
     value.format !== PRIVATE_ASSET_PACK_FORMAT ||
-    value.version !== PRIVATE_ASSET_PACK_VERSION ||
+    !isSupportedPrivateAssetPackVersion(value.version) ||
     typeof value.id !== "string" ||
     !value.id.trim() ||
-    !isRecord(value.assets) ||
-    !isRecord(value.aliases) ||
-    !isRecord(value.presets)
+    !isRecord$1(value.assets) ||
+    !isRecord$1(value.aliases) ||
+    !isRecord$1(value.presets)
   ) {
     throw new Error("O Private Asset Pack possui uma estrutura inválida.");
   }
 
-  const pack = clone(value);
+  const sourceFormatVersion = value.version;
+  const pack = clone$1(value);
+  pack.version = PRIVATE_ASSET_PACK_VERSION;
+  pack.sourceFormatVersion = sourceFormatVersion;
   for (const [assetId, asset] of Object.entries(pack.assets)) {
-    if (!assetId || !isRecord(asset)) {
+    if (!assetId || !isRecord$1(asset)) {
       throw new Error("O Private Asset Pack possui um asset canônico inválido.");
     }
     asset.file = assertSafeRelativePath(asset.file, `O asset ${assetId}`);
+    const logicalSha256 = normalizeSha256(assetId, `O asset lógico ${assetId}`);
+    asset.blobSha256 = normalizeSha256(
+      sourceFormatVersion === 1 ? asset.blobSha256 || logicalSha256 : asset.blobSha256,
+      `O hash físico do asset ${assetId}`,
+    );
+    const expectedMime = getPrivateAssetUploadMime(asset.file);
+    if (!expectedMime) {
+      throw new Error(
+        `O asset ${assetId} usa um formato não suportado para upload no Owlbear: ${asset.file}.`,
+      );
+    }
+    const declaredMime =
+      typeof asset.mime === "string" ? asset.mime.trim().toLowerCase() : "";
+    if (declaredMime !== expectedMime) {
+      throw new Error(
+        `O asset ${assetId} possui MIME incompatível: ${declaredMime || "não informado"}; esperado ${expectedMime}.`,
+      );
+    }
+    asset.mime = expectedMime;
+    if (
+      !Number.isFinite(asset.size) ||
+      asset.size <= 0 ||
+      asset.size > PRIVATE_ASSET_MAX_FILE_SIZE
+    ) {
+      throw new Error(
+        `O asset ${assetId} possui tamanho incompatível com o plano Fledgling: ${asset.size || 0} bytes; máximo ${PRIVATE_ASSET_MAX_FILE_SIZE} bytes.`,
+      );
+    }
     if (typeof asset.owlbearName !== "string" || !asset.owlbearName.trim()) {
       throw new Error(`O asset ${assetId} não possui nome para o Owlbear.`);
     }
+    if (
+      !Number.isInteger(asset.width) ||
+      asset.width <= 0 ||
+      !Number.isInteger(asset.height) ||
+      asset.height <= 0
+    ) {
+      throw new Error(`O asset ${assetId} não possui dimensões válidas.`);
+    }
   }
+
+  pack.runtimeSize = Object.values(pack.assets).reduce((total, asset) => total + asset.size, 0);
 
   for (const [alias, assetId] of Object.entries(pack.aliases)) {
     if (!alias || typeof assetId !== "string" || !pack.assets[assetId]) {
@@ -6674,9 +6822,9 @@ function validatePrivateAssetPack(value) {
   }
 
   if (
-    !isRecord(pack.presets.cards) ||
-    !isRecord(pack.presets.decks) ||
-    !isRecord(pack.presets.scenes)
+    !isRecord$1(pack.presets.cards) ||
+    !isRecord$1(pack.presets.decks) ||
+    !isRecord$1(pack.presets.scenes)
   ) {
     throw new Error("Os manifests e presets do Private Asset Pack não foram carregados.");
   }
@@ -6684,9 +6832,9 @@ function validatePrivateAssetPack(value) {
   for (const [sceneId, scene] of Object.entries(pack.presets.scenes)) {
     if (
       !sceneId ||
-      !isRecord(scene) ||
-      !isRecord(scene.definition) ||
-      !isRecord(scene.preset)
+      !isRecord$1(scene) ||
+      !isRecord$1(scene.definition) ||
+      !isRecord$1(scene.preset)
     ) {
       throw new Error(`O preset privado ${sceneId || "sem ID"} é inválido.`);
     }
@@ -6696,8 +6844,8 @@ function validatePrivateAssetPack(value) {
 }
 
 function normalizeBinding(value) {
-  const image = isRecord(value?.image) ? value.image : value;
-  if (!isRecord(image) || typeof image.url !== "string" || !image.url.trim()) {
+  const image = isRecord$1(value?.image) ? value.image : value;
+  if (!isRecord$1(image) || typeof image.url !== "string" || !image.url.trim()) {
     return null;
   }
 
@@ -6725,7 +6873,7 @@ function normalizeBindings(bindings, pack) {
 }
 
 function validateStoredState(value) {
-  if (!isRecord(value) || value.version !== PRIVATE_ASSET_STATE_VERSION) {
+  if (!isRecord$1(value) || value.version !== PRIVATE_ASSET_STATE_VERSION) {
     return null;
   }
 
@@ -6755,7 +6903,7 @@ function readPrivateAssetState(storage = getDefaultStorage()) {
   }
 
   if (storage === cachedStorage && raw === cachedRawState) {
-    return cachedState ? clone(cachedState) : null;
+    return cachedState ? clone$1(cachedState) : null;
   }
 
   let state = null;
@@ -6771,7 +6919,7 @@ function readPrivateAssetState(storage = getDefaultStorage()) {
   cachedRawState = raw;
   cachedState = state;
   cachedResolver = null;
-  return state ? clone(state) : null;
+  return state ? clone$1(state) : null;
 }
 
 function addAlias(aliasMap, ambiguousAliases, alias, assetId) {
@@ -6830,7 +6978,7 @@ function createAssetResolver(pack = null, bindings = {}) {
   }
 
   function resolve(reference) {
-    const isObjectReference = isRecord(reference);
+    const isObjectReference = isRecord$1(reference);
     const rawReference = isObjectReference
       ? reference.assetId || reference.path || reference.url || ""
       : reference;
@@ -6887,7 +7035,7 @@ function createAssetResolver(pack = null, bindings = {}) {
     getCanonicalId,
     isReady(reference) {
       const assetId = getCanonicalId(
-        isRecord(reference)
+        isRecord$1(reference)
           ? reference.assetId || reference.path || reference.url || ""
           : reference,
       );
@@ -6918,8 +7066,84 @@ function resolveConfiguredAsset(reference, storage = getDefaultStorage()) {
   return getConfiguredAssetResolver(storage).resolve(reference);
 }
 
+const SCENE_BOOTSTRAP_MARKER_KEY = `${EXTENSION_ID}/scene-bootstrap`;
+
+function isRecord(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function valuesEqual(left, right) {
+  if (Object.is(left, right)) {
+    return true;
+  }
+
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => valuesEqual(value, right[index]))
+    );
+  }
+
+  if (!isRecord(left) || !isRecord(right)) {
+    return false;
+  }
+
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key, index) => key === rightKeys[index] && valuesEqual(left[key], right[key]),
+    )
+  );
+}
+
+async function bootstrapPrivateSceneMetadata(OBR) {
+  if (!OBR?.scene?.items?.getItems || !OBR?.scene?.setMetadata) {
+    return { found: false, applied: false };
+  }
+  const items = await OBR.scene.items.getItems();
+  const markerItem = items.find((item) => {
+    const marker = item.metadata?.[SCENE_BOOTSTRAP_MARKER_KEY];
+    return isRecord(marker) && marker.version === 1 && marker.completed !== true;
+  });
+  const marker = markerItem?.metadata?.[SCENE_BOOTSTRAP_MARKER_KEY];
+  if (!markerItem || !isRecord(marker?.selectionBoard)) {
+    return { found: false, applied: false };
+  }
+
+  const currentMetadata = await OBR.scene.getMetadata();
+  const alreadyApplied = valuesEqual(
+    currentMetadata?.[SELECTION_BOARD_KEY],
+    marker.selectionBoard,
+  );
+  if (!alreadyApplied) {
+    await OBR.scene.setMetadata({
+      [SELECTION_BOARD_KEY]: clone(marker.selectionBoard),
+    });
+  }
+  await OBR.scene.items.updateItems([markerItem.id], (draftItems) => {
+    const draft = draftItems[0];
+    const currentMarker = draft?.metadata?.[SCENE_BOOTSTRAP_MARKER_KEY];
+    if (!draft || !isRecord(currentMarker) || currentMarker.completed === true) {
+      return;
+    }
+    draft.metadata[SCENE_BOOTSTRAP_MARKER_KEY] = {
+      version: 1,
+      completed: true,
+    };
+  });
+  return { found: true, applied: !alreadyApplied };
+}
+
 function assetUrl(path) {
-  return `${new URL(`../${path}`, import.meta.url).toString()}?v=100`;
+  return `${new URL(`../${path}`, import.meta.url).toString()}?v=101`;
 }
 
 const COMMAND_REGISTRATION_DEBOUNCE_MS = 200;
@@ -7138,6 +7362,33 @@ async function setupContextMenu() {
   let lastImageSelection = [];
   let activePlayerColor = null;
   let deckDisplaySyncTimer = null;
+  let sceneBootstrapPromise = null;
+
+  function runSceneBootstrap() {
+    if (sceneBootstrapPromise) {
+      return sceneBootstrapPromise;
+    }
+    sceneBootstrapPromise = bootstrapPrivateSceneMetadata(OBR)
+      .catch((error) => {
+        console.warn("Não consegui inicializar a metadata privada da cena", error);
+      })
+      .finally(() => {
+        sceneBootstrapPromise = null;
+      });
+    return sceneBootstrapPromise;
+  }
+
+  OBR.scene.onReadyChange((ready) => {
+    if (ready) {
+      runSceneBootstrap();
+    }
+  });
+  OBR.scene
+    .isReady()
+    .then((ready) => (ready ? runSceneBootstrap() : null))
+    .catch((error) => {
+      console.warn("Não consegui verificar o bootstrap da cena", error);
+    });
 
   async function rememberSelection(selection) {
     if (!selection?.length) {

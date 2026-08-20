@@ -18,21 +18,22 @@ import { fileURLToPath } from "node:url";
 
 import {
   PRIVATE_ASSET_PACK_FORMAT,
-  PRIVATE_ASSET_PACK_VERSION,
+  PRIVATE_ASSET_MAX_FILE_SIZE,
+  PRIVATE_ASSET_UPLOAD_FORMATS,
   getAssetAliasCandidates,
+  getPrivateAssetUploadMime,
 } from "../src/asset-resolver.js";
 import { readImageMetadata } from "./image-metadata.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const imageExtensions = new Set([
+const CANONICAL_PRIVATE_ASSET_PACK_VERSION = 1;
+const imageExtensions = new Set(Object.keys(PRIVATE_ASSET_UPLOAD_FORMATS));
+const knownImageExtensions = new Set([
+  ...imageExtensions,
   ".apng",
   ".avif",
   ".gif",
-  ".jpg",
-  ".jpeg",
-  ".png",
   ".svg",
-  ".webp",
 ]);
 const protectedDirectories = [
   "assets/preset-cards",
@@ -68,13 +69,13 @@ async function exists(filePath) {
   }
 }
 
-async function collectImageFiles(directory) {
+async function collectSourceFiles(directory) {
   const files = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const entryPath = path.join(directory, entry.name);
     if (entry.isDirectory()) {
-      files.push(...(await collectImageFiles(entryPath)));
-    } else if (entry.isFile() && imageExtensions.has(path.extname(entry.name).toLowerCase())) {
+      files.push(...(await collectSourceFiles(entryPath)));
+    } else if (entry.isFile()) {
       files.push(entryPath);
     }
   }
@@ -124,40 +125,46 @@ async function readLegacySceneIndex() {
   return { version: 1, presets };
 }
 
-async function readPreservedImageMetadata(filePath) {
-  try {
-    return await readImageMetadata(filePath);
-  } catch (error) {
-    console.warn(`Metadata não legível; arquivo preservado sem alteração: ${displayPath(filePath)}`);
-    const extension = path.extname(filePath).toLowerCase();
-    return {
-      mime:
-        extension === ".jpg" || extension === ".jpeg"
-          ? "image/jpeg"
-          : extension === ".webp"
-            ? "image/webp"
-            : extension === ".svg"
-              ? "image/svg+xml"
-              : "image/png",
-    };
-  }
-}
-
 function getLegacyBackgroundSource() {
-  const currentPath = path.join(root, "src", "background.js");
   const sources = [];
+  const seen = new Set();
+  function addSource(source) {
+    if (source && !seen.has(source)) {
+      seen.add(source);
+      sources.push(source);
+    }
+  }
   try {
-    sources.push(execFileSync("git", ["show", "HEAD:src/background.js"], {
-      cwd: root,
-      encoding: "utf8",
-      windowsHide: true,
-    }));
+    const revisions = execFileSync(
+      "git",
+      ["log", "--format=%H", "--all", "--", "src/background.js"],
+      {
+        cwd: root,
+        encoding: "utf8",
+        windowsHide: true,
+      },
+    )
+      .split(/\r?\n/)
+      .filter(Boolean);
+    for (const revision of revisions) {
+      addSource(
+        execFileSync("git", ["show", `${revision}:src/background.js`], {
+          cwd: root,
+          encoding: "utf8",
+          windowsHide: true,
+        }),
+      );
+    }
   } catch {
     // O primeiro pack também pode ser criado fora de um checkout Git.
   }
-  return readFile(currentPath, "utf8")
-    .then((current) => [...sources, current])
-    .catch(() => sources);
+  return Promise.all(
+    [...new Set([path.join(root, "src", "background.js"), path.join(sourceRoot, "src", "background.js")])]
+      .map((filePath) => readFile(filePath, "utf8").catch(() => "")),
+  ).then((currentSources) => {
+    currentSources.forEach(addSource);
+    return sources;
+  });
 }
 
 function collectLegacyOwlbearAliases(sources, aliases, pathToAssetId) {
@@ -211,11 +218,167 @@ function resolveAlias(value, lookup) {
   return null;
 }
 
-function transformAssetReferences(value, lookup, unresolved, label) {
+function collectLegacyOptimizedAssetPairs(sources) {
+  const pairs = new Map();
+  for (const source of sources) {
+    const start = source.indexOf("const OPTIMIZED_ASSET_FILENAMES");
+    const end = source.indexOf("]);", start);
+    if (start < 0 || end < 0) {
+      continue;
+    }
+    const block = source.slice(start, end);
+    for (const match of block.matchAll(/"([^"]+)"\s*,\s*"([^"]+)"/g)) {
+      const previous = pairs.get(match[1]);
+      if (previous && previous !== match[2]) {
+        throw new Error(
+          `Mapeamento histórico ambíguo para ${match[1]}: ${previous} e ${match[2]}.`,
+        );
+      }
+      pairs.set(match[1], match[2]);
+    }
+  }
+  return pairs;
+}
+
+function createExcludedFileLookup(entries) {
+  const lookup = new Map();
+  for (const entry of entries) {
+    const references = [entry.path, ...(entry.hash ? [`sha256:${entry.hash}`] : [])];
+    const localPrefix = "assets/local-assets/";
+    if (entry.path.startsWith(localPrefix)) {
+      references.push(`.local-assets/${entry.path.slice(localPrefix.length)}`);
+    }
+    for (const reference of references) {
+      for (const candidate of getAssetAliasCandidates(reference)) {
+        lookup.set(candidate, entry);
+        lookup.set(candidate.toLowerCase(), entry);
+      }
+    }
+  }
+  return lookup;
+}
+
+function resolveExcludedFile(value, lookup) {
+  for (const candidate of getAssetAliasCandidates(value)) {
+    const entry = lookup.get(candidate) || lookup.get(candidate.toLowerCase());
+    if (entry) {
+      return entry;
+    }
+  }
+  return null;
+}
+
+function assertReferenceIsUploadCompatible(reference, excludedLookup, label) {
+  const excluded = resolveExcludedFile(reference, excludedLookup);
+  if (excluded) {
+    throw new Error(
+      `Referência privada incompatível em ${label}: ${reference} aponta para ${excluded.path}; ${excluded.reason}.`,
+    );
+  }
+}
+
+function addPathAliases(aliases, pathToAssetId, sourcePath, assetId) {
+  aliases[sourcePath] = assetId;
+  pathToAssetId.set(sourcePath, assetId);
+  const localPrefix = "assets/local-assets/";
+  if (sourcePath.startsWith(localPrefix)) {
+    aliases[`.local-assets/${sourcePath.slice(localPrefix.length)}`] = assetId;
+  }
+}
+
+function addOptimizedReplacementAliases(
+  sources,
+  rejectedEntries,
+  assets,
+  aliases,
+  pathToAssetId,
+) {
+  const rejectedByPath = new Map(rejectedEntries.map((entry) => [entry.path, entry]));
+  const replacementByRejectedHash = new Map();
+  const optimizedPairs = collectLegacyOptimizedAssetPairs(sources);
+
+  for (const [sourceName, targetName] of optimizedPairs) {
+    const sourcePath = `assets/local-assets/${sourceName}`;
+    const targetPath = `assets/local-assets/${targetName}`;
+    const sourceEntry = rejectedByPath.get(sourcePath);
+    if (!sourceEntry) {
+      continue;
+    }
+    if (sourceEntry.reasonCode !== "too-large") {
+      throw new Error(
+        `A substituição histórica ${sourceName} -> ${targetName} não pode ocultar ${sourceEntry.reason}.`,
+      );
+    }
+    const targetAssetId = pathToAssetId.get(targetPath);
+    const targetAsset = assets[targetAssetId];
+    if (!targetAsset) {
+      throw new Error(
+        `Substituição histórica incompleta: ${sourceName} aponta para ${targetName}, que não gerou um asset canônico válido.`,
+      );
+    }
+    if (
+      sourceEntry.metadata.width !== targetAsset.width ||
+      sourceEntry.metadata.height !== targetAsset.height
+    ) {
+      throw new Error(
+        `Substituição histórica incompatível: ${sourceName} (${sourceEntry.metadata.width}x${sourceEntry.metadata.height}) e ${targetName} (${targetAsset.width}x${targetAsset.height}) possuem dimensões diferentes.`,
+      );
+    }
+    const current = replacementByRejectedHash.get(sourceEntry.hash);
+    if (current && current !== targetAssetId) {
+      throw new Error(`O asset histórico sha256:${sourceEntry.hash} possui substituições conflitantes.`);
+    }
+    replacementByRejectedHash.set(sourceEntry.hash, targetAssetId);
+  }
+
+  for (const entry of rejectedEntries) {
+    const targetAssetId = replacementByRejectedHash.get(entry.hash);
+    if (!targetAssetId) {
+      continue;
+    }
+    addPathAliases(aliases, pathToAssetId, entry.path, targetAssetId);
+    aliases[`sha256:${entry.hash}`] = targetAssetId;
+  }
+
+  return new Map(
+    [...replacementByRejectedHash].map(([hash, targetAssetId]) => [
+      `sha256:${hash}`,
+      targetAssetId,
+    ]),
+  );
+}
+
+function createLogicalAssetReference(assetId, assets) {
+  const asset = assets[assetId];
+  return {
+    ...(Number.isFinite(asset?.width) ? { width: asset.width } : {}),
+    ...(Number.isFinite(asset?.height) ? { height: asset.height } : {}),
+    ...(asset?.mime ? { mime: asset.mime } : {}),
+    assetId,
+  };
+}
+
+function transformAssetReferences(value, lookup, assets, excludedLookup, unresolved, label) {
   if (Array.isArray(value)) {
     return value.map((entry, index) =>
-      transformAssetReferences(entry, lookup, unresolved, `${label}[${index}]`),
+      transformAssetReferences(
+        entry,
+        lookup,
+        assets,
+        excludedLookup,
+        unresolved,
+        `${label}[${index}]`,
+      ),
     );
+  }
+
+  if (typeof value === "string") {
+    const assetId = resolveAlias(value, lookup);
+    if (assetId) {
+      return createLogicalAssetReference(assetId, assets);
+    }
+    assertReferenceIsUploadCompatible(value, excludedLookup, label);
+    return value;
   }
 
   if (!value || typeof value !== "object") {
@@ -231,6 +394,7 @@ function transformAssetReferences(value, lookup, unresolved, label) {
       delete transformed.url;
       return transformed;
     }
+    assertReferenceIsUploadCompatible(reference, excludedLookup, label);
 
     if (/^(?:https?:|file:)|^[a-z]:[\\/]/i.test(reference)) {
       unresolved.push({ label, reference });
@@ -240,7 +404,14 @@ function transformAssetReferences(value, lookup, unresolved, label) {
   return Object.fromEntries(
     Object.entries(value).map(([key, entry]) => [
       key,
-      transformAssetReferences(entry, lookup, unresolved, `${label}.${key}`),
+      transformAssetReferences(
+        entry,
+        lookup,
+        assets,
+        excludedLookup,
+        unresolved,
+        `${label}.${key}`,
+      ),
     ]),
   );
 }
@@ -289,24 +460,59 @@ await mkdir(outputParent, { recursive: true });
 const temporaryOutput = await mkdtemp(path.join(outputParent, ".dsc-private-pack-"));
 
 try {
-  const imageFiles = (
+  const sourceFiles = (
     await Promise.all(
-      protectedDirectories.map((directory) => collectImageFiles(path.join(sourceRoot, directory))),
+      protectedDirectories.map((directory) => collectSourceFiles(path.join(sourceRoot, directory))),
     )
   ).flat();
+  const imageFiles = sourceFiles.filter((filePath) =>
+    imageExtensions.has(path.extname(filePath).toLowerCase()),
+  );
+  const unsupportedFiles = sourceFiles.filter(
+    (filePath) => !imageExtensions.has(path.extname(filePath).toLowerCase()),
+  );
+  const excludedImageFiles = unsupportedFiles.filter((filePath) =>
+    knownImageExtensions.has(path.extname(filePath).toLowerCase()),
+  );
   const fileEntries = [];
+  const rejectedEntries = [];
 
   for (let index = 0; index < imageFiles.length; index += 1) {
     const filePath = imageFiles[index];
     const details = await stat(filePath);
     const hash = await hashFile(filePath);
-    fileEntries.push({
+    let metadata;
+    try {
+      metadata = await readImageMetadata(filePath);
+    } catch (error) {
+      rejectedEntries.push({
+        filePath,
+        path: displayPath(filePath),
+        hash,
+        size: details.size,
+        extension: path.extname(filePath).toLowerCase(),
+        reasonCode: "invalid-image",
+        reason: `o conteúdo não é uma imagem real e legível (${error.message})`,
+      });
+      continue;
+    }
+    const entry = {
       filePath,
       path: displayPath(filePath),
       hash,
       size: details.size,
-      metadata: await readPreservedImageMetadata(filePath),
-    });
+      metadata,
+    };
+    if (details.size > PRIVATE_ASSET_MAX_FILE_SIZE) {
+      rejectedEntries.push({
+        ...entry,
+        extension: path.extname(filePath).toLowerCase(),
+        reasonCode: "too-large",
+        reason: `o arquivo possui ${details.size} bytes e excede o limite Fledgling de ${PRIVATE_ASSET_MAX_FILE_SIZE} bytes`,
+      });
+    } else {
+      fileEntries.push(entry);
+    }
     if ((index + 1) % 100 === 0 || index + 1 === imageFiles.length) {
       console.log(`Hash: ${index + 1}/${imageFiles.length}`);
     }
@@ -346,12 +552,7 @@ try {
     await copyFile(representative.filePath, path.join(temporaryOutput, canonicalFile));
 
     for (const entry of entries) {
-      aliases[entry.path] = assetId;
-      pathToAssetId.set(entry.path, assetId);
-      const localPrefix = "assets/local-assets/";
-      if (entry.path.startsWith(localPrefix)) {
-        aliases[`.local-assets/${entry.path.slice(localPrefix.length)}`] = assetId;
-      }
+      addPathAliases(aliases, pathToAssetId, entry.path, assetId);
 
       const owlbearMatch = path.basename(entry.path).match(/owlbear-([0-9a-f-]{36})-/i);
       if (owlbearMatch) {
@@ -360,28 +561,49 @@ try {
     }
   }
 
-  collectLegacyOwlbearAliases(await getLegacyBackgroundSource(), aliases, pathToAssetId);
+  const legacyBackgroundSources = await getLegacyBackgroundSource();
+  const replacementByPreviousAssetId = addOptimizedReplacementAliases(
+    legacyBackgroundSources,
+    rejectedEntries,
+    assets,
+    aliases,
+    pathToAssetId,
+  );
+  collectLegacyOwlbearAliases(legacyBackgroundSources, aliases, pathToAssetId);
   if (previousManifestArgument) {
     const previousManifest = JSON.parse(
       await readFile(path.resolve(root, previousManifestArgument), "utf8"),
     );
     for (const [alias, assetId] of Object.entries(previousManifest.aliases || {})) {
-      if (assets[assetId]) {
-        aliases[alias] = assetId;
+      const targetAssetId = assets[assetId] ? assetId : replacementByPreviousAssetId.get(assetId);
+      if (targetAssetId) {
+        aliases[alias] = targetAssetId;
       }
     }
   }
   const aliasLookup = createAliasLookup(aliases);
+  const excludedFileLookup = createExcludedFileLookup([
+    ...unsupportedFiles.map((filePath) => ({
+      path: displayPath(filePath),
+      extension: path.extname(filePath).toLowerCase() || "sem extensão",
+      reason: `o formato ${path.extname(filePath).toLowerCase() || "sem extensão"} não é aceito para upload no Owlbear`,
+    })),
+    ...rejectedEntries,
+  ]);
   const unresolved = [];
   const cards = transformAssetReferences(
     await readJson("assets/preset-cards/cards.json"),
     aliasLookup,
+    assets,
+    excludedFileLookup,
     unresolved,
     "cards",
   );
   const decks = transformAssetReferences(
     await readJson("assets/preset-decks/decks.json"),
     aliasLookup,
+    assets,
+    excludedFileLookup,
     unresolved,
     "decks",
   );
@@ -394,6 +616,8 @@ try {
     const preset = transformAssetReferences(
       await readJson(`assets/scene-presets/${sourceFile}`),
       aliasLookup,
+      assets,
+      excludedFileLookup,
       unresolved,
       `scenes.${entry.id}`,
     );
@@ -430,7 +654,7 @@ try {
 
   const packManifest = {
     format: PRIVATE_ASSET_PACK_FORMAT,
-    version: PRIVATE_ASSET_PACK_VERSION,
+    version: CANONICAL_PRIVATE_ASSET_PACK_VERSION,
     id: "double-sided-cards-private-assets",
     name: "Double-Sided Cards - Private Asset Pack",
     createdAt: new Date().toISOString(),
@@ -467,6 +691,27 @@ try {
   console.log(
     `${fileEntries.length} arquivos de origem, ${Object.keys(assets).length} canônicos, ${duplicateCount} duplicatas físicas removidas.`,
   );
+  if (excludedImageFiles.length) {
+    const formats = [...new Set(excludedImageFiles.map((filePath) => path.extname(filePath).toLowerCase()))]
+      .sort()
+      .join(", ");
+    console.log(
+      `${excludedImageFiles.length} imagens incompatíveis e não referenciadas ignoradas (${formats}).`,
+    );
+  }
+  const invalidImages = rejectedEntries.filter((entry) => entry.reasonCode === "invalid-image");
+  const oversizedImages = rejectedEntries.filter((entry) => entry.reasonCode === "too-large");
+  if (invalidImages.length) {
+    console.log(`${invalidImages.length} arquivos com extensão de imagem e conteúdo inválido ignorados.`);
+  }
+  if (oversizedImages.length) {
+    const replaced = oversizedImages.filter((entry) =>
+      replacementByPreviousAssetId.has(`sha256:${entry.hash}`),
+    ).length;
+    console.log(
+      `${oversizedImages.length} arquivos acima de 25 MB excluídos; ${replaced} caminhos físicos preservados por substituição histórica validada.`,
+    );
+  }
 } catch (error) {
   await rm(temporaryOutput, { recursive: true, force: true });
   throw error;

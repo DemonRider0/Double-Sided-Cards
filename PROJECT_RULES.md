@@ -178,13 +178,13 @@ Este arquivo registra as regras permanentes do projeto. Qualquer alteração fut
   - origin Y: 395.00
 - A migracao de links locais nao deve quebrar esse tamanho.
 
-## Mapas salvos
+## Templates e cenas
 
-- O mecanismo de restauracao de mapas e parte essencial do Core; os presets pessoais ficam no Private Asset Pack.
+- O Core publico cria novas cenas no Atlas com `uploadScenes`; os templates pessoais ficam no Private Asset Pack.
 - Mapas atuais:
   - Tutorial
   - Missao 0.5 (nao oficial)
-- Restaurar mapa salvo deve reconstruir a cena de forma jogavel para quem instalar a extensao publica.
+- Criar Tutorial ou Missao deve gerar uma cena independente sem modificar a cena aberta.
 - Nao apagar, renomear ou substituir presets de cena sem pedido explicito.
 - Sem Private Asset Pack, a extensao deve carregar normalmente e apenas informar que nao ha mapas privados cadastrados.
 - Ao alterar mapas privados, preservar IDs e transformar caminhos/URLs historicos em aliases para assets canonicos.
@@ -193,7 +193,7 @@ Este arquivo registra as regras permanentes do projeto. Qualquer alteração fut
 
 - O GitHub Pages e a plataforma publica escolhida para esta extensao.
 - O Core publico nao deve conter `assets/preset-cards`, `assets/preset-decks`, `assets/scene-presets` nem `assets/local-assets`.
-- O Private Asset Pack deve ficar fora do repositorio publico, manter os binarios originais e usar um unico arquivo por hash SHA-256.
+- A fonte do Private Asset Pack deve ficar fora do repositorio publico e manter os binarios originais; o runtime v2 derivado usa `assetId` logico estavel e `blobSha256` para os bytes otimizados.
 - Caminhos, URLs e IDs historicos conhecidos devem ser preservados como aliases; nao remover compatibilidade porque uma referencia parece inativa.
 - O resolvedor central deve converter `assetId` ou alias para a URL retornada pela biblioteca privada do usuario no Owlbear.
 - A configuracao do pack e seus vinculos devem persistir por origem do navegador; nao incluir URLs privadas no repositorio.
@@ -231,7 +231,7 @@ Este arquivo registra as regras permanentes do projeto. Qualquer alteração fut
   - embaralhar pilha
   - devolver para pilha
   - criar pilha com selecao
-  - restaurar Tutorial
-  - restaurar Missao 0.5
+  - criar cena Tutorial
+  - criar cena Missao 0.5
   - selecao de jogador por cor
   - slots de raca, classe e divindade

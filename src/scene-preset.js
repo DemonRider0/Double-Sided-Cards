@@ -17,6 +17,7 @@ const PRESET_VERSION = 1;
 const ITEM_CHUNK_SIZE = 80;
 const RESTORE_MARKER_VERSION = 1;
 export const SCENE_RESTORE_MARKER_KEY = `${EXTENSION_ID}/scene-restore`;
+export const SCENE_BOOTSTRAP_MARKER_KEY = `${EXTENSION_ID}/scene-bootstrap`;
 export const SCENE_PRESETS = [
   {
     id: "tutorial",
@@ -252,6 +253,46 @@ function validatePresetBoardIntegrity(preset, itemIds) {
   }
 }
 
+function validateOptionalSceneEnvironment(value) {
+  if (value.grid !== undefined) {
+    const grid = value.grid;
+    if (
+      !isRecord(grid) ||
+      !Number.isFinite(grid.dpi) ||
+      grid.dpi <= 0 ||
+      typeof grid.scale !== "string" ||
+      !grid.scale.trim() ||
+      typeof grid.color !== "string" ||
+      !grid.color.trim() ||
+      !Number.isFinite(grid.opacity) ||
+      grid.opacity < 0 ||
+      grid.opacity > 1 ||
+      !new Set(["SOLID", "DASHED", "DOTTED"]).has(grid.lineType) ||
+      !new Set(["CHEBYSHEV", "ALTERNATING", "EUCLIDEAN", "MANHATTAN"]).has(
+        grid.measurement,
+      ) ||
+      !new Set(["SQUARE", "HEX_VERTICAL", "HEX_HORIZONTAL", "DIMETRIC", "ISOMETRIC"]).has(
+        grid.type,
+      )
+    ) {
+      throw new Error("O grid capturado do mapa é inválido.");
+    }
+  }
+  if (value.fog !== undefined) {
+    const fog = value.fog;
+    if (
+      !isRecord(fog) ||
+      typeof fog.filled !== "boolean" ||
+      typeof fog.color !== "string" ||
+      !fog.color.trim() ||
+      !Number.isFinite(fog.strokeWidth) ||
+      fog.strokeWidth < 0
+    ) {
+      throw new Error("A fog capturada do mapa é inválida.");
+    }
+  }
+}
+
 function validateCardAndDeckMetadata(item) {
   for (const [key, value] of Object.entries(item.metadata || {})) {
     const isCardOrDeck =
@@ -335,6 +376,7 @@ export function validateScenePreset(
   }
 
   try {
+    validateOptionalSceneEnvironment(value);
     validatePresetBoardIntegrity(value, ids);
     if (publicMode) {
       validatePublicReferences(value);
@@ -360,7 +402,12 @@ function getScenePresetDefinition(presetId) {
   return definition;
 }
 
-function createDefaultBoardPreset(items, metadata, definition = SCENE_PRESETS[0]) {
+function createDefaultBoardPreset(
+  items,
+  metadata,
+  definition = SCENE_PRESETS[0],
+  environment = {},
+) {
   const presetMetadata = clone(metadata || {});
   delete presetMetadata[SCENE_RESTORE_MARKER_KEY];
 
@@ -372,7 +419,169 @@ function createDefaultBoardPreset(items, metadata, definition = SCENE_PRESETS[0]
     itemCount: items.length,
     items: clone(items),
     metadata: presetMetadata,
+    ...(environment.grid ? { grid: clone(environment.grid) } : {}),
+    ...(environment.fog ? { fog: clone(environment.fog) } : {}),
   };
+}
+
+async function captureApiGroup(entries) {
+  if (entries.some(([, method]) => typeof method !== "function")) {
+    return null;
+  }
+  try {
+    const values = await Promise.all(entries.map(([, method]) => method()));
+    return Object.fromEntries(entries.map(([key], index) => [key, values[index]]));
+  } catch (error) {
+    console.warn("[scene-preset] Não foi possível capturar parte de grid/fog.", error);
+    return null;
+  }
+}
+
+export async function captureSceneEnvironment(OBR) {
+  const [gridValues, fog] = await Promise.all([
+    captureApiGroup([
+      ["dpi", OBR?.scene?.grid?.getDpi?.bind(OBR.scene.grid)],
+      ["scale", OBR?.scene?.grid?.getScale?.bind(OBR.scene.grid)],
+      ["color", OBR?.scene?.grid?.getColor?.bind(OBR.scene.grid)],
+      ["opacity", OBR?.scene?.grid?.getOpacity?.bind(OBR.scene.grid)],
+      ["lineType", OBR?.scene?.grid?.getLineType?.bind(OBR.scene.grid)],
+      ["measurement", OBR?.scene?.grid?.getMeasurement?.bind(OBR.scene.grid)],
+      ["type", OBR?.scene?.grid?.getType?.bind(OBR.scene.grid)],
+    ]),
+    captureApiGroup([
+      ["filled", OBR?.scene?.fog?.getFilled?.bind(OBR.scene.fog)],
+      ["color", OBR?.scene?.fog?.getColor?.bind(OBR.scene.fog)],
+      ["strokeWidth", OBR?.scene?.fog?.getStrokeWidth?.bind(OBR.scene.fog)],
+    ]),
+  ]);
+  const grid = gridValues
+    ? {
+        ...gridValues,
+        scale:
+          typeof gridValues.scale === "string"
+            ? gridValues.scale
+            : gridValues.scale?.raw,
+      }
+    : null;
+  return {
+    ...(grid && typeof grid.scale === "string" ? { grid } : {}),
+    ...(fog ? { fog } : {}),
+  };
+}
+
+function addSceneBootstrapMarker(items, metadata) {
+  const selectionBoard = metadata?.[SELECTION_BOARD_KEY];
+  if (!selectionBoard || !items.length) {
+    return items;
+  }
+  const markedItems = clone(items);
+  markedItems[0].metadata = {
+    ...(markedItems[0].metadata || {}),
+    [SCENE_BOOTSTRAP_MARKER_KEY]: {
+      version: 1,
+      completed: false,
+      selectionBoard: clone(selectionBoard),
+    },
+  };
+  return markedItems;
+}
+
+function applySceneEnvironment(builder, preset) {
+  const grid = preset.grid;
+  const fog = preset.fog;
+  if (grid) {
+    if (typeof grid.scale === "string") builder.gridScale(grid.scale);
+    if (typeof grid.color === "string") builder.gridColor(grid.color);
+    if (Number.isFinite(grid.opacity)) builder.gridOpacity(grid.opacity);
+    if (typeof grid.lineType === "string") builder.gridLineType(grid.lineType);
+    if (typeof grid.measurement === "string") builder.gridMeasurement(grid.measurement);
+    if (typeof grid.type === "string") builder.gridType(grid.type);
+  }
+  if (fog) {
+    if (typeof fog.filled === "boolean") builder.fogFilled(fog.filled);
+    if (typeof fog.color === "string") builder.fogColor(fog.color);
+    if (Number.isFinite(fog.strokeWidth)) builder.fogStrokeWidth(fog.strokeWidth);
+  }
+  const upload = builder.build();
+  if (grid && Number.isFinite(grid.dpi) && grid.dpi > 0) {
+    // O SDK 3.1.0 tipa SceneUpload.grid.dpi, mas o builder não expõe um setter para DPI.
+    upload.grid.dpi = grid.dpi;
+  }
+  return upload;
+}
+
+export function buildPrivateSceneUpload(buildSceneUpload, preset, options = {}) {
+  if (typeof buildSceneUpload !== "function") {
+    throw new Error("O construtor de SceneUpload do Owlbear não está disponível.");
+  }
+  const resolution = resolveAssetReferences(preset, options);
+  if (resolution.unresolved) {
+    const error = new Error(
+      `A cena não pode ser criada: faltam ${resolution.unresolved} assets vinculados ao Owlbear.`,
+    );
+    error.name = "MissingPrivateAssetBindingsError";
+    error.missingBindings = resolution.unresolved;
+    error.missingAssetIds = resolution.unresolvedIds;
+    throw error;
+  }
+  const normalized = validateScenePreset(resolution.value, { publicMode: true });
+  const items = addSceneBootstrapMarker(normalized.items, normalized.metadata);
+  const builder = buildSceneUpload().name(normalized.name).items(items);
+  const upload = applySceneEnvironment(builder, normalized);
+  return {
+    upload,
+    itemCount: items.length,
+    idsPreserved: items.every((item, index) => item.id === normalized.items[index].id),
+    usedCapturedGrid: Boolean(normalized.grid),
+    usedCapturedFog: Boolean(normalized.fog),
+  };
+}
+
+export async function createPrivateScene(OBR, buildSceneUpload, preset, options = {}) {
+  if (!OBR?.assets?.uploadScenes) {
+    throw new Error("A API de criação de cenas do Owlbear não está disponível.");
+  }
+  const result = buildPrivateSceneUpload(buildSceneUpload, preset, options);
+  await OBR.assets.uploadScenes([result.upload]);
+  return result;
+}
+
+export async function bootstrapPrivateSceneMetadata(OBR) {
+  if (!OBR?.scene?.items?.getItems || !OBR?.scene?.setMetadata) {
+    return { found: false, applied: false };
+  }
+  const items = await OBR.scene.items.getItems();
+  const markerItem = items.find((item) => {
+    const marker = item.metadata?.[SCENE_BOOTSTRAP_MARKER_KEY];
+    return isRecord(marker) && marker.version === 1 && marker.completed !== true;
+  });
+  const marker = markerItem?.metadata?.[SCENE_BOOTSTRAP_MARKER_KEY];
+  if (!markerItem || !isRecord(marker?.selectionBoard)) {
+    return { found: false, applied: false };
+  }
+
+  const currentMetadata = await OBR.scene.getMetadata();
+  const alreadyApplied = valuesEqual(
+    currentMetadata?.[SELECTION_BOARD_KEY],
+    marker.selectionBoard,
+  );
+  if (!alreadyApplied) {
+    await OBR.scene.setMetadata({
+      [SELECTION_BOARD_KEY]: clone(marker.selectionBoard),
+    });
+  }
+  await OBR.scene.items.updateItems([markerItem.id], (draftItems) => {
+    const draft = draftItems[0];
+    const currentMarker = draft?.metadata?.[SCENE_BOOTSTRAP_MARKER_KEY];
+    if (!draft || !isRecord(currentMarker) || currentMarker.completed === true) {
+      return;
+    }
+    draft.metadata[SCENE_BOOTSTRAP_MARKER_KEY] = {
+      version: 1,
+      completed: true,
+    };
+  });
+  return { found: true, applied: !alreadyApplied };
 }
 
 function restoreItemState(item, presetItem) {
@@ -446,7 +655,7 @@ export async function loadScenePresetEntries(pack = getConfiguredPrivateAssetPac
             itemCount: summary.itemCount,
           }
         : null,
-      preset: null,
+      preset: entry?.preset || null,
     };
   });
 }
@@ -457,11 +666,12 @@ export async function loadDefaultBoardPreset() {
 
 export async function saveScenePreset(OBR, presetId) {
   const definition = getScenePresetDefinition(presetId);
-  const [items, metadata] = await Promise.all([
+  const [items, metadata, environment] = await Promise.all([
     OBR.scene.items.getItems(),
     OBR.scene.getMetadata(),
+    captureSceneEnvironment(OBR),
   ]);
-  const preset = createDefaultBoardPreset(items, metadata, definition);
+  const preset = createDefaultBoardPreset(items, metadata, definition, environment);
   const response = await fetch(`./__scene_preset?id=${encodeURIComponent(definition.id)}`, {
     method: "POST",
     headers: {

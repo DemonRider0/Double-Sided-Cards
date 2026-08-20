@@ -38,10 +38,8 @@ import {
   loadPresetCardGroups,
 } from "./preset-cards.js";
 import {
-  getSceneRestoreStatus,
-  loadScenePreset,
+  createPrivateScene,
   loadScenePresetEntries,
-  restoreDefaultBoardPreset,
   saveScenePreset,
   SCENE_PRESETS,
 } from "./scene-preset.js";
@@ -90,8 +88,8 @@ const elements = {
   privatePackLinkButton: document.querySelector("#privatePackLinkButton"),
   privatePackClearButton: document.querySelector("#privatePackClearButton"),
   privatePackInfo: document.querySelector("#privatePackInfo"),
+  developmentSaveSceneButtons: [...document.querySelectorAll("[data-save-scene-preset]")],
   createScenePresetButtons: [...document.querySelectorAll("[data-create-scene-preset]")],
-  restoreScenePresetButtons: [...document.querySelectorAll("[data-restore-scene-preset]")],
   defaultBoardInfo: document.querySelector("#defaultBoardInfo"),
   connectionStatus: document.querySelector("#connectionStatus"),
   message: document.querySelector("#message"),
@@ -100,13 +98,14 @@ const elements = {
 let obr = null;
 let buildImage = null;
 let buildImageUpload = null;
+let buildSceneUpload = null;
 let lastCardSelection = [];
 let lastDeckSelection = [];
 let lastFlipSelection = [];
 let presetDecks = [];
 let presetCardGroups = [];
 let scenePresetEntries = [];
-let sceneRestoreRunning = false;
+let sceneCreationRunning = false;
 let privatePackRunning = false;
 let selectedPrivatePack = null;
 let colorAssignmentsRefreshTimer = null;
@@ -178,8 +177,8 @@ function updatePrivatePackControls(isConnected = Boolean(obr)) {
   }
 
   elements.privatePackInfo.textContent =
-    `${status.name || status.id}: ${status.linked} de ${status.total} assets vinculados ao Owlbear` +
-    (status.missing ? `; faltam ${status.missing}.` : ".");
+    `${status.name || status.id}: ${status.total} assets, ${formatRuntimeSize(status.runtimeSize)} runtime; ` +
+    `${status.linked} vinculados, ${status.missing} faltantes.`;
 }
 
 async function showNotification(text, tone) {
@@ -353,22 +352,32 @@ function formatPresetDate(value) {
   }
 }
 
+function formatRuntimeSize(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "0 MiB";
+  }
+  return `${(bytes / 1024 / 1024).toLocaleString("pt-BR", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })} MiB`;
+}
+
 function updateDefaultBoardControls(isConnected = Boolean(obr)) {
   const entriesById = new Map(scenePresetEntries.map((entry) => [entry.definition.id, entry]));
 
-  for (const button of elements.createScenePresetButtons) {
+  for (const button of elements.developmentSaveSceneButtons) {
     button.hidden = true;
     button.disabled = true;
   }
 
-  for (const button of elements.restoreScenePresetButtons) {
-    const entry = entriesById.get(button.dataset.restoreScenePreset);
+  for (const button of elements.createScenePresetButtons) {
+    const entry = entriesById.get(button.dataset.createScenePreset);
     button.disabled =
-      sceneRestoreRunning || !isConnected || !entry?.ready || !(entry?.preset || entry?.summary);
+      sceneCreationRunning || !isConnected || !entry?.ready || !(entry?.preset || entry?.summary);
   }
 
   if (!scenePresetEntries.length) {
-    elements.defaultBoardInfo.textContent = "Carregando mapas salvos...";
+    elements.defaultBoardInfo.textContent = "Carregando templates privados...";
     return;
   }
 
@@ -389,7 +398,8 @@ function updateDefaultBoardControls(isConnected = Boolean(obr)) {
     }
 
     const itemLabel = details.itemCount === 1 ? "1 item" : `${details.itemCount} itens`;
-    return `${displayName}: ${itemLabel}, salvo em ${formatPresetDate(details.savedAt)}`;
+    const environment = details.grid || details.fog ? "grid/fog capturados" : "grid/fog legado";
+    return `${displayName}: ${itemLabel}, salvo em ${formatPresetDate(details.savedAt)}, ${environment}`;
   });
 
   elements.defaultBoardInfo.textContent = parts.join(" | ");
@@ -860,73 +870,38 @@ async function createDefaultBoardFromCurrentScene(presetId) {
   await showNotification("Mapa salvo criado.", "SUCCESS");
 }
 
-async function restoreDefaultBoard(presetId) {
-  if (!obr) {
-    setMessage("Abra esta extensão dentro do Owlbear para restaurar o tabuleiro.", "warning");
+async function createSceneFromPrivatePreset(presetId) {
+  if (!obr || !buildSceneUpload) {
+    setMessage("Abra esta extensão dentro do Owlbear para criar a cena.", "warning");
     return;
   }
-
-  if (sceneRestoreRunning) {
-    setMessage("Já existe uma restauração em andamento neste painel.", "warning");
+  if (sceneCreationRunning) {
+    setMessage("Já existe uma criação de cena em andamento neste painel.", "warning");
     return;
   }
 
   const entry = getScenePresetEntry(presetId);
-
-  if (!(entry?.preset || entry?.summary) || !entry.ready) {
-    setMessage("Esse mapa salvo ainda não foi cadastrado na extensão.", "warning");
-    await showNotification("Mapa salvo não cadastrado.", "WARNING");
+  if (!entry?.preset) {
+    setMessage("Esse template privado não está configurado no pack.", "warning");
     return;
   }
 
-  sceneRestoreRunning = true;
+  sceneCreationRunning = true;
   updateDefaultBoardControls(true);
-  setMessage("Verificando a restauração...", "neutral");
-
+  setMessage("Montando a nova cena com os assets vinculados...", "neutral");
   try {
-    const restoreStatus = await getSceneRestoreStatus(obr);
-    if (restoreStatus.state === "local" || restoreStatus.state === "active") {
-      const message = "Já existe uma restauração em andamento nesta cena.";
-      setMessage(message, "warning");
-      await showNotification(message, "WARNING");
-      return;
-    }
-
-    const recoveringOrphan = restoreStatus.state === "orphan";
-    const recoveryWarning = recoveringOrphan
-      ? "\n\nFoi encontrada uma restauração interrompida. Continuar assumirá o controle dela."
-      : "";
-    const confirmed = window.confirm(
-      `${entry.definition.restoreLabel} vai substituir a cena atual. Não inicie outra restauração em outra conta durante o processo.${recoveryWarning}\n\nContinuar?`,
+    const result = await createPrivateScene(obr, buildSceneUpload, entry.preset);
+    const displayName = entry.definition.label || entry.definition.name;
+    const fallback = result.usedCapturedGrid && result.usedCapturedFog
+      ? ""
+      : " O template legado usou o fallback do SDK para grid/fog ausentes.";
+    setMessage(
+      `${displayName} criado com ${result.itemCount} itens e enviado ao Atlas.${fallback}`,
+      fallback ? "warning" : "success",
     );
-
-    if (!confirmed) {
-      setMessage("", "neutral");
-      return;
-    }
-
-    setMessage("Restaurando...", "warning");
-    const preset = entry.preset || (await loadScenePreset(entry.definition));
-    if (!preset) {
-      throw new Error("Não consegui carregar esse mapa salvo.");
-    }
-    entry.preset = preset;
-    entry.summary = {
-      itemCount: preset.itemCount,
-      savedAt: preset.savedAt,
-    };
-
-    const result = await restoreDefaultBoardPreset(obr, preset, {
-      allowOrphanRecovery: recoveringOrphan,
-    });
-    const message = `Cena restaurada: ${result.updated} atualizados, ${result.added} recriados, ${result.deleted} removidos.`;
-    setMessage(message, "success");
-    await showNotification(
-      `${entry.definition.label || entry.definition.name} restaurado.`,
-      "SUCCESS",
-    );
+    await showNotification(`${displayName} criado no Atlas.`, "SUCCESS");
   } finally {
-    sceneRestoreRunning = false;
+    sceneCreationRunning = false;
     updateDefaultBoardControls(Boolean(obr));
   }
 }
@@ -1276,14 +1251,16 @@ async function linkConfiguredPrivatePack() {
   try {
     const result = await linkPrivateAssetPackFromOwlbear(obr);
     await reloadPrivateContent();
+    const packStatus = getPrivateAssetPackStatus();
     const stats = await repairSceneMetadata();
     const suffix = stats.assets
       ? ` ${stats.assets} referências da cena atual foram migradas.`
       : "";
     setMessage(
       result.linked
-        ? `${result.linked} assets vinculados de ${result.selected} selecionados.${suffix}`
-        : "Nenhum asset selecionado correspondeu ao manifesto do pack.",
+        ? `${result.linked} assets reconhecidos nesta seleção incremental; ${packStatus.linked} vinculados no total e ${packStatus.missing} faltantes. ` +
+          `${result.unmatched.length} selecionados não corresponderam ao pack.${suffix}`
+        : `Nenhum dos ${result.selected} assets selecionados correspondeu ao manifesto; os ${packStatus.linked} vínculos anteriores foram preservados.`,
       result.linked ? (result.unmatched.length ? "warning" : "success") : "warning",
     );
   } finally {
@@ -1642,16 +1619,16 @@ async function init() {
       await showNotification(message, "SUCCESS");
     }, "Sincronizando a cena..."),
   );
-  for (const button of elements.createScenePresetButtons) {
+  for (const button of elements.developmentSaveSceneButtons) {
     button.addEventListener("click", () =>
-      runPanelAction(button, () => createDefaultBoardFromCurrentScene(button.dataset.createScenePreset)),
+      runPanelAction(button, () => createDefaultBoardFromCurrentScene(button.dataset.saveScenePreset)),
     );
   }
-  for (const button of elements.restoreScenePresetButtons) {
+  for (const button of elements.createScenePresetButtons) {
     button.addEventListener("click", () => {
-      restoreDefaultBoard(button.dataset.restoreScenePreset).catch((error) => {
+      createSceneFromPrivatePreset(button.dataset.createScenePreset).catch((error) => {
         console.error(error);
-        setMessage(getErrorMessage(error, "Não consegui restaurar o mapa salvo."), "error");
+        setMessage(getErrorMessage(error, "Não consegui criar a cena no Atlas."), "error");
       });
     });
   }
@@ -1663,16 +1640,16 @@ async function init() {
   try {
     loaded =
       (await window.doubleSidedCardsSdkReady) ||
-      (await import("./" + "sdk-client.js?v=100").then((sdkModule) =>
+      (await import("./" + "sdk-client.js?v=101").then((sdkModule) =>
         sdkModule.loadOwlbearSdk(20000),
       ));
   } catch (error) {
     console.warn(error);
     setConnectionStatus("Sem conexão ao SDK", false);
     refreshDefaultBoardInfo().catch((presetError) => {
-      console.warn("Nao consegui carregar os mapas salvos", presetError);
+      console.warn("Nao consegui carregar os templates privados", presetError);
       elements.defaultBoardInfo.textContent =
-        "Não consegui carregar os mapas salvos. Reabra o painel para tentar novamente.";
+        "Não consegui carregar os templates privados. Reabra o painel para tentar novamente.";
     });
     setMessage(
       `A tela carregou, mas ainda não conectou ao Owlbear: ${getErrorMessage(error)}`,
@@ -1684,6 +1661,7 @@ async function init() {
   obr = loaded.OBR;
   buildImage = loaded.sdk.buildImage;
   buildImageUpload = loaded.sdk.buildImageUpload;
+  buildSceneUpload = loaded.sdk.buildSceneUpload;
   obr.broadcast
     .sendMessage(COMMANDS_CHANNEL, { type: "register-commands" }, { destination: "LOCAL" })
     .catch((error) => {

@@ -9,7 +9,7 @@ Este documento reúne as instruções operacionais do projeto Cartas Duplas. A d
 - Plataforma: Owlbear Rodeo.
 - Hospedagem pública: GitHub Pages.
 - Autoria: DemonRider.
-- Manifesto público da versão 1.0.0: `https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=100`.
+- Manifesto público da versão 1.0.0: `https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=101`.
 - Versão pública atual no manifesto: `1.0.0`.
 
 `package.json`, `package-lock.json` e `manifest.json` usam `1.0.0`. A unificação foi adotada para a primeira versão pública estável; versões históricas permanecem registradas no changelog e no histórico de auditorias.
@@ -50,6 +50,7 @@ A arquitetura e os fluxos entre módulos estão detalhados em [docs/ARCHITECTURE
 | `npm run build` | Gera os quatro bundles esperados em `dist/`. |
 | `npm run test:regressions` | Executa regressões de pilhas, resolução canônica, aliases, persistência e ausência de pack. |
 | `npm run build:private-asset-pack -- --source <origem> --output <destino>` | Migra uma árvore privada antiga para o formato canônico; origem e destino devem ficar fora do Core. |
+| `npm run optimize:private-asset-pack -- --source-pack <canônico> --output <runtime>` | Gera sem sobrescrever a fonte um pack runtime v2, testando PNG → WebP em qualidade 95. |
 | `npm run check:private-asset-pack -- --pack <diretório>` | Verifica hashes, aliases, manifests, bibliotecas e mapas de um pack privado. |
 | `node dev-server.mjs 5180` | Inicia o servidor administrativo em `127.0.0.1:5180`. |
 
@@ -86,7 +87,7 @@ O fluxo no painel é:
 1. **Selecionar pack** lê a pasta e persiste manifests, presets e aliases no armazenamento do navegador.
 2. **Enviar ao Owlbear** usa `OBR.assets.uploadImages` para copiar os arquivos canônicos para a biblioteca privada do usuário.
 3. **Vincular assets** usa `OBR.assets.downloadImages(true, ...)`; o usuário seleciona os assets e a extensão persiste o mapa `assetId → ImageContent` retornado pelo Owlbear.
-4. Bibliotecas, mapas e o reparo de cenas passam a resolver IDs e aliases para essas URLs do Owlbear.
+4. Bibliotecas, criação de cenas no Atlas e o reparo de cenas antigas passam a resolver IDs e aliases para essas URLs do Owlbear.
 
 O SDK `3.1.0` retorna `Promise<void>` em `uploadImages`: o upload não informa o ID/URL criado. Por isso, envio e vínculo são duas ações separadas. O vínculo persiste no `localStorage` da origem da extensão; outro navegador, perfil ou origem precisa selecionar os assets novamente. Os binários permanecem na conta do usuário no Owlbear mesmo se a configuração local do pack for removida.
 
@@ -94,16 +95,18 @@ Para gerar um pack a partir de uma árvore privada compatível com o layout hist
 
 ```powershell
 npm run build:private-asset-pack -- --source <raiz-privada> --output <novo-pack> --previous <pack-anterior>\private-asset-pack.json
-npm run check:private-asset-pack -- --pack ..\Double-Sided-Cards-Local\private-asset-pack-v1
+npm run check:private-asset-pack -- --pack <novo-pack>
+npm run optimize:private-asset-pack -- --source-pack <novo-pack> --output <runtime-pack-v2>
+npm run check:private-asset-pack -- --pack <runtime-pack-v2>
 ```
 
-O gerador copia os bytes originais, calcula SHA-256 e não recomprime imagens. `--previous` preserva aliases do pack anterior cujo hash canônico ainda exista. Mapas, ordem de cartas, IDs, tamanhos, camadas e metadados continuam sendo contratos de compatibilidade.
+O gerador canônico copia os bytes originais, calcula SHA-256 e não recomprime imagens. O otimizador é uma segunda etapa: nunca altera a fonte, mantém o `assetId` lógico e registra o hash da representação runtime em `blobSha256`. `--previous` preserva aliases do pack anterior cujo hash canônico ainda exista. Cenas, ordem de cartas, IDs, tamanhos, camadas e metadados continuam sendo contratos de compatibilidade.
 
 ## Versão pública e cache
 
 O cache busting é manual. Alterações em JavaScript, HTML, CSS, manifesto ou background precisam seguir as regras de versão e cache descritas em [PROJECT_RULES.md](PROJECT_RULES.md). Não incremente versão ou parâmetros de cache em uma alteração exclusivamente documental.
 
-Na preparação da versão `1.0.0`, o valor público adotado foi `v=100`. O mesmo valor invalida manifesto, entradas HTML, bundles, carregamento alternativo do SDK, estilos, ícones e URLs públicas montadas pelo background. Não altere caminhos ou IDs ao incrementar esse parâmetro em versões futuras.
+Na preparação final da versão `1.0.0`, o valor público adotado foi `v=101`. O mesmo valor invalida manifesto, entradas HTML, bundles, carregamento alternativo do SDK, estilos, ícones e URLs públicas montadas pelo background. Não altere caminhos ou IDs ao incrementar esse parâmetro em versões futuras.
 
 Antes de uma publicação futura, confirme que:
 

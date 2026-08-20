@@ -3232,6 +3232,83 @@ class ImageUploadBuilder {
     }
 }
 
+class SceneUploadBuilder {
+    constructor() {
+        this._upload = {
+            name: "New Scene",
+            fog: { filled: false, style: { color: "#222222", strokeWidth: 5 } },
+            grid: {
+                dpi: 150,
+                scale: "5ft",
+                style: {
+                    lineColor: "LIGHT",
+                    lineOpacity: 0.4,
+                    lineType: "DASHED",
+                    lineWidth: 2,
+                },
+                measurement: "CHEBYSHEV",
+                type: "SQUARE",
+            },
+            items: [],
+        };
+    }
+    name(name) {
+        this._upload.name = name;
+        return this;
+    }
+    fogFilled(filled) {
+        this._upload.fog.filled = filled;
+        return this;
+    }
+    fogColor(color) {
+        this._upload.fog.style.color = color;
+        return this;
+    }
+    fogStrokeWidth(width) {
+        this._upload.fog.style.strokeWidth = width;
+        return this;
+    }
+    gridScale(scale) {
+        this._upload.grid.scale = scale;
+        return this;
+    }
+    gridColor(color) {
+        this._upload.grid.style.lineColor = color;
+        return this;
+    }
+    gridOpacity(opacity) {
+        this._upload.grid.style.lineOpacity = opacity;
+        return this;
+    }
+    gridLineType(lineType) {
+        this._upload.grid.style.lineType = lineType;
+        return this;
+    }
+    gridMeasurement(measurement) {
+        this._upload.grid.measurement = measurement;
+        return this;
+    }
+    gridType(type) {
+        this._upload.grid.type = type;
+        return this;
+    }
+    items(items) {
+        this._upload.items = items;
+        return this;
+    }
+    baseMap(baseMap) {
+        this._upload.baseMap = baseMap;
+        return this;
+    }
+    thumbnail(thumbnail) {
+        this._upload.thumbnail = thumbnail;
+        return this;
+    }
+    build() {
+        return this._upload;
+    }
+}
+
 /**
  *  base64.ts
  *
@@ -3424,6 +3501,9 @@ function buildLabel() {
 function buildImageUpload(file) {
     return new ImageUploadBuilder(file);
 }
+function buildSceneUpload() {
+    return new SceneUploadBuilder();
+}
 
 function isInOwlbearFrame() {
   return window.parent !== window;
@@ -3435,7 +3515,7 @@ async function loadOwlbearSdk(timeoutMs = 5000) {
   }
 
   if (OBR.isReady) {
-    return { OBR, sdk: { buildImage, buildImageUpload, buildLabel } };
+    return { OBR, sdk: { buildImage, buildImageUpload, buildLabel, buildSceneUpload } };
   }
 
   await new Promise((resolve, reject) => {
@@ -3456,7 +3536,7 @@ async function loadOwlbearSdk(timeoutMs = 5000) {
     });
   });
 
-  return { OBR, sdk: { buildImage, buildImageUpload, buildLabel } };
+  return { OBR, sdk: { buildImage, buildImageUpload, buildLabel, buildSceneUpload } };
 }
 
 export { loadOwlbearSdk };

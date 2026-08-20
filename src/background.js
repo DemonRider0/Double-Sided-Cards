@@ -24,6 +24,7 @@ import { showActionFeedback } from "./feedback.js";
 import { flipItems, flipSelectedItems, getDoubleSidedCards } from "./flip.js";
 import { loadOwlbearSdk } from "./obr.js";
 import { resolveConfiguredAsset } from "./asset-resolver.js";
+import { bootstrapPrivateSceneMetadata } from "./scene-preset.js";
 import {
   ACTIVE_COLOR_KEY,
   detectCardCategoryFromItem,
@@ -35,7 +36,7 @@ import {
 } from "./selection-board.js";
 
 function assetUrl(path) {
-  return `${new URL(`../${path}`, import.meta.url).toString()}?v=100`;
+  return `${new URL(`../${path}`, import.meta.url).toString()}?v=101`;
 }
 
 const COMMAND_REGISTRATION_DEBOUNCE_MS = 200;
@@ -254,6 +255,33 @@ async function setupContextMenu() {
   let lastImageSelection = [];
   let activePlayerColor = null;
   let deckDisplaySyncTimer = null;
+  let sceneBootstrapPromise = null;
+
+  function runSceneBootstrap() {
+    if (sceneBootstrapPromise) {
+      return sceneBootstrapPromise;
+    }
+    sceneBootstrapPromise = bootstrapPrivateSceneMetadata(OBR)
+      .catch((error) => {
+        console.warn("Não consegui inicializar a metadata privada da cena", error);
+      })
+      .finally(() => {
+        sceneBootstrapPromise = null;
+      });
+    return sceneBootstrapPromise;
+  }
+
+  OBR.scene.onReadyChange((ready) => {
+    if (ready) {
+      runSceneBootstrap();
+    }
+  });
+  OBR.scene
+    .isReady()
+    .then((ready) => (ready ? runSceneBootstrap() : null))
+    .catch((error) => {
+      console.warn("Não consegui verificar o bootstrap da cena", error);
+    });
 
   async function rememberSelection(selection) {
     if (!selection?.length) {

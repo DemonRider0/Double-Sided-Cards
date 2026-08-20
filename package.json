@@ -10,6 +10,7 @@
   "scripts": {
     "build": "node build.mjs",
     "build:private-asset-pack": "node scripts/build-private-asset-pack.mjs",
+    "optimize:private-asset-pack": "node scripts/optimize-private-asset-pack.mjs",
     "check:private-asset-pack": "node scripts/check-private-asset-pack.mjs",
     "check": "node scripts/check-project.mjs",
     "test:regressions": "node scripts/test-regressions.mjs"
@@ -19,6 +20,7 @@
   },
   "devDependencies": {
     "@rollup/plugin-node-resolve": "^16.0.3",
-    "rollup": "^4.60.4"
+    "rollup": "^4.60.4",
+    "sharp": "^0.35.3"
   }
 }

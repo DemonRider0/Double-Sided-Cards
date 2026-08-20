@@ -4,13 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Cartas Duplas</title>
-    <script type="module" src="./dist/sdk-boot.js?v=100"></script>
-    <link rel="stylesheet" href="./src/styles.css?v=100" />
+    <script type="module" src="./dist/sdk-boot.js?v=101"></script>
+    <link rel="stylesheet" href="./src/styles.css?v=101" />
   </head>
   <body>
     <main class="app">
       <header class="topbar">
-        <img src="./icons/card.svg?v=100" alt="" class="topbar__icon" />
+        <img src="./icons/card.svg?v=101" alt="" class="topbar__icon" />
         <div>
           <h1>Cartas Duplas</h1>
           <p id="connectionStatus" class="status" role="status" aria-live="polite">
@@ -146,22 +146,22 @@
       </section>
 
       <section class="form">
-        <h2>Mapas salvos</h2>
+        <h2>Criar cenas</h2>
         <p id="defaultBoardInfo" class="field-note" role="status" aria-live="polite">
-          Carregando mapas salvos...
+          Carregando templates privados...
         </p>
         <div class="action-grid">
-          <button class="button button--secondary" type="button" data-create-scene-preset="tutorial" disabled hidden>
+          <button class="button button--secondary" type="button" data-save-scene-preset="tutorial" disabled hidden>
             Salvar Tutorial
           </button>
-          <button class="button button--secondary" type="button" data-create-scene-preset="missao-0-5" disabled hidden>
+          <button class="button button--secondary" type="button" data-save-scene-preset="missao-0-5" disabled hidden>
             Salvar Miss&atilde;o 0.5
           </button>
-          <button class="button button--secondary" type="button" data-restore-scene-preset="tutorial" disabled>
-            Restaurar o Tutorial
+          <button class="button button--secondary" type="button" data-create-scene-preset="tutorial" disabled>
+            Criar cena Tutorial
           </button>
-          <button class="button button--secondary" type="button" data-restore-scene-preset="missao-0-5" disabled>
-            Restaurar a Miss&atilde;o 0.5 (n&atilde;o oficial)
+          <button class="button button--secondary" type="button" data-create-scene-preset="missao-0-5" disabled>
+            Criar cena Miss&atilde;o 0.5 (n&atilde;o oficial)
           </button>
         </div>
       </section>
@@ -169,6 +169,6 @@
       <p id="message" class="message" role="status" aria-live="polite"></p>
     </main>
 
-    <script type="module" src="./dist/app.js?v=100"></script>
+    <script type="module" src="./dist/app.js?v=101"></script>
   </body>
 </html>

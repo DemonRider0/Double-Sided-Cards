@@ -1,23 +1,15 @@
 import {
   PRIVATE_ASSET_PACK_FORMAT,
-  PRIVATE_ASSET_PACK_VERSION,
   createAssetResolver,
   getConfiguredPrivateAssetPack,
+  getPrivateAssetUploadMime,
+  isSupportedPrivateAssetPackVersion,
   installPrivateAssetPack,
   savePrivateAssetBindings,
   validatePrivateAssetPack,
 } from "./asset-resolver.js";
 
 const ASSET_DESCRIPTION_PREFIX = "double-sided-cards-private-asset:";
-const IMAGE_MIME_BY_EXTENSION = new Map([
-  [".avif", "image/avif"],
-  [".gif", "image/gif"],
-  [".jpeg", "image/jpeg"],
-  [".jpg", "image/jpeg"],
-  [".png", "image/png"],
-  [".svg", "image/svg+xml"],
-  [".webp", "image/webp"],
-]);
 
 function isRecord(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -97,7 +89,7 @@ export async function hydratePrivateAssetPackManifest(manifest, readJson) {
   if (
     !isRecord(manifest) ||
     manifest.format !== PRIVATE_ASSET_PACK_FORMAT ||
-    manifest.version !== PRIVATE_ASSET_PACK_VERSION ||
+    !isSupportedPrivateAssetPackVersion(manifest.version) ||
     !isRecord(manifest.presets)
   ) {
     throw new Error("O manifesto do Private Asset Pack é inválido.");
@@ -118,6 +110,8 @@ export async function hydratePrivateAssetPackManifest(manifest, readJson) {
         id: sceneId,
         name: sceneEntry.name || preset.name || sceneId,
         label: sceneEntry.label,
+        createLabel:
+          sceneEntry.createLabel || `Criar cena ${sceneEntry.label || sceneEntry.name || preset.name || sceneId}`,
         restoreLabel:
           sceneEntry.restoreLabel || `Restaurar ${sceneEntry.label || sceneEntry.name || preset.name || sceneId}`,
       },
@@ -274,24 +268,6 @@ function getAssetFileName(asset) {
   return normalizePath(asset?.file).split("/").filter(Boolean).pop() || "";
 }
 
-function getAssetMime(asset, fileName, originalFile) {
-  const manifestMime = typeof asset?.mime === "string" ? asset.mime.trim().toLowerCase() : "";
-  if (manifestMime) {
-    return manifestMime;
-  }
-
-  const browserMime =
-    typeof originalFile?.type === "string" ? originalFile.type.trim().toLowerCase() : "";
-  if (browserMime) {
-    return browserMime;
-  }
-
-  const extensionIndex = fileName.lastIndexOf(".");
-  return IMAGE_MIME_BY_EXTENSION.get(
-    extensionIndex >= 0 ? fileName.slice(extensionIndex).toLowerCase() : "",
-  );
-}
-
 function assertPreparedFile(file, expectedName, expectedMime, expectedSize) {
   if (!file || typeof file.arrayBuffer !== "function") {
     throw createPreparationError(
@@ -341,11 +317,20 @@ export async function preparePrivateAssetUpload(buildImageUpload, file, assetId,
     );
   }
 
-  const mime = getAssetMime(asset, expectedName, file);
-  if (!mime || !mime.startsWith("image/")) {
+  const mime = getPrivateAssetUploadMime(expectedName);
+  const manifestMime =
+    typeof asset?.mime === "string" ? asset.mime.trim().toLowerCase() : "";
+  const browserMime = typeof file.type === "string" ? file.type.trim().toLowerCase() : "";
+  if (!mime) {
     throw createPreparationError(
       "validação do arquivo",
-      `MIME inválido para ${expectedName}: ${mime || "não informado"}.`,
+      `Formato não suportado para upload privado no Owlbear: ${expectedName}.`,
+    );
+  }
+  if (manifestMime !== mime || (browserMime && browserMime !== mime)) {
+    throw createPreparationError(
+      "validação do arquivo",
+      `MIME inválido para ${expectedName}: manifesto ${manifestMime || "não informado"}, navegador ${browserMime || "não informado"}; esperado ${mime}.`,
     );
   }
 
@@ -623,7 +608,11 @@ export async function linkPrivateAssetPackFromOwlbear(OBR, storage) {
     throw new Error("Configure o Private Asset Pack antes de vincular os assets.");
   }
 
-  const selected = await OBR.assets.downloadImages(true, "DSC");
+  const search =
+    typeof pack.bindingSearch === "string" && pack.bindingSearch.trim()
+      ? pack.bindingSearch.trim()
+      : "DSC";
+  const selected = await OBR.assets.downloadImages(true, search);
   const { bindings, unmatched } = matchOwlbearAssetBindings(pack, selected);
   if (Object.keys(bindings).length) {
     savePrivateAssetBindings(bindings, storage);
@@ -633,6 +622,7 @@ export async function linkPrivateAssetPackFromOwlbear(OBR, storage) {
     selected: selected.length,
     linked: Object.keys(bindings).length,
     unmatched,
+    search,
   };
 }
 

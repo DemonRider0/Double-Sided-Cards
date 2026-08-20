@@ -1,4 +1,9 @@
-import OBR, { buildImage, buildImageUpload, buildLabel } from "@owlbear-rodeo/sdk";
+import OBR, {
+  buildImage,
+  buildImageUpload,
+  buildLabel,
+  buildSceneUpload,
+} from "@owlbear-rodeo/sdk";
 export * from "./card-data.js";
 
 export function isInOwlbearFrame() {
@@ -11,7 +16,7 @@ export async function loadOwlbearSdk(timeoutMs = 5000) {
   }
 
   if (OBR.isReady) {
-    return { OBR, sdk: { buildImage, buildImageUpload, buildLabel } };
+    return { OBR, sdk: { buildImage, buildImageUpload, buildLabel, buildSceneUpload } };
   }
 
   await new Promise((resolve, reject) => {
@@ -32,5 +37,5 @@ export async function loadOwlbearSdk(timeoutMs = 5000) {
     });
   });
 
-  return { OBR, sdk: { buildImage, buildImageUpload, buildLabel } };
+  return { OBR, sdk: { buildImage, buildImageUpload, buildLabel, buildSceneUpload } };
 }
