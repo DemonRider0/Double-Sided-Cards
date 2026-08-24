@@ -60,6 +60,7 @@ import {
   readPrivateAssetPackFiles,
   uploadPrivateAssetPack,
 } from "./private-asset-pack.js";
+import { runPrivateAssetUploadResponseConsoleProbe } from "./private-asset-upload-probe.js";
 
 const elements = {
   presetDeckSelect: document.querySelector("#presetDeckSelect"),
@@ -1696,6 +1697,11 @@ async function init() {
   buildImage = loaded.sdk.buildImage;
   buildImageUpload = loaded.sdk.buildImageUpload;
   buildSceneUpload = loaded.sdk.buildSceneUpload;
+  window.cartasDuplasProbeUploadImagesResponse = (options) =>
+    runPrivateAssetUploadResponseConsoleProbe(obr, buildImageUpload, options);
+  console.info(
+    "[Cartas Duplas] Sonda disponível: await window.cartasDuplasProbeUploadImagesResponse()",
+  );
   obr.broadcast
     .sendMessage(COMMANDS_CHANNEL, { type: "register-commands" }, { destination: "LOCAL" })
     .catch((error) => {

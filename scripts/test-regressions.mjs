@@ -48,6 +48,11 @@ import {
   preparePrivateAssetUpload,
   uploadPrivateAssetPack,
 } from "../src/private-asset-pack.js";
+import {
+  isPrivateAssetUploadResponseMessage,
+  probePrivateAssetUploadResponse,
+  runPrivateAssetUploadResponseConsoleProbe,
+} from "../src/private-asset-upload-probe.js";
 import { inspectImageBytes } from "./image-metadata.mjs";
 import { optimizePngForRuntime } from "./image-optimizer.mjs";
 
@@ -844,6 +849,305 @@ async function testPrivateAssetUploadPreparation() {
   );
 }
 
+class ProbeMessageTarget {
+  constructor() {
+    this.listeners = new Set();
+  }
+
+  addEventListener(type, listener) {
+    if (type === "message") {
+      this.listeners.add(listener);
+    }
+  }
+
+  removeEventListener(type, listener) {
+    if (type === "message") {
+      this.listeners.delete(listener);
+    }
+  }
+
+  dispatch(event) {
+    for (const listener of [...this.listeners]) {
+      listener(event);
+    }
+  }
+
+  setTimeout(callback, timeout) {
+    return setTimeout(callback, timeout);
+  }
+
+  clearTimeout(timeout) {
+    clearTimeout(timeout);
+  }
+}
+
+function createUploadProbeHarness(onSend) {
+  const windowObject = new ProbeMessageTarget();
+  let uploadCalls = 0;
+  const messageBus = {
+    send(id, data, nonce) {
+      onSend?.({ id, data, nonce, windowObject });
+    },
+  };
+  const OBR = {
+    assets: {
+      messageBus,
+      async uploadImages(images, typeHint) {
+        uploadCalls += 1;
+        assert.equal(images.length, 1);
+        assert.equal(typeHint, "PROP");
+        messageBus.send("OBR_ASSETS_UPLOAD_IMAGES", { images, typeHint }, "_probe-nonce");
+      },
+    },
+  };
+  return {
+    OBR,
+    messageBus,
+    windowObject,
+    get uploadCalls() {
+      return uploadCalls;
+    },
+  };
+}
+
+async function testPrivateAssetUploadResponseProbe() {
+  const origin = "https://www.owlbear.rodeo";
+  const expectedId = "OBR_ASSETS_UPLOAD_IMAGES_RESPONSE_probe-nonce";
+  assert.equal(
+    isPrivateAssetUploadResponseMessage(
+      { origin, data: { id: expectedId, data: {} } },
+      origin,
+      expectedId,
+    ),
+    true,
+  );
+  for (const event of [
+    { origin: "https://example.invalid", data: { id: expectedId, data: {} } },
+    { origin, data: { id: "OBR_ASSETS_UPLOAD_SCENES_RESPONSE_probe-nonce", data: {} } },
+    { origin, data: { id: "OBR_ASSETS_UPLOAD_IMAGES_RESPONSE_other-nonce", data: {} } },
+    { origin, data: null },
+  ]) {
+    assert.equal(isPrivateAssetUploadResponseMessage(event, origin, expectedId), false);
+  }
+
+  const rawPayload = {
+    images: [
+      {
+        name: "Asset de teste",
+        assetId: "asset-logico",
+        image: {
+          id: "identificador-fisico",
+          url: "https://images.owlbear.rodeo/test.webp",
+          width: 1,
+          height: 1,
+          mime: "image/webp",
+          physicalIdentifier: "storage-object-123",
+          unknownServerField: { assets: [], items: [] },
+        },
+      },
+    ],
+  };
+  const captureHarness = createUploadProbeHarness(({ nonce, windowObject }) => {
+    queueMicrotask(() => {
+      windowObject.dispatch({
+        origin,
+        data: {
+          id: `OBR_ASSETS_UPLOAD_IMAGES_RESPONSE${nonce}`,
+          data: rawPayload,
+        },
+      });
+    });
+  });
+  const originalSend = captureHarness.messageBus.send;
+  const logs = [];
+  const captured = await probePrivateAssetUploadResponse(
+    captureHarness.OBR,
+    { file: {} },
+    "PROP",
+    {
+      windowObject: captureHarness.windowObject,
+      messageBus: captureHarness.messageBus,
+      owlbearOrigin: origin,
+      logger: { log: (...values) => logs.push(values) },
+      timeoutMs: 100,
+    },
+  );
+  assert.equal(captured, rawPayload);
+  assert.equal(captureHarness.uploadCalls, 1);
+  assert.equal(captureHarness.windowObject.listeners.size, 0);
+  assert.equal(captureHarness.messageBus.send, originalSend);
+  assert.equal(logs.length, 2);
+  assert.equal(logs[0][1], rawPayload);
+  assert.match(logs[0][0], /Payload bruto/);
+  assert.match(logs[0][0], /OBR_ASSETS_UPLOAD_IMAGES_RESPONSE_probe-nonce/);
+  assert.deepEqual(logs[1][1].foundAtAnyDepth, {
+    ImageContent: true,
+    url: true,
+    width: true,
+    height: true,
+    mime: true,
+    id: true,
+    assetId: true,
+    name: true,
+    images: true,
+    assets: true,
+    items: true,
+  });
+  assert.equal(logs[1][1].keys.includes("unknownServerField"), true);
+  assert.deepEqual(logs[1][1].fieldPaths.assetId, ["payload.images.0.assetId"]);
+  assert.deepEqual(
+    logs[1][1].identifierCandidates.find(
+      ({ path }) => path === "payload.images.0.image.physicalIdentifier",
+    ),
+    {
+      path: "payload.images.0.image.physicalIdentifier",
+      key: "physicalIdentifier",
+      javascriptType: "string",
+      value: "storage-object-123",
+    },
+  );
+
+  const nonceHarness = createUploadProbeHarness(({ nonce, windowObject }) => {
+    queueMicrotask(() => {
+      for (const event of [
+        {
+          origin,
+          data: { id: "OBR_ASSETS_UPLOAD_SCENES_RESPONSE_probe-nonce", data: "other-api" },
+        },
+        {
+          origin,
+          data: { id: "OBR_ASSETS_UPLOAD_IMAGES_RESPONSE_other-nonce", data: "other-nonce" },
+        },
+        {
+          origin: "https://example.invalid",
+          data: { id: `OBR_ASSETS_UPLOAD_IMAGES_RESPONSE${nonce}`, data: "other-origin" },
+        },
+      ]) {
+        windowObject.dispatch(event);
+      }
+      windowObject.dispatch({
+        origin,
+        data: { id: `OBR_ASSETS_UPLOAD_IMAGES_RESPONSE${nonce}`, data: "corresponding" },
+      });
+    });
+  });
+  assert.equal(
+    await probePrivateAssetUploadResponse(nonceHarness.OBR, { file: {} }, "PROP", {
+      windowObject: nonceHarness.windowObject,
+      messageBus: nonceHarness.messageBus,
+      owlbearOrigin: origin,
+      logger: null,
+      timeoutMs: 100,
+    }),
+    "corresponding",
+  );
+  assert.equal(nonceHarness.windowObject.listeners.size, 0);
+  assert.equal(nonceHarness.uploadCalls, 1);
+
+  const timeoutHarness = createUploadProbeHarness();
+  const timeoutOriginalSend = timeoutHarness.messageBus.send;
+  await assert.rejects(
+    () =>
+      probePrivateAssetUploadResponse(timeoutHarness.OBR, { file: {} }, "PROP", {
+        windowObject: timeoutHarness.windowObject,
+        messageBus: timeoutHarness.messageBus,
+        owlbearOrigin: origin,
+        logger: null,
+        timeoutMs: 10,
+      }),
+    /não chegou em 10ms/,
+  );
+  assert.equal(timeoutHarness.windowObject.listeners.size, 0);
+  assert.equal(timeoutHarness.messageBus.send, timeoutOriginalSend);
+  assert.equal(timeoutHarness.uploadCalls, 1);
+
+  const errorHarness = createUploadProbeHarness();
+  const errorOriginalSend = errorHarness.messageBus.send;
+  errorHarness.OBR.assets.uploadImages = async (images, typeHint) => {
+    assert.equal(images.length, 1);
+    assert.equal(typeHint, "PROP");
+    errorHarness.messageBus.send(
+      "OBR_ASSETS_UPLOAD_IMAGES",
+      { images, typeHint },
+      "_probe-nonce",
+    );
+    throw new Error("falha simulada do upload");
+  };
+  await assert.rejects(
+    () =>
+      probePrivateAssetUploadResponse(errorHarness.OBR, { file: {} }, "PROP", {
+        windowObject: errorHarness.windowObject,
+        messageBus: errorHarness.messageBus,
+        owlbearOrigin: origin,
+        logger: null,
+        timeoutMs: 100,
+      }),
+    /falha simulada do upload/,
+  );
+  assert.equal(errorHarness.windowObject.listeners.size, 0);
+  assert.equal(errorHarness.messageBus.send, errorOriginalSend);
+
+  const consoleHarness = createUploadProbeHarness(({ nonce, windowObject }) => {
+    queueMicrotask(() => {
+      windowObject.dispatch({
+        origin,
+        data: {
+          id: `OBR_ASSETS_UPLOAD_IMAGES_RESPONSE${nonce}`,
+          data: { uploaded: true },
+        },
+      });
+    });
+  });
+  const probeFile = new File([Uint8Array.from([1])], "probe.png", {
+    type: "image/png",
+  });
+  let selectedInputRemoved = false;
+  const inputListeners = new Map();
+  const documentObject = {
+    body: { append() {} },
+    createElement(tagName) {
+      assert.equal(tagName, "input");
+      return {
+        files: [],
+        addEventListener(type, listener) {
+          inputListeners.set(type, listener);
+        },
+        removeEventListener(type) {
+          inputListeners.delete(type);
+        },
+        remove() {
+          selectedInputRemoved = true;
+        },
+        click() {
+          this.files = [probeFile];
+          queueMicrotask(() => inputListeners.get("change")?.());
+        },
+      };
+    },
+  };
+  const builtUploads = [];
+  const consolePayload = await runPrivateAssetUploadResponseConsoleProbe(
+    consoleHarness.OBR,
+    createImageUploadBuilderRecorder(builtUploads),
+    {
+      documentObject,
+      windowObject: consoleHarness.windowObject,
+      messageBus: consoleHarness.messageBus,
+      owlbearOrigin: origin,
+      logger: null,
+      timeoutMs: 100,
+    },
+  );
+  assert.deepEqual(consolePayload, { uploaded: true });
+  assert.equal(selectedInputRemoved, true);
+  assert.equal(inputListeners.size, 0);
+  assert.equal(builtUploads.length, 1);
+  assert.equal(builtUploads[0].file, probeFile);
+  assert.equal(builtUploads[0].name, "[Sonda Cartas Duplas] probe.png");
+  assert.equal(consoleHarness.uploadCalls, 1);
+  assert.equal(consoleHarness.windowObject.listeners.size, 0);
+}
+
 function createSceneUploadBuilderRecorder(record) {
   return () => {
     const upload = {
@@ -1395,6 +1699,7 @@ await testConcurrentReturnIdempotency();
 await testPrivateAssetArchitecture();
 await testManualPrivateAssetBindings();
 await testPrivateAssetUploadPreparation();
+await testPrivateAssetUploadResponseProbe();
 await testPrivateSceneUploadArchitecture();
 await testRuntimeImageOptimizationPolicy();
 await testPrivateAssetPackGeneratorFormats();
