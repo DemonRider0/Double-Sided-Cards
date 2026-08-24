@@ -362,6 +362,63 @@ figcaption {
   overflow-wrap: anywhere;
 }
 
+.diagnostic-panel {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px dashed var(--accent-strong);
+  border-radius: 8px;
+  background: rgba(181, 42, 34, 0.07);
+}
+
+.diagnostic-panel h2 {
+  margin: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.upload-probe-status {
+  margin-top: 0;
+}
+
+.upload-probe-status[data-tone="error"] {
+  color: var(--danger);
+}
+
+.upload-probe-status[data-tone="success"] {
+  color: var(--success);
+}
+
+.upload-probe-status[data-tone="warning"] {
+  color: var(--warning);
+}
+
+.diagnostic-result {
+  min-width: 0;
+}
+
+.diagnostic-result summary {
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.diagnostic-output {
+  max-height: 360px;
+  margin: 10px 0 0;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .message[data-tone="error"] {
   color: var(--danger);
 }

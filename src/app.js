@@ -60,7 +60,10 @@ import {
   readPrivateAssetPackFiles,
   uploadPrivateAssetPack,
 } from "./private-asset-pack.js";
-import { runPrivateAssetUploadResponseConsoleProbe } from "./private-asset-upload-probe.js";
+import {
+  formatPrivateAssetUploadResponseReport,
+  runPrivateAssetUploadResponseConsoleProbe,
+} from "./private-asset-upload-probe.js";
 
 const elements = {
   presetDeckSelect: document.querySelector("#presetDeckSelect"),
@@ -89,6 +92,11 @@ const elements = {
   privatePackLinkButton: document.querySelector("#privatePackLinkButton"),
   privatePackClearButton: document.querySelector("#privatePackClearButton"),
   privatePackInfo: document.querySelector("#privatePackInfo"),
+  uploadProbeTestButton: document.querySelector("#uploadProbeTestButton"),
+  uploadProbeCopyButton: document.querySelector("#uploadProbeCopyButton"),
+  uploadProbeStatus: document.querySelector("#uploadProbeStatus"),
+  uploadProbeResult: document.querySelector("#uploadProbeResult"),
+  uploadProbeOutput: document.querySelector("#uploadProbeOutput"),
   developmentSaveSceneButtons: [...document.querySelectorAll("[data-save-scene-preset]")],
   createScenePresetButtons: [...document.querySelectorAll("[data-create-scene-preset]")],
   defaultBoardInfo: document.querySelector("#defaultBoardInfo"),
@@ -110,6 +118,8 @@ let sceneCreationRunning = false;
 let privatePackRunning = false;
 let selectedPrivatePack = null;
 let colorAssignmentsRefreshTimer = null;
+let uploadProbeRunning = false;
+let uploadProbeReportText = "";
 const customSelects = new Map();
 
 window.addEventListener("error", (event) => {
@@ -141,6 +151,118 @@ function getErrorMessage(error, fallback = "Ocorreu um erro inesperado.") {
 function setMessage(text, tone = "neutral") {
   elements.message.textContent = text;
   elements.message.dataset.tone = tone;
+}
+
+function setUploadProbeStatus(text, tone = "neutral") {
+  elements.uploadProbeStatus.textContent = text;
+  elements.uploadProbeStatus.dataset.tone = tone;
+}
+
+function updateUploadProbeControls(isConnected = Boolean(obr)) {
+  elements.uploadProbeTestButton.disabled = uploadProbeRunning || !isConnected;
+  elements.uploadProbeCopyButton.disabled =
+    uploadProbeRunning || !uploadProbeReportText;
+}
+
+async function writeTextToClipboard(text) {
+  let clipboardError = null;
+  if (globalThis.navigator?.clipboard?.writeText) {
+    try {
+      await globalThis.navigator.clipboard.writeText(text);
+      return;
+    } catch (error) {
+      clipboardError = error;
+    }
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.append(textarea);
+  try {
+    textarea.select();
+    if (!document.execCommand?.("copy")) {
+      throw clipboardError || new Error("O navegador recusou a cópia do relatório.");
+    }
+  } finally {
+    textarea.remove();
+  }
+}
+
+async function runUploadProbeFromPanel() {
+  if (!obr || !buildImageUpload) {
+    setUploadProbeStatus("Sonda indisponível: o painel não está conectado ao Owlbear.", "error");
+    return;
+  }
+
+  uploadProbeRunning = true;
+  uploadProbeReportText = "";
+  elements.uploadProbeOutput.textContent = "";
+  elements.uploadProbeResult.hidden = true;
+  setUploadProbeStatus("Selecione exatamente uma imagem pequena…", "neutral");
+  updateUploadProbeControls(true);
+
+  let capturedReport = null;
+  try {
+    await runPrivateAssetUploadResponseConsoleProbe(obr, buildImageUpload, {
+      onFileSelected() {
+        setUploadProbeStatus(
+          "Enviando uma imagem e aguardando a resposta correspondente…",
+          "neutral",
+        );
+      },
+      onReport(report) {
+        capturedReport = report;
+      },
+    });
+    if (!capturedReport) {
+      throw new Error("O upload terminou sem produzir um relatório diagnóstico.");
+    }
+
+    uploadProbeReportText = formatPrivateAssetUploadResponseReport(capturedReport);
+    elements.uploadProbeOutput.textContent = uploadProbeReportText;
+    elements.uploadProbeResult.hidden = false;
+    elements.uploadProbeResult.open = true;
+    setUploadProbeStatus(
+      `Resposta capturada: ${capturedReport.responseMessageId} ` +
+        `(payload ${capturedReport.javascriptType}).`,
+      "success",
+    );
+  } catch (error) {
+    const message = getErrorMessage(error);
+    if (/não chegou|took longer than/i.test(message)) {
+      setUploadProbeStatus(
+        "Timeout: nenhuma resposta correspondente foi capturada.",
+        "error",
+      );
+    } else if (/cancelad[ao]|selecione exatamente/i.test(message)) {
+      setUploadProbeStatus("Seleção cancelada; nenhum upload foi iniciado.", "warning");
+    } else {
+      setUploadProbeStatus(`Falha na sonda: ${message}`, "error");
+    }
+  } finally {
+    uploadProbeRunning = false;
+    updateUploadProbeControls(Boolean(obr));
+  }
+}
+
+async function copyUploadProbeReport() {
+  if (!uploadProbeReportText) {
+    setUploadProbeStatus("Execute a sonda antes de copiar o relatório.", "warning");
+    return;
+  }
+
+  try {
+    await writeTextToClipboard(uploadProbeReportText);
+    setUploadProbeStatus("Relatório completo copiado para a área de transferência.", "success");
+  } catch (error) {
+    setUploadProbeStatus(
+      `Não foi possível copiar o relatório: ${getErrorMessage(error)}`,
+      "error",
+    );
+  }
 }
 
 function setConnectionStatus(text, isConnected) {
@@ -1568,6 +1690,20 @@ async function init() {
     });
   });
   updatePrivatePackControls(false);
+  elements.uploadProbeTestButton.addEventListener("click", () => {
+    runUploadProbeFromPanel().catch((error) => {
+      setUploadProbeStatus(`Falha na sonda: ${getErrorMessage(error)}`, "error");
+    });
+  });
+  elements.uploadProbeCopyButton.addEventListener("click", () => {
+    copyUploadProbeReport().catch((error) => {
+      setUploadProbeStatus(
+        `Não foi possível copiar o relatório: ${getErrorMessage(error)}`,
+        "error",
+      );
+    });
+  });
+  updateUploadProbeControls(false);
   elements.panelFlipButton.addEventListener("click", () =>
     runPanelAction(elements.panelFlipButton, async () => {
       const fallbackSelection = lastFlipSelection.length
@@ -1690,6 +1826,7 @@ async function init() {
       `A tela carregou, mas ainda não conectou ao Owlbear: ${getErrorMessage(error)}`,
       "warning",
     );
+    setUploadProbeStatus("Sonda indisponível: o painel não conectou ao Owlbear.", "error");
     return;
   }
 
@@ -1702,6 +1839,11 @@ async function init() {
   console.info(
     "[Cartas Duplas] Sonda disponível: await window.cartasDuplasProbeUploadImagesResponse()",
   );
+  setUploadProbeStatus(
+    "Pronto. O teste enviará exatamente uma imagem e exibirá a resposta correspondente.",
+    "neutral",
+  );
+  updateUploadProbeControls(true);
   obr.broadcast
     .sendMessage(COMMANDS_CHANNEL, { type: "register-commands" }, { destination: "LOCAL" })
     .catch((error) => {

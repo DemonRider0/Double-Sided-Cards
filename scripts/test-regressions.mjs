@@ -49,6 +49,8 @@ import {
   uploadPrivateAssetPack,
 } from "../src/private-asset-pack.js";
 import {
+  createPrivateAssetUploadResponseReport,
+  formatPrivateAssetUploadResponseReport,
   isPrivateAssetUploadResponseMessage,
   probePrivateAssetUploadResponse,
   runPrivateAssetUploadResponseConsoleProbe,
@@ -655,6 +657,18 @@ async function testManualPrivateAssetBindings() {
   assert.equal(appSource.includes("status.missing"), false);
   assert.equal(appSource.includes("${status.linked} de"), false);
   assert.equal(htmlSource.includes("Upload opcional"), true);
+  for (const diagnosticControlId of [
+    "uploadProbeTestButton",
+    "uploadProbeCopyButton",
+    "uploadProbeStatus",
+    "uploadProbeResult",
+    "uploadProbeOutput",
+  ]) {
+    assert.equal(htmlSource.includes(`id="${diagnosticControlId}"`), true);
+    assert.equal(appSource.includes(diagnosticControlId), true);
+  }
+  assert.equal(appSource.includes("runPrivateAssetUploadResponseConsoleProbe"), true);
+  assert.equal(appSource.includes("formatPrivateAssetUploadResponseReport"), true);
 }
 
 function createImageUploadBuilderRecorder(record) {
@@ -960,6 +974,7 @@ async function testPrivateAssetUploadResponseProbe() {
   });
   const originalSend = captureHarness.messageBus.send;
   const logs = [];
+  let callbackReport = null;
   const captured = await probePrivateAssetUploadResponse(
     captureHarness.OBR,
     { file: {} },
@@ -969,6 +984,9 @@ async function testPrivateAssetUploadResponseProbe() {
       messageBus: captureHarness.messageBus,
       owlbearOrigin: origin,
       logger: { log: (...values) => logs.push(values) },
+      onReport: (report) => {
+        callbackReport = report;
+      },
       timeoutMs: 100,
     },
   );
@@ -977,6 +995,8 @@ async function testPrivateAssetUploadResponseProbe() {
   assert.equal(captureHarness.windowObject.listeners.size, 0);
   assert.equal(captureHarness.messageBus.send, originalSend);
   assert.equal(logs.length, 2);
+  assert.equal(callbackReport.rawPayload, rawPayload);
+  assert.equal(callbackReport.responseMessageId, expectedId);
   assert.equal(logs[0][1], rawPayload);
   assert.match(logs[0][0], /Payload bruto/);
   assert.match(logs[0][0], /OBR_ASSETS_UPLOAD_IMAGES_RESPONSE_probe-nonce/);
@@ -1006,6 +1026,23 @@ async function testPrivateAssetUploadResponseProbe() {
       value: "storage-object-123",
     },
   );
+  const formattedReport = formatPrivateAssetUploadResponseReport(callbackReport);
+  assert.match(formattedReport, /Resposta capturada: sim/);
+  assert.match(formattedReport, /OBR_ASSETS_UPLOAD_IMAGES_RESPONSE_probe-nonce/);
+  assert.match(formattedReport, /PAYLOAD BRUTO/);
+  assert.match(formattedReport, /storage-object-123/);
+  assert.match(formattedReport, /CANDIDATOS A IDS E REFERÊNCIAS/);
+
+  const circularPayload = { label: "payload circular" };
+  circularPayload.self = circularPayload;
+  const circularReport = createPrivateAssetUploadResponseReport(
+    "OBR_ASSETS_UPLOAD_IMAGES_RESPONSE_circular",
+    circularPayload,
+  );
+  const circularText = formatPrivateAssetUploadResponseReport(circularReport);
+  assert.match(circularText, /payload circular/);
+  assert.match(circularText, /Circular -> payload/);
+  assert.equal(circularPayload.self, circularPayload);
 
   const nonceHarness = createUploadProbeHarness(({ nonce, windowObject }) => {
     queueMicrotask(() => {
@@ -1126,6 +1163,8 @@ async function testPrivateAssetUploadResponseProbe() {
     },
   };
   const builtUploads = [];
+  let selectedProbeFile = null;
+  let consoleReport = null;
   const consolePayload = await runPrivateAssetUploadResponseConsoleProbe(
     consoleHarness.OBR,
     createImageUploadBuilderRecorder(builtUploads),
@@ -1135,6 +1174,12 @@ async function testPrivateAssetUploadResponseProbe() {
       messageBus: consoleHarness.messageBus,
       owlbearOrigin: origin,
       logger: null,
+      onFileSelected: (file) => {
+        selectedProbeFile = file;
+      },
+      onReport: (report) => {
+        consoleReport = report;
+      },
       timeoutMs: 100,
     },
   );
@@ -1142,6 +1187,8 @@ async function testPrivateAssetUploadResponseProbe() {
   assert.equal(selectedInputRemoved, true);
   assert.equal(inputListeners.size, 0);
   assert.equal(builtUploads.length, 1);
+  assert.equal(selectedProbeFile, probeFile);
+  assert.deepEqual(consoleReport.rawPayload, { uploaded: true });
   assert.equal(builtUploads[0].file, probeFile);
   assert.equal(builtUploads[0].name, "[Sonda Cartas Duplas] probe.png");
   assert.equal(consoleHarness.uploadCalls, 1);

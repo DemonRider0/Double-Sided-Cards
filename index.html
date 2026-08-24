@@ -166,6 +166,34 @@
         </div>
       </section>
 
+      <section class="form diagnostic-panel" aria-labelledby="uploadProbeTitle">
+        <h2 id="uploadProbeTitle">Diagn&oacute;stico tempor&aacute;rio &mdash; uploadImages</h2>
+        <p class="field-note">
+          Escolha uma imagem pequena. A ferramenta far&aacute; um &uacute;nico upload e exibir&aacute;
+          somente a resposta correspondente ao nonce dessa chamada.
+        </p>
+        <div class="action-grid">
+          <button id="uploadProbeTestButton" class="button" type="button" disabled>
+            Testar resposta de upload
+          </button>
+          <button id="uploadProbeCopyButton" class="button button--secondary" type="button" disabled>
+            Copiar relat&oacute;rio
+          </button>
+        </div>
+        <p
+          id="uploadProbeStatus"
+          class="field-note upload-probe-status"
+          role="status"
+          aria-live="polite"
+        >
+          Aguardando conex&atilde;o com o Owlbear&hellip;
+        </p>
+        <details id="uploadProbeResult" class="diagnostic-result" hidden>
+          <summary>Relat&oacute;rio capturado</summary>
+          <pre id="uploadProbeOutput" class="diagnostic-output"></pre>
+        </details>
+      </section>
+
       <p id="message" class="message" role="status" aria-live="polite"></p>
     </main>
 

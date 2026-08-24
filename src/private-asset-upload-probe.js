@@ -160,23 +160,160 @@ function inspectPayload(payload) {
   };
 }
 
-export function reportPrivateAssetUploadResponse(responseId, payload, logger = console) {
-  const summary = inspectPayload(payload);
-  const report = {
+export function createPrivateAssetUploadResponseReport(responseId, payload) {
+  return {
     responseMessageId: responseId,
     rawPayload: payload,
-    ...summary,
+    ...inspectPayload(payload),
   };
+}
+
+function logPrivateAssetUploadResponseReport(report, logger) {
+  const { rawPayload, ...summary } = report;
 
   logger.log(
-    `[Cartas Duplas] Payload bruto de ${responseId} (sem normalização):`,
-    payload,
+    `[Cartas Duplas] Payload bruto de ${report.responseMessageId} (sem normalização):`,
+    rawPayload,
   );
-  logger.log("[Cartas Duplas] Resumo da resposta de upload:", {
-    responseMessageId: responseId,
-    ...summary,
-  });
+  logger.log("[Cartas Duplas] Resumo da resposta de upload:", summary);
+}
+
+export function reportPrivateAssetUploadResponse(responseId, payload, logger = console) {
+  const report = createPrivateAssetUploadResponseReport(responseId, payload);
+  logPrivateAssetUploadResponseReport(report, logger);
   return report;
+}
+
+function createSerializableDiagnosticSnapshot(value, path, visited) {
+  if (value === null || typeof value === "string" || typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : `[Number: ${String(value)}]`;
+  }
+  if (typeof value === "undefined") {
+    return "[undefined]";
+  }
+  if (typeof value === "bigint") {
+    return `[BigInt: ${value.toString()}]`;
+  }
+  if (typeof value === "symbol") {
+    return `[Symbol: ${value.description || "sem descrição"}]`;
+  }
+  if (typeof value === "function") {
+    return `[Function: ${value.name || "anônima"}]`;
+  }
+  if (!isObject(value)) {
+    return String(value);
+  }
+  if (visited.has(value)) {
+    return `[Circular -> ${visited.get(value)}]`;
+  }
+  visited.set(value, path);
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? "[Date inválida]" : value.toISOString();
+  }
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: value.message,
+      stack: value.stack,
+    };
+  }
+  if (Array.isArray(value)) {
+    return value.map((child, index) => {
+      try {
+        return createSerializableDiagnosticSnapshot(child, `${path}[${index}]`, visited);
+      } catch (error) {
+        return `[Falha ao representar: ${error?.message || String(error)}]`;
+      }
+    });
+  }
+
+  const snapshot = {};
+  let propertyKeys;
+  try {
+    propertyKeys = Reflect.ownKeys(value);
+  } catch (error) {
+    return `[Falha ao listar propriedades: ${error?.message || String(error)}]`;
+  }
+  for (const propertyKey of propertyKeys) {
+    const displayKey =
+      typeof propertyKey === "symbol"
+        ? `[Symbol: ${propertyKey.description || "sem descrição"}]`
+        : propertyKey;
+    try {
+      snapshot[displayKey] = createSerializableDiagnosticSnapshot(
+        value[propertyKey],
+        `${path}.${displayKey}`,
+        visited,
+      );
+    } catch (error) {
+      snapshot[displayKey] = `[Falha ao representar: ${error?.message || String(error)}]`;
+    }
+  }
+  return snapshot;
+}
+
+export function stringifyPrivateAssetUploadDiagnostic(value) {
+  try {
+    const serialized = JSON.stringify(value, null, 2);
+    if (serialized !== undefined) {
+      return serialized;
+    }
+  } catch {
+    // A representação abaixo é usada somente para exibição e cópia do diagnóstico.
+  }
+
+  try {
+    return JSON.stringify(
+      createSerializableDiagnosticSnapshot(value, "payload", new WeakMap()),
+      null,
+      2,
+    );
+  } catch (error) {
+    return `[Não foi possível representar o valor: ${error?.message || String(error)}]`;
+  }
+}
+
+export function formatPrivateAssetUploadResponseReport(report) {
+  if (!report || typeof report !== "object") {
+    throw new Error("O relatório da sondagem não está disponível.");
+  }
+
+  const { rawPayload, ...summary } = report;
+  const foundFields = Object.entries(report.foundAtAnyDepth || {})
+    .map(([field, found]) => `${field}: ${found ? "sim" : "não"}`)
+    .join("\n");
+
+  return [
+    "Cartas Duplas — diagnóstico temporário de uploadImages",
+    "Resposta capturada: sim",
+    `Mensagem: ${report.responseMessageId || "não informada"}`,
+    `Tipo JavaScript do payload: ${report.javascriptType || typeof rawPayload}`,
+    "",
+    "CAMPOS PROCURADOS",
+    foundFields || "Nenhum campo diagnóstico foi enumerado.",
+    "",
+    "CAMINHOS DOS CAMPOS",
+    stringifyPrivateAssetUploadDiagnostic(report.fieldPaths || {}),
+    "",
+    "URLS ENCONTRADAS",
+    stringifyPrivateAssetUploadDiagnostic(report.urls || []),
+    "",
+    "CANDIDATOS A IDS E REFERÊNCIAS",
+    stringifyPrivateAssetUploadDiagnostic({
+      assetReferences: report.assetReferences || [],
+      identifierCandidates: report.identifierCandidates || [],
+    }),
+    "",
+    "PAYLOAD BRUTO — REPRESENTAÇÃO PARA EXIBIÇÃO/CÓPIA",
+    stringifyPrivateAssetUploadDiagnostic(rawPayload),
+    "",
+    "RESUMO COMPLETO",
+    stringifyPrivateAssetUploadDiagnostic(summary),
+  ].join("\n");
 }
 
 export async function probePrivateAssetUploadResponse(
@@ -195,6 +332,7 @@ export async function probePrivateAssetUploadResponse(
     options.owlbearOrigin || getOwlbearOriginFromLocation(windowObject?.location);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const logger = options.logger === undefined ? globalThis.console : options.logger;
+  const onReport = options.onReport;
   if (
     !windowObject?.addEventListener ||
     !windowObject?.removeEventListener ||
@@ -238,8 +376,12 @@ export async function probePrivateAssetUploadResponse(
     clearResponseTimeout();
     const payload = event.data.data;
     try {
+      const report = createPrivateAssetUploadResponseReport(event.data.id, payload);
       if (logger?.log) {
-        reportPrivateAssetUploadResponse(event.data.id, payload, logger);
+        logPrivateAssetUploadResponseReport(report, logger);
+      }
+      if (typeof onReport === "function") {
+        onReport(report);
       }
     } catch (error) {
       rejectResponse(error);
@@ -350,6 +492,7 @@ export async function runPrivateAssetUploadResponseConsoleProbe(
     file: providedFile,
     documentObject = globalThis.document,
     typeHint = "PROP",
+    onFileSelected,
     ...probeOptions
   } = options;
   const file = providedFile || (await selectSingleImageForUploadProbe(documentObject));
@@ -358,6 +501,9 @@ export async function runPrivateAssetUploadResponseConsoleProbe(
   }
   if (typeof file.type !== "string" || !file.type.startsWith("image/")) {
     throw new Error("O arquivo escolhido não foi reconhecido como imagem.");
+  }
+  if (typeof onFileSelected === "function") {
+    onFileSelected(file);
   }
 
   const builder = buildImageUpload(file);
