@@ -64,6 +64,10 @@ import {
   formatPrivateAssetUploadResponseReport,
   runPrivateAssetUploadResponseConsoleProbe,
 } from "./private-asset-upload-probe.js";
+import {
+  formatDataUrlImageProbeReport,
+  runDataUrlImageProbe,
+} from "./data-url-image-probe.js";
 
 const elements = {
   presetDeckSelect: document.querySelector("#presetDeckSelect"),
@@ -97,6 +101,11 @@ const elements = {
   uploadProbeStatus: document.querySelector("#uploadProbeStatus"),
   uploadProbeResult: document.querySelector("#uploadProbeResult"),
   uploadProbeOutput: document.querySelector("#uploadProbeOutput"),
+  dataUrlProbeTestButton: document.querySelector("#dataUrlProbeTestButton"),
+  dataUrlProbeCopyButton: document.querySelector("#dataUrlProbeCopyButton"),
+  dataUrlProbeStatus: document.querySelector("#dataUrlProbeStatus"),
+  dataUrlProbeResult: document.querySelector("#dataUrlProbeResult"),
+  dataUrlProbeOutput: document.querySelector("#dataUrlProbeOutput"),
   developmentSaveSceneButtons: [...document.querySelectorAll("[data-save-scene-preset]")],
   createScenePresetButtons: [...document.querySelectorAll("[data-create-scene-preset]")],
   defaultBoardInfo: document.querySelector("#defaultBoardInfo"),
@@ -120,6 +129,8 @@ let selectedPrivatePack = null;
 let colorAssignmentsRefreshTimer = null;
 let uploadProbeRunning = false;
 let uploadProbeReportText = "";
+let dataUrlProbeRunning = false;
+let dataUrlProbeReportText = "";
 const customSelects = new Map();
 
 window.addEventListener("error", (event) => {
@@ -265,6 +276,97 @@ async function copyUploadProbeReport() {
   }
 }
 
+function setDataUrlProbeStatus(text, tone = "neutral") {
+  elements.dataUrlProbeStatus.textContent = text;
+  elements.dataUrlProbeStatus.dataset.tone = tone;
+}
+
+function updateDataUrlProbeControls(isConnected = Boolean(obr)) {
+  elements.dataUrlProbeTestButton.disabled = dataUrlProbeRunning || !isConnected;
+  elements.dataUrlProbeCopyButton.disabled =
+    dataUrlProbeRunning || !dataUrlProbeReportText;
+}
+
+function showDataUrlProbeReport(report) {
+  dataUrlProbeReportText = formatDataUrlImageProbeReport(report);
+  elements.dataUrlProbeOutput.textContent = dataUrlProbeReportText;
+  elements.dataUrlProbeResult.hidden = false;
+  elements.dataUrlProbeResult.open = true;
+}
+
+async function runDataUrlProbeFromPanel() {
+  if (!obr || !buildImage) {
+    setDataUrlProbeStatus(
+      "Sonda indisponível: o painel não está conectado ao Owlbear.",
+      "error",
+    );
+    return;
+  }
+
+  dataUrlProbeRunning = true;
+  dataUrlProbeReportText = "";
+  elements.dataUrlProbeOutput.textContent = "";
+  elements.dataUrlProbeResult.hidden = true;
+  setDataUrlProbeStatus("Selecione uma imagem pequena em PNG, JPEG ou WebP…", "neutral");
+  updateDataUrlProbeControls(true);
+
+  try {
+    const report = await runDataUrlImageProbe(obr, buildImage, {
+      getPosition: getViewportCenter,
+      onFileSelected() {
+        setDataUrlProbeStatus("Lendo o arquivo e obtendo suas dimensões…", "neutral");
+      },
+      onPrepared() {
+        setDataUrlProbeStatus(
+          "Criando um Image item com a data URL e aguardando addItems…",
+          "neutral",
+        );
+      },
+    });
+    showDataUrlProbeReport(report);
+    setDataUrlProbeStatus(
+      "Item de teste criado. Verifique a imagem agora e novamente após recarregar o Owlbear.",
+      "success",
+    );
+  } catch (error) {
+    const report = error?.diagnosticReport;
+    if (report) {
+      showDataUrlProbeReport(report);
+      setDataUrlProbeStatus(
+        `${report.error?.name || "Erro"}: ${report.error?.message || getErrorMessage(error)}`,
+        "error",
+      );
+    } else {
+      const message = getErrorMessage(error);
+      if (/cancelad[ao]|selecione exatamente/i.test(message)) {
+        setDataUrlProbeStatus("Seleção cancelada; nenhum item foi criado.", "warning");
+      } else {
+        setDataUrlProbeStatus(`Falha na sonda de data URL: ${message}`, "error");
+      }
+    }
+  } finally {
+    dataUrlProbeRunning = false;
+    updateDataUrlProbeControls(Boolean(obr));
+  }
+}
+
+async function copyDataUrlProbeReport() {
+  if (!dataUrlProbeReportText) {
+    setDataUrlProbeStatus("Execute a sonda antes de copiar o relatório.", "warning");
+    return;
+  }
+
+  try {
+    await writeTextToClipboard(dataUrlProbeReportText);
+    setDataUrlProbeStatus("Relatório de data URL copiado para a área de transferência.", "success");
+  } catch (error) {
+    setDataUrlProbeStatus(
+      `Não foi possível copiar o relatório: ${getErrorMessage(error)}`,
+      "error",
+    );
+  }
+}
+
 function setConnectionStatus(text, isConnected) {
   elements.connectionStatus.textContent = text;
   elements.connectionStatus.dataset.connected = String(isConnected);
@@ -282,6 +384,8 @@ function setConnectionStatus(text, isConnected) {
   updatePresetDeckControls(isConnected);
   updatePresetCardControls(isConnected);
   updateMissionDeckControls(isConnected);
+  updateUploadProbeControls(isConnected);
+  updateDataUrlProbeControls(isConnected);
 }
 
 function updatePrivatePackControls(isConnected = Boolean(obr)) {
@@ -1704,6 +1808,23 @@ async function init() {
     });
   });
   updateUploadProbeControls(false);
+  elements.dataUrlProbeTestButton.addEventListener("click", () => {
+    runDataUrlProbeFromPanel().catch((error) => {
+      setDataUrlProbeStatus(
+        `Falha na sonda de data URL: ${getErrorMessage(error)}`,
+        "error",
+      );
+    });
+  });
+  elements.dataUrlProbeCopyButton.addEventListener("click", () => {
+    copyDataUrlProbeReport().catch((error) => {
+      setDataUrlProbeStatus(
+        `Não foi possível copiar o relatório: ${getErrorMessage(error)}`,
+        "error",
+      );
+    });
+  });
+  updateDataUrlProbeControls(false);
   elements.panelFlipButton.addEventListener("click", () =>
     runPanelAction(elements.panelFlipButton, async () => {
       const fallbackSelection = lastFlipSelection.length
@@ -1827,6 +1948,7 @@ async function init() {
       "warning",
     );
     setUploadProbeStatus("Sonda indisponível: o painel não conectou ao Owlbear.", "error");
+    setDataUrlProbeStatus("Sonda indisponível: o painel não conectou ao Owlbear.", "error");
     return;
   }
 
@@ -1844,6 +1966,11 @@ async function init() {
     "neutral",
   );
   updateUploadProbeControls(true);
+  setDataUrlProbeStatus(
+    "Pronto. Escolha uma imagem de aproximadamente 100–300 KiB ou menos.",
+    "neutral",
+  );
+  updateDataUrlProbeControls(true);
   obr.broadcast
     .sendMessage(COMMANDS_CHANNEL, { type: "register-commands" }, { destination: "LOCAL" })
     .catch((error) => {

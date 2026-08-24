@@ -194,6 +194,38 @@
         </details>
       </section>
 
+      <section class="form diagnostic-panel" aria-labelledby="dataUrlProbeTitle">
+        <h2 id="dataUrlProbeTitle">Diagn&oacute;stico tempor&aacute;rio &mdash; data URL</h2>
+        <p class="field-note">
+          Escolha uma &uacute;nica imagem PNG, JPEG ou WebP pequena, idealmente entre 100 e
+          300 KiB ou menos. N&atilde;o use os maiores assets do Runtime Pack neste teste.
+        </p>
+        <p class="field-note">
+          A imagem ser&aacute; convertida diretamente para <code>data:image/...;base64,...</code>
+          e adicionada como um &uacute;nico Image item, sem upload para a biblioteca do Owlbear.
+        </p>
+        <div class="action-grid">
+          <button id="dataUrlProbeTestButton" class="button" type="button" disabled>
+            Testar imagem com data URL
+          </button>
+          <button id="dataUrlProbeCopyButton" class="button button--secondary" type="button" disabled>
+            Copiar relat&oacute;rio
+          </button>
+        </div>
+        <p
+          id="dataUrlProbeStatus"
+          class="field-note upload-probe-status"
+          role="status"
+          aria-live="polite"
+        >
+          Aguardando conex&atilde;o com o Owlbear&hellip;
+        </p>
+        <details id="dataUrlProbeResult" class="diagnostic-result" hidden>
+          <summary>Relat&oacute;rio da sonda de data URL</summary>
+          <pre id="dataUrlProbeOutput" class="diagnostic-output"></pre>
+        </details>
+      </section>
+
       <p id="message" class="message" role="status" aria-live="polite"></p>
     </main>
 

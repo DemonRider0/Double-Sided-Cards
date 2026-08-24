@@ -434,7 +434,10 @@ export async function probePrivateAssetUploadResponse(
   }
 }
 
-export function selectSingleImageForUploadProbe(documentObject = globalThis.document) {
+export function selectSingleImageForUploadProbe(
+  documentObject = globalThis.document,
+  accept = "image/*",
+) {
   if (!documentObject?.createElement) {
     return Promise.reject(
       new Error("O seletor de arquivo não está disponível neste contexto."),
@@ -444,7 +447,7 @@ export function selectSingleImageForUploadProbe(documentObject = globalThis.docu
   return new Promise((resolve, reject) => {
     const input = documentObject.createElement("input");
     input.type = "file";
-    input.accept = "image/*";
+    input.accept = accept;
     input.multiple = false;
     input.hidden = true;
 

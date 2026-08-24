@@ -55,6 +55,13 @@ import {
   probePrivateAssetUploadResponse,
   runPrivateAssetUploadResponseConsoleProbe,
 } from "../src/private-asset-upload-probe.js";
+import {
+  bytesToDataUrl,
+  formatDataUrlImageProbeReport,
+  prepareDataUrlProbeImage,
+  readDataUrlImageDimensions,
+  runDataUrlImageProbe,
+} from "../src/data-url-image-probe.js";
 import { inspectImageBytes } from "./image-metadata.mjs";
 import { optimizePngForRuntime } from "./image-optimizer.mjs";
 
@@ -643,10 +650,11 @@ async function testManualPrivateAssetBindings() {
   await linkPrivateAssetPackFromOwlbear(OBR, storage);
   assert.equal(selectorCalls, 2);
 
-  const [privatePackSource, appSource, htmlSource] = await Promise.all([
+  const [privatePackSource, appSource, htmlSource, dataUrlProbeSource] = await Promise.all([
     readFile(path.join(PROJECT_ROOT, "src/private-asset-pack.js"), "utf8"),
     readFile(path.join(PROJECT_ROOT, "src/app.js"), "utf8"),
     readFile(path.join(PROJECT_ROOT, "index.html"), "utf8"),
+    readFile(path.join(PROJECT_ROOT, "src/data-url-image-probe.js"), "utf8"),
   ]);
   assert.equal(privatePackSource.includes("ensurePrivateAssetsLinked"), false);
   assert.equal(appSource.includes("ensurePrivateAssetsLinked"), false);
@@ -669,6 +677,20 @@ async function testManualPrivateAssetBindings() {
   }
   assert.equal(appSource.includes("runPrivateAssetUploadResponseConsoleProbe"), true);
   assert.equal(appSource.includes("formatPrivateAssetUploadResponseReport"), true);
+  for (const diagnosticControlId of [
+    "dataUrlProbeTestButton",
+    "dataUrlProbeCopyButton",
+    "dataUrlProbeStatus",
+    "dataUrlProbeResult",
+    "dataUrlProbeOutput",
+  ]) {
+    assert.equal(htmlSource.includes(`id="${diagnosticControlId}"`), true);
+    assert.equal(appSource.includes(diagnosticControlId), true);
+  }
+  assert.equal(appSource.includes("runDataUrlImageProbe"), true);
+  assert.equal(dataUrlProbeSource.includes("uploadImages"), false);
+  assert.equal(dataUrlProbeSource.includes("blob:"), false);
+  assert.equal(dataUrlProbeSource.includes("OBR.scene.items.addItems([item])"), true);
 }
 
 function createImageUploadBuilderRecorder(record) {
@@ -1193,6 +1215,193 @@ async function testPrivateAssetUploadResponseProbe() {
   assert.equal(builtUploads[0].name, "[Sonda Cartas Duplas] probe.png");
   assert.equal(consoleHarness.uploadCalls, 1);
   assert.equal(consoleHarness.windowObject.listeners.size, 0);
+}
+
+function createDataUrlBuildImageRecorder(record) {
+  return (image, grid) => {
+    const item = {
+      id: `data-url-probe-${record.length + 1}`,
+      type: "IMAGE",
+      image,
+      grid,
+    };
+    const builder = {
+      name(value) {
+        item.name = value;
+        return builder;
+      },
+      description(value) {
+        item.description = value;
+        return builder;
+      },
+      layer(value) {
+        item.layer = value;
+        return builder;
+      },
+      position(value) {
+        item.position = value;
+        return builder;
+      },
+      build() {
+        record.push(item);
+        return item;
+      },
+    };
+    return builder;
+  };
+}
+
+async function testDataUrlImageProbe() {
+  const pngBytes = Uint8Array.from(VALID_PNG_BYTES);
+  const directDataUrl = bytesToDataUrl(pngBytes, "image/png");
+  assert.equal(directDataUrl.startsWith("data:image/png;base64,"), true);
+  assert.deepEqual(
+    Buffer.from(directDataUrl.split(",")[1], "base64"),
+    Buffer.from(pngBytes),
+  );
+
+  let decodedSource = null;
+  class TestImage {
+    set src(value) {
+      decodedSource = value;
+      this.naturalWidth = 17;
+      this.naturalHeight = 9;
+      queueMicrotask(() => this.onload?.());
+    }
+  }
+  assert.deepEqual(await readDataUrlImageDimensions(directDataUrl, TestImage), {
+    width: 17,
+    height: 9,
+  });
+  assert.equal(decodedSource, directDataUrl);
+
+  const file = new File([pngBytes], "probe.png", { type: "image/png" });
+  const prepared = await prepareDataUrlProbeImage(file, {
+    readDimensions: async (dataUrl) => {
+      assert.equal(dataUrl.startsWith("data:image/png;base64,"), true);
+      return { width: 320, height: 180 };
+    },
+  });
+  assert.equal(prepared.mime, "image/png");
+  assert.equal(prepared.width, 320);
+  assert.equal(prepared.height, 180);
+  assert.equal(prepared.originalByteLength, pngBytes.byteLength);
+
+  const builtItems = [];
+  const addedItems = [];
+  let selectedFile = null;
+  let preparedSummary = null;
+  const report = await runDataUrlImageProbe(
+    {
+      scene: {
+        items: {
+          async addItems(items) {
+            assert.equal(items.length, 1);
+            addedItems.push(...items);
+          },
+        },
+      },
+    },
+    createDataUrlBuildImageRecorder(builtItems),
+    {
+      file,
+      getPosition: async () => ({ x: 123, y: 456 }),
+      readDimensions: async () => ({ width: 320, height: 180 }),
+      onFileSelected: (value) => {
+        selectedFile = value;
+      },
+      onPrepared: (value) => {
+        preparedSummary = value;
+      },
+    },
+  );
+
+  assert.equal(selectedFile, file);
+  assert.equal(builtItems.length, 1);
+  assert.equal(addedItems.length, 1);
+  assert.equal(addedItems[0], builtItems[0]);
+  assert.equal(builtItems[0].name, "[Sonda Cartas Duplas] data URL");
+  assert.equal(builtItems[0].layer, "PROP");
+  assert.deepEqual(builtItems[0].position, { x: 123, y: 456 });
+  assert.equal(builtItems[0].image.mime, "image/png");
+  assert.equal(builtItems[0].image.width, 320);
+  assert.equal(builtItems[0].image.height, 180);
+  assert.equal(builtItems[0].image.url.startsWith("data:image/png;base64,"), true);
+  assert.deepEqual(builtItems[0].grid, {
+    dpi: 160,
+    offset: { x: 160, y: 90 },
+  });
+  assert.equal(report.success, true);
+  assert.equal(report.addItemsCompleted, true);
+  assert.equal(report.itemId, builtItems[0].id);
+  assert.equal(report.dataUrlLength, builtItems[0].image.url.length);
+  assert.equal(report.dataUrlPrefix, "data:image/png;base64,...");
+  assert.equal(preparedSummary.dataUrlLength, report.dataUrlLength);
+  assert.equal(Object.hasOwn(report, "dataUrl"), false);
+
+  const reportText = formatDataUrlImageProbeReport(report);
+  assert.match(reportText, /Resultado: item criado/);
+  assert.match(reportText, /addItems terminou sem erro: sim/);
+  assert.match(reportText, /Recarregue completamente/);
+  assert.equal(reportText.includes(builtItems[0].image.url), false);
+  assert.equal(reportText.includes(builtItems[0].image.url.split(",")[1]), false);
+
+  const rejectedItems = [];
+  const addItemsError = new Error(
+    `Data URL scheme rejected: ${builtItems[0].image.url}`,
+  );
+  addItemsError.name = "ValidationError";
+  await assert.rejects(
+    () =>
+      runDataUrlImageProbe(
+        {
+          scene: {
+            items: {
+              async addItems(items) {
+                assert.equal(items.length, 1);
+                rejectedItems.push(...items);
+                throw addItemsError;
+              },
+            },
+          },
+        },
+        createDataUrlBuildImageRecorder([]),
+        {
+          file,
+          getPosition: async () => ({ x: 0, y: 0 }),
+          readDimensions: async () => ({ width: 320, height: 180 }),
+        },
+      ),
+    (error) => {
+      assert.equal(error.name, "DataUrlImageProbeError");
+      assert.equal(error.cause, addItemsError);
+      assert.equal(error.diagnosticReport.success, false);
+      assert.equal(error.diagnosticReport.addItemsCompleted, false);
+      assert.equal(error.diagnosticReport.error.name, "ValidationError");
+      assert.match(error.diagnosticReport.error.message, /Data URL scheme rejected/);
+      assert.match(error.diagnosticReport.error.message, /base64 omitida/);
+      assert.equal(
+        error.diagnosticReport.error.message.includes(builtItems[0].image.url),
+        false,
+      );
+      assert.match(error.diagnosticReport.error.stack, /Data URL scheme rejected/);
+      assert.equal(error.diagnosticReport.mime, "image/png");
+      assert.equal(error.diagnosticReport.width, 320);
+      assert.equal(error.diagnosticReport.height, 180);
+      assert.equal(
+        error.diagnosticReport.dataUrlLength,
+        rejectedItems[0].image.url.length,
+      );
+      const errorText = formatDataUrlImageProbeReport(error.diagnosticReport);
+      assert.match(errorText, /Resultado: falha/);
+      assert.match(errorText, /ValidationError/);
+      assert.match(errorText, /Data URL scheme rejected/);
+      assert.equal(errorText.includes(rejectedItems[0].image.url), false);
+      assert.equal(errorText.includes(rejectedItems[0].image.url.split(",")[1]), false);
+      return true;
+    },
+  );
+  assert.equal(rejectedItems.length, 1);
 }
 
 function createSceneUploadBuilderRecorder(record) {
@@ -1747,6 +1956,7 @@ await testPrivateAssetArchitecture();
 await testManualPrivateAssetBindings();
 await testPrivateAssetUploadPreparation();
 await testPrivateAssetUploadResponseProbe();
+await testDataUrlImageProbe();
 await testPrivateSceneUploadArchitecture();
 await testRuntimeImageOptimizationPolicy();
 await testPrivateAssetPackGeneratorFormats();
