@@ -226,6 +226,58 @@
         </details>
       </section>
 
+      <section class="form diagnostic-panel" aria-labelledby="httpsStorageProbeTitle">
+        <h2 id="httpsStorageProbeTitle">Diagn&oacute;stico tempor&aacute;rio &mdash; armazenamento HTTPS</h2>
+        <p class="field-note">
+          Selecione primeiro o Runtime Private Asset Pack. A sonda escolher&aacute; automaticamente
+          o menor WebP e o menor JPEG, sem enviar nenhum asset ao Owlbear.
+        </p>
+        <label class="field">
+          URL HTTPS do gateway da POC
+          <input
+            id="httpsStorageGatewayUrl"
+            type="url"
+            inputmode="url"
+            autocomplete="off"
+            placeholder="https://double-sided-cards-private-assets-poc.seu-subdominio.workers.dev"
+          />
+        </label>
+        <label class="field">
+          Capability tempor&aacute;ria de upload
+          <input
+            id="httpsStorageUploadToken"
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Cole somente para executar o teste"
+          />
+        </label>
+        <p class="field-note">
+          A capability de upload fica apenas na mem&oacute;ria durante esta execu&ccedil;&atilde;o; ela
+          n&atilde;o &eacute; salva no pack, no Owlbear ou no relat&oacute;rio.
+        </p>
+        <div class="action-grid">
+          <button id="httpsStorageProbeTestButton" class="button" type="button" disabled>
+            Testar armazenamento HTTPS
+          </button>
+          <button id="httpsStorageProbeCopyButton" class="button button--secondary" type="button" disabled>
+            Copiar relat&oacute;rio HTTPS
+          </button>
+        </div>
+        <p
+          id="httpsStorageProbeStatus"
+          class="field-note upload-probe-status"
+          role="status"
+          aria-live="polite"
+        >
+          Aguardando conex&atilde;o com o Owlbear&hellip;
+        </p>
+        <details id="httpsStorageProbeResult" class="diagnostic-result" hidden>
+          <summary>Relat&oacute;rio da sonda de armazenamento HTTPS</summary>
+          <pre id="httpsStorageProbeOutput" class="diagnostic-output"></pre>
+        </details>
+      </section>
+
       <p id="message" class="message" role="status" aria-live="polite"></p>
     </main>
 

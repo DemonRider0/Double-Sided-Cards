@@ -2310,12 +2310,12 @@ const CATEGORY_IDS = new Set(CARD_CATEGORIES.map((category) => category.id));
 const selectionOperationTails = new Map();
 Promise.resolve();
 
-function isRecord$3(value) {
+function isRecord$4(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 function copyDefinedRecord(value) {
-  if (!isRecord$3(value)) {
+  if (!isRecord$4(value)) {
     return {};
   }
 
@@ -2384,7 +2384,7 @@ function createEmptyState() {
 function normalizeState(value) {
   const emptyState = createEmptyState();
 
-  if (!isRecord$3(value)) {
+  if (!isRecord$4(value)) {
     return emptyState;
   }
 
@@ -2836,7 +2836,7 @@ let cachedRawState = undefined;
 let cachedState = null;
 let cachedResolver = null;
 
-function isRecord$2(value) {
+function isRecord$3(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
@@ -2967,7 +2967,7 @@ function assertSafeRelativePath(value, label) {
   return normalized;
 }
 
-function normalizeSha256(value, label) {
+function normalizeSha256$1(value, label) {
   const normalized = String(value || "").trim().toLowerCase();
   if (!/^sha256:[0-9a-f]{64}$/.test(normalized)) {
     throw new Error(`${label} precisa ser um SHA-256 no formato sha256:<hex>.`);
@@ -2981,14 +2981,14 @@ function isSupportedPrivateAssetPackVersion(version) {
 
 function validatePrivateAssetPack(value) {
   if (
-    !isRecord$2(value) ||
+    !isRecord$3(value) ||
     value.format !== PRIVATE_ASSET_PACK_FORMAT ||
     !isSupportedPrivateAssetPackVersion(value.version) ||
     typeof value.id !== "string" ||
     !value.id.trim() ||
-    !isRecord$2(value.assets) ||
-    !isRecord$2(value.aliases) ||
-    !isRecord$2(value.presets)
+    !isRecord$3(value.assets) ||
+    !isRecord$3(value.aliases) ||
+    !isRecord$3(value.presets)
   ) {
     throw new Error("O Private Asset Pack possui uma estrutura inválida.");
   }
@@ -2998,12 +2998,12 @@ function validatePrivateAssetPack(value) {
   pack.version = PRIVATE_ASSET_PACK_VERSION;
   pack.sourceFormatVersion = sourceFormatVersion;
   for (const [assetId, asset] of Object.entries(pack.assets)) {
-    if (!assetId || !isRecord$2(asset)) {
+    if (!assetId || !isRecord$3(asset)) {
       throw new Error("O Private Asset Pack possui um asset canônico inválido.");
     }
     asset.file = assertSafeRelativePath(asset.file, `O asset ${assetId}`);
-    const logicalSha256 = normalizeSha256(assetId, `O asset lógico ${assetId}`);
-    asset.blobSha256 = normalizeSha256(
+    const logicalSha256 = normalizeSha256$1(assetId, `O asset lógico ${assetId}`);
+    asset.blobSha256 = normalizeSha256$1(
       sourceFormatVersion === 1 ? asset.blobSha256 || logicalSha256 : asset.blobSha256,
       `O hash físico do asset ${assetId}`,
     );
@@ -3052,9 +3052,9 @@ function validatePrivateAssetPack(value) {
   }
 
   if (
-    !isRecord$2(pack.presets.cards) ||
-    !isRecord$2(pack.presets.decks) ||
-    !isRecord$2(pack.presets.scenes)
+    !isRecord$3(pack.presets.cards) ||
+    !isRecord$3(pack.presets.decks) ||
+    !isRecord$3(pack.presets.scenes)
   ) {
     throw new Error("Os manifests e presets do Private Asset Pack não foram carregados.");
   }
@@ -3062,9 +3062,9 @@ function validatePrivateAssetPack(value) {
   for (const [sceneId, scene] of Object.entries(pack.presets.scenes)) {
     if (
       !sceneId ||
-      !isRecord$2(scene) ||
-      !isRecord$2(scene.definition) ||
-      !isRecord$2(scene.preset)
+      !isRecord$3(scene) ||
+      !isRecord$3(scene.definition) ||
+      !isRecord$3(scene.preset)
     ) {
       throw new Error(`O preset privado ${sceneId || "sem ID"} é inválido.`);
     }
@@ -3074,8 +3074,8 @@ function validatePrivateAssetPack(value) {
 }
 
 function normalizeBinding(value) {
-  const image = isRecord$2(value?.image) ? value.image : value;
-  if (!isRecord$2(image) || typeof image.url !== "string" || !image.url.trim()) {
+  const image = isRecord$3(value?.image) ? value.image : value;
+  if (!isRecord$3(image) || typeof image.url !== "string" || !image.url.trim()) {
     return null;
   }
 
@@ -3103,7 +3103,7 @@ function normalizeBindings(bindings, pack) {
 }
 
 function validateStoredState(value) {
-  if (!isRecord$2(value) || value.version !== PRIVATE_ASSET_STATE_VERSION) {
+  if (!isRecord$3(value) || value.version !== PRIVATE_ASSET_STATE_VERSION) {
     return null;
   }
 
@@ -3273,7 +3273,7 @@ function createAssetResolver(pack = null, bindings = {}) {
   }
 
   function resolve(reference) {
-    const isObjectReference = isRecord$2(reference);
+    const isObjectReference = isRecord$3(reference);
     const rawReference = isObjectReference
       ? reference.assetId || reference.path || reference.url || ""
       : reference;
@@ -3330,7 +3330,7 @@ function createAssetResolver(pack = null, bindings = {}) {
     getCanonicalId,
     isReady(reference) {
       const assetId = getCanonicalId(
-        isRecord$2(reference)
+        isRecord$3(reference)
           ? reference.assetId || reference.path || reference.url || ""
           : reference,
       );
@@ -3389,7 +3389,7 @@ function resolveAssetReferences(value, options = {}) {
       return entry.map(visit);
     }
 
-    if (!isRecord$2(entry)) {
+    if (!isRecord$3(entry)) {
       if (typeof entry === "string") {
         const result = resolver.resolve(entry);
         if (result.canonicalId) {
@@ -3752,7 +3752,7 @@ class SceneRestoreError extends Error {
   }
 }
 
-function isRecord$1(value) {
+function isRecord$2(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
@@ -3853,7 +3853,7 @@ function validatePublicReferences(value, path = "preset", key = "") {
     return;
   }
 
-  if (isRecord$1(value)) {
+  if (isRecord$2(value)) {
     for (const [entryKey, entryValue] of Object.entries(value)) {
       validatePublicReferences(entryValue, `${path}.${entryKey}`, entryKey);
     }
@@ -3866,12 +3866,12 @@ function validatePresetBoardIntegrity(preset, itemIds) {
     return;
   }
 
-  if (!isRecord$1(board)) {
+  if (!isRecord$2(board)) {
     throw new Error("A metadata de seleção do mapa é inválida.");
   }
 
   for (const categories of Object.values(board.assigned || {})) {
-    if (!isRecord$1(categories)) {
+    if (!isRecord$2(categories)) {
       continue;
     }
 
@@ -3885,7 +3885,7 @@ function validatePresetBoardIntegrity(preset, itemIds) {
   const explicitColors = new Set();
   for (const item of preset.items) {
     const colorMetadata = item.metadata?.[COLOR_TOKEN_KEY];
-    if (isRecord$1(colorMetadata) && typeof colorMetadata.color === "string") {
+    if (isRecord$2(colorMetadata) && typeof colorMetadata.color === "string") {
       explicitColors.add(colorMetadata.color);
     }
   }
@@ -3901,7 +3901,7 @@ function validateOptionalSceneEnvironment(value) {
   if (value.grid !== undefined) {
     const grid = value.grid;
     if (
-      !isRecord$1(grid) ||
+      !isRecord$2(grid) ||
       !Number.isFinite(grid.dpi) ||
       grid.dpi <= 0 ||
       typeof grid.scale !== "string" ||
@@ -3925,7 +3925,7 @@ function validateOptionalSceneEnvironment(value) {
   if (value.fog !== undefined) {
     const fog = value.fog;
     if (
-      !isRecord$1(fog) ||
+      !isRecord$2(fog) ||
       typeof fog.filled !== "boolean" ||
       typeof fog.color !== "string" ||
       !fog.color.trim() ||
@@ -3944,7 +3944,7 @@ function validateCardAndDeckMetadata(item) {
       key === DECK_METADATA_KEY ||
       key.endsWith("/card") ||
       key.endsWith("/deck");
-    if (isCardOrDeck && !isRecord$1(value)) {
+    if (isCardOrDeck && !isRecord$2(value)) {
       throw new Error(`O item ${item.id} possui metadata de carta ou pilha inválida.`);
     }
   }
@@ -3965,11 +3965,11 @@ function validateScenePreset(
   }
 
   if (
-    !isRecord$1(value) ||
+    !isRecord$2(value) ||
     value.version !== PRESET_VERSION ||
     !Array.isArray(value.items) ||
     !value.items.length ||
-    !isRecord$1(value.metadata)
+    !isRecord$2(value.metadata)
   ) {
     throw new SceneRestoreError("O mapa salvo possui uma estrutura inválida.", {
       code: "INVALID_PRESET",
@@ -3996,7 +3996,7 @@ function validateScenePreset(
 
   const ids = new Set();
   for (const [index, item] of value.items.entries()) {
-    if (!isRecord$1(item) || typeof item.id !== "string" || !item.id.trim()) {
+    if (!isRecord$2(item) || typeof item.id !== "string" || !item.id.trim()) {
       throw new SceneRestoreError(`O item ${index + 1} do mapa não possui ID válido.`, {
         code: "INVALID_PRESET",
         stage: "validation",
@@ -4008,7 +4008,7 @@ function validateScenePreset(
         stage: "validation",
       });
     }
-    if (typeof item.type !== "string" || !item.type.trim() || !isRecord$1(item.metadata)) {
+    if (typeof item.type !== "string" || !item.type.trim() || !isRecord$2(item.metadata)) {
       throw new SceneRestoreError(`O item ${item.id} possui estrutura inválida.`, {
         code: "INVALID_PRESET",
         stage: "validation",
@@ -4253,7 +4253,7 @@ async function saveScenePreset(OBR, presetId) {
 
 const ASSET_DESCRIPTION_PREFIX = "double-sided-cards-private-asset:";
 
-function isRecord(value) {
+function isRecord$1(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
@@ -4329,10 +4329,10 @@ async function parseJsonFile(file, label) {
 
 async function hydratePrivateAssetPackManifest(manifest, readJson) {
   if (
-    !isRecord(manifest) ||
+    !isRecord$1(manifest) ||
     manifest.format !== PRIVATE_ASSET_PACK_FORMAT ||
     !isSupportedPrivateAssetPackVersion(manifest.version) ||
-    !isRecord(manifest.presets)
+    !isRecord$1(manifest.presets)
   ) {
     throw new Error("O manifesto do Private Asset Pack é inválido.");
   }
@@ -4342,7 +4342,7 @@ async function hydratePrivateAssetPackManifest(manifest, readJson) {
   const scenes = {};
 
   for (const [sceneId, sceneEntry] of Object.entries(manifest.presets.scenes || {})) {
-    if (!isRecord(sceneEntry) || typeof sceneEntry.file !== "string") {
+    if (!isRecord$1(sceneEntry) || typeof sceneEntry.file !== "string") {
       throw new Error(`A definição do preset ${sceneId} é inválida.`);
     }
 
@@ -5682,6 +5682,556 @@ function formatDataUrlImageProbeReport(report) {
   return lines.join("\n");
 }
 
+const PROBE_MIME_TYPES = Object.freeze(["image/webp", "image/jpeg"]);
+const SHA256_PATTERN = /^sha256:([0-9a-f]{64})$/;
+const MAX_PROBE_ASSET_SIZE = 2_000_000;
+
+function isRecord(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function getErrorMessage$1(error, fallback = "Falha desconhecida.") {
+  return typeof error?.message === "string" && error.message.trim()
+    ? error.message.trim()
+    : fallback;
+}
+
+function normalizeSha256(value, label = "blobSha256") {
+  const normalized = String(value || "").trim().toLowerCase();
+  const match = normalized.match(SHA256_PATTERN);
+  if (!match) {
+    throw new Error(`${label} precisa usar o formato sha256:<64 caracteres hexadecimais>.`);
+  }
+  return { value: normalized, hex: match[1] };
+}
+
+function normalizeMime(value) {
+  return String(value || "")
+    .split(";", 1)[0]
+    .trim()
+    .toLowerCase();
+}
+
+function assertProbeMime(value, label = "Asset") {
+  const mime = normalizeMime(value);
+  if (!PROBE_MIME_TYPES.includes(mime)) {
+    throw new Error(
+      `${label} usa MIME inesperado: ${mime || "não informado"}. A sonda aceita apenas image/webp e image/jpeg.`,
+    );
+  }
+  return mime;
+}
+
+function positiveInteger(value, label) {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${label} precisa ser um inteiro positivo.`);
+  }
+  return value;
+}
+
+function normalizeGatewayUrl(value) {
+  let url;
+  try {
+    url = new URL(String(value || "").trim());
+  } catch {
+    throw new Error("Informe uma URL válida para o gateway HTTPS.");
+  }
+
+  if (url.protocol !== "https:" || url.username || url.password) {
+    throw new Error("O gateway precisa usar HTTPS e não pode conter credenciais na URL.");
+  }
+  if (url.search || url.hash || !url.hostname) {
+    throw new Error("A URL do gateway não pode conter query string ou fragmento.");
+  }
+
+  return url.origin + url.pathname.replace(/\/+$/, "");
+}
+
+function getCrypto(cryptoImplementation) {
+  const implementation = cryptoImplementation || globalThis.crypto;
+  if (!implementation?.subtle?.digest) {
+    throw new Error("Este ambiente não oferece SHA-256 pela Web Crypto API.");
+  }
+  return implementation;
+}
+
+function toArrayBuffer(value) {
+  if (value instanceof ArrayBuffer) {
+    return value;
+  }
+  if (ArrayBuffer.isView(value)) {
+    return value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+  }
+  throw new TypeError("O cálculo de SHA-256 exige bytes em ArrayBuffer.");
+}
+
+async function calculateBlobSha256(bytes, cryptoImplementation) {
+  const digest = await getCrypto(cryptoImplementation).subtle.digest(
+    "SHA-256",
+    toArrayBuffer(bytes),
+  );
+  const hex = [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  return `sha256:${hex}`;
+}
+
+function getCandidateSize(asset, file) {
+  return Number.isFinite(file?.size) && file.size > 0 ? file.size : asset.size;
+}
+
+function findSmallestCandidate(selection, mime) {
+  return Object.entries(selection.pack.assets)
+    .flatMap(([assetId, asset]) => {
+      const file = selection.assetFiles.get(assetId);
+      return file && normalizeMime(asset.mime) === mime ? [{ assetId, asset, file }] : [];
+    })
+    .sort(
+      (left, right) =>
+        getCandidateSize(left.asset, left.file) - getCandidateSize(right.asset, right.file) ||
+        left.assetId.localeCompare(right.assetId),
+    )[0];
+}
+
+async function prepareCandidate(candidate, kind, cryptoImplementation) {
+  const { assetId, asset, file } = candidate;
+  const label = `${kind} ${assetId}`;
+  const mime = assertProbeMime(asset.mime, label);
+  const width = positiveInteger(asset.width, `A largura de ${label}`);
+  const height = positiveInteger(asset.height, `A altura de ${label}`);
+  const expectedSize = positiveInteger(asset.size, `O tamanho de ${label}`);
+  if (expectedSize > MAX_PROBE_ASSET_SIZE) {
+    throw new Error(
+      `${label} possui ${expectedSize} bytes; a POC aceita no máximo ${MAX_PROBE_ASSET_SIZE} bytes por arquivo.`,
+    );
+  }
+
+  const browserMime = normalizeMime(file.type);
+  if (browserMime && browserMime !== mime) {
+    throw new Error(
+      `${label} possui MIME divergente: manifesto ${mime}, navegador ${browserMime}.`,
+    );
+  }
+
+  const bytes = await file.arrayBuffer();
+  if (bytes.byteLength !== expectedSize) {
+    throw new Error(
+      `${label} possui ${bytes.byteLength} bytes, mas o manifesto declara ${expectedSize}.`,
+    );
+  }
+
+  const expectedHash = normalizeSha256(asset.blobSha256, `O blobSha256 de ${label}`).value;
+  const calculatedHash = await calculateBlobSha256(bytes, cryptoImplementation);
+  if (calculatedHash !== expectedHash) {
+    throw new Error(
+      `Integridade inválida em ${label}: calculado ${calculatedHash}, esperado ${expectedHash}.`,
+    );
+  }
+
+  return {
+    kind,
+    assetId,
+    blobSha256: expectedHash,
+    mime,
+    width,
+    height,
+    originalByteLength: bytes.byteLength,
+    bytes,
+  };
+}
+
+async function selectPrivateAssetStorageProbeAssets(
+  selection,
+  options = {},
+) {
+  if (!selection?.pack?.assets || !(selection.assetFiles instanceof Map)) {
+    throw new Error("Selecione novamente o Runtime Private Asset Pack antes da sonda HTTPS.");
+  }
+
+  const webp = findSmallestCandidate(selection, "image/webp");
+  const jpeg = findSmallestCandidate(selection, "image/jpeg");
+  if (!webp || !jpeg) {
+    throw new Error(
+      "O pack selecionado precisa conter pelo menos um WebP e um JPEG com arquivo disponível.",
+    );
+  }
+
+  return Promise.all([
+    prepareCandidate(webp, "WebP", options.crypto),
+    prepareCandidate(jpeg, "JPEG", options.crypto),
+  ]);
+}
+
+async function readJsonResponse(response, stage) {
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    const message =
+      typeof payload?.error === "string" && payload.error.trim()
+        ? payload.error.trim()
+        : `HTTP ${response.status}`;
+    throw new Error(`${stage}: ${message}.`);
+  }
+  if (!isRecord(payload)) {
+    throw new Error(`${stage}: o gateway retornou JSON inválido.`);
+  }
+  return payload;
+}
+
+function assertResolvedUrl(value) {
+  let url;
+  try {
+    url = new URL(String(value || ""));
+  } catch {
+    throw new Error("O gateway retornou uma URL GET inválida.");
+  }
+  if (url.protocol !== "https:" || url.username || url.password) {
+    throw new Error("O gateway retornou uma URL GET que não usa HTTPS seguro.");
+  }
+  return url.href;
+}
+
+function validateCheckResult(result, descriptor) {
+  if (!isRecord(result) || result.blobSha256 !== descriptor.blobSha256) {
+    throw new Error(`A consulta do gateway não confirmou ${descriptor.blobSha256}.`);
+  }
+  if (typeof result.exists !== "boolean") {
+    throw new Error(`A consulta do gateway não informou se ${descriptor.blobSha256} existe.`);
+  }
+  return {
+    blobSha256: result.blobSha256,
+    exists: result.exists,
+    url: typeof result.url === "string" && result.url ? assertResolvedUrl(result.url) : null,
+  };
+}
+
+function createPrivateAssetStorageClient(options = {}) {
+  const gatewayUrl = normalizeGatewayUrl(options.gatewayUrl);
+  const uploadToken = String(options.uploadToken || "");
+  const fetchImplementation = options.fetch || globalThis.fetch;
+  if (uploadToken.length < 32) {
+    throw new Error("Informe a capability temporária de upload fornecida no deploy da POC.");
+  }
+  if (typeof fetchImplementation !== "function") {
+    throw new Error("Este ambiente não oferece fetch para acessar o gateway.");
+  }
+
+  const authorizedHeaders = {
+    Authorization: `Bearer ${uploadToken}`,
+  };
+
+  return {
+    gatewayUrl,
+    gatewayHostname: new URL(gatewayUrl).hostname,
+
+    async checkBlobs(descriptors) {
+      const response = await fetchImplementation(`${gatewayUrl}/v1/blobs/check`, {
+        method: "POST",
+        credentials: "omit",
+        headers: {
+          ...authorizedHeaders,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          blobs: descriptors.map((descriptor) => ({
+            blobSha256: normalizeSha256(descriptor.blobSha256).value,
+            size: positiveInteger(descriptor.originalByteLength, "O tamanho do blob"),
+            mime: assertProbeMime(descriptor.mime),
+          })),
+        }),
+      });
+      const payload = await readJsonResponse(response, "Consulta de blobs");
+      if (!Array.isArray(payload.results) || payload.results.length !== descriptors.length) {
+        throw new Error("Consulta de blobs: o gateway retornou uma lista incompleta.");
+      }
+      return payload.results.map((result, index) =>
+        validateCheckResult(result, descriptors[index]),
+      );
+    },
+
+    async uploadBlob(descriptor) {
+      const hash = normalizeSha256(descriptor.blobSha256).hex;
+      const response = await fetchImplementation(`${gatewayUrl}/v1/blobs/${hash}`, {
+        method: "PUT",
+        credentials: "omit",
+        headers: {
+          ...authorizedHeaders,
+          "Content-Type": assertProbeMime(descriptor.mime),
+          "X-Blob-SHA256": descriptor.blobSha256,
+          "X-Blob-Size": String(descriptor.originalByteLength),
+        },
+        body: descriptor.bytes,
+      });
+      const payload = await readJsonResponse(response, `Upload de ${descriptor.blobSha256}`);
+      if (payload.blobSha256 !== descriptor.blobSha256 || payload.stored !== true) {
+        throw new Error(`Upload de ${descriptor.blobSha256}: confirmação inválida do gateway.`);
+      }
+      return {
+        stored: true,
+        alreadyExisted: payload.alreadyExisted === true,
+        url: assertResolvedUrl(payload.url),
+      };
+    },
+
+    async verifyGet(descriptor, rawUrl, cryptoImplementation) {
+      const url = assertResolvedUrl(rawUrl);
+      let response;
+      try {
+        response = await fetchImplementation(url, {
+          method: "GET",
+          credentials: "omit",
+        });
+      } catch (error) {
+        throw new Error(
+          `GET/CORS de ${descriptor.blobSha256} falhou: ${getErrorMessage$1(error)}`,
+        );
+      }
+      if (!response.ok) {
+        throw new Error(`GET de ${descriptor.blobSha256} retornou HTTP ${response.status}.`);
+      }
+
+      const receivedMime = normalizeMime(response.headers.get("Content-Type"));
+      if (receivedMime !== descriptor.mime) {
+        throw new Error(
+          `GET de ${descriptor.blobSha256} retornou Content-Type ${receivedMime || "ausente"}; esperado ${descriptor.mime}.`,
+        );
+      }
+      const bytes = await response.arrayBuffer();
+      if (bytes.byteLength !== descriptor.originalByteLength) {
+        throw new Error(
+          `GET de ${descriptor.blobSha256} retornou ${bytes.byteLength} bytes; esperado ${descriptor.originalByteLength}.`,
+        );
+      }
+      const calculatedHash = await calculateBlobSha256(bytes, cryptoImplementation);
+      if (calculatedHash !== descriptor.blobSha256) {
+        throw new Error(
+          `GET de ${descriptor.blobSha256} falhou na verificação SHA-256: recebido ${calculatedHash}.`,
+        );
+      }
+
+      const contentLengthHeader = response.headers.get("Content-Length");
+      const contentLength = contentLengthHeader == null ? null : Number(contentLengthHeader);
+      return {
+        status: response.status,
+        cors: "sucesso (resposta e bytes legíveis no navegador)",
+        contentType: receivedMime,
+        contentLength: Number.isFinite(contentLength) ? contentLength : null,
+        verifiedBlobSha256: calculatedHash,
+      };
+    },
+  };
+}
+
+function buildPrivateAssetStorageBinding(descriptor, rawUrl) {
+  return {
+    assetId: descriptor.assetId,
+    blobSha256: normalizeSha256(descriptor.blobSha256).value,
+    url: assertResolvedUrl(rawUrl),
+    width: positiveInteger(descriptor.width, "A largura do binding"),
+    height: positiveInteger(descriptor.height, "A altura do binding"),
+    mime: assertProbeMime(descriptor.mime),
+  };
+}
+
+function createAssetReport(descriptor) {
+  return {
+    kind: descriptor.kind,
+    assetId: descriptor.assetId,
+    blobSha256: descriptor.blobSha256,
+    mime: descriptor.mime,
+    width: descriptor.width,
+    height: descriptor.height,
+    originalByteLength: descriptor.originalByteLength,
+    alreadyExisted: null,
+    uploadPerformed: false,
+    uploadCompleted: false,
+    urlResolved: false,
+    urlHostname: null,
+    getUrl: null,
+    cors: "não verificado",
+    httpGetStatus: null,
+    receivedContentType: null,
+    receivedContentLength: null,
+    addItems: "não executado",
+    itemId: null,
+  };
+}
+
+function attachDiagnosticReport(error, report) {
+  const normalized = error instanceof Error ? error : new Error(String(error));
+  report.completedAt = new Date().toISOString();
+  report.success = false;
+  report.error = {
+    name: normalized.name || "Error",
+    message: getErrorMessage$1(normalized),
+  };
+  normalized.diagnosticReport = report;
+  return normalized;
+}
+
+async function runPrivateAssetStorageProbe(options = {}) {
+  const report = {
+    probe: "private-asset-storage-https",
+    startedAt: new Date().toISOString(),
+    completedAt: null,
+    success: false,
+    gatewayHostname: null,
+    assets: [],
+    doubleSidedCard: {
+      addItems: "não executado",
+      itemId: null,
+    },
+    error: null,
+  };
+
+  try {
+    options.onProgress?.({ stage: "selecting" });
+    const descriptors = await selectPrivateAssetStorageProbeAssets(options.selection, {
+      crypto: options.crypto,
+    });
+    report.assets = descriptors.map(createAssetReport);
+
+    const client = createPrivateAssetStorageClient({
+      gatewayUrl: options.gatewayUrl,
+      uploadToken: options.uploadToken,
+      fetch: options.fetch,
+    });
+    report.gatewayHostname = client.gatewayHostname;
+
+    options.onProgress?.({ stage: "checking", total: descriptors.length });
+    const initial = await client.checkBlobs(descriptors);
+    for (let index = 0; index < descriptors.length; index += 1) {
+      report.assets[index].alreadyExisted = initial[index].exists;
+      if (!initial[index].exists) {
+        options.onProgress?.({
+          stage: "uploading",
+          kind: descriptors[index].kind,
+          index: index + 1,
+          total: descriptors.length,
+        });
+        report.assets[index].uploadPerformed = true;
+        await client.uploadBlob(descriptors[index]);
+        report.assets[index].uploadCompleted = true;
+      }
+    }
+
+    options.onProgress?.({ stage: "confirming", total: descriptors.length });
+    const confirmed = await client.checkBlobs(descriptors);
+    const assets = [];
+    for (let index = 0; index < descriptors.length; index += 1) {
+      const descriptor = descriptors[index];
+      if (!confirmed[index].exists || !confirmed[index].url) {
+        throw new Error(`O gateway não confirmou o blob ${descriptor.blobSha256} após o upload.`);
+      }
+
+      const assetReport = report.assets[index];
+      assetReport.urlResolved = true;
+      assetReport.getUrl = confirmed[index].url;
+      assetReport.urlHostname = new URL(confirmed[index].url).hostname;
+      options.onProgress?.({
+        stage: "verifying-get",
+        kind: descriptor.kind,
+        index: index + 1,
+        total: descriptors.length,
+      });
+      const getResult = await client.verifyGet(
+        descriptor,
+        confirmed[index].url,
+        options.crypto,
+      );
+      assetReport.cors = getResult.cors;
+      assetReport.httpGetStatus = getResult.status;
+      assetReport.receivedContentType = getResult.contentType;
+      assetReport.receivedContentLength = getResult.contentLength;
+
+      const binding = buildPrivateAssetStorageBinding(descriptor, confirmed[index].url);
+      assets.push({
+        assetId: descriptor.assetId,
+        blobSha256: descriptor.blobSha256,
+        imageContent: {
+          width: binding.width,
+          height: binding.height,
+          mime: binding.mime,
+          url: binding.url,
+        },
+        binding,
+      });
+    }
+
+    report.completedAt = new Date().toISOString();
+    return { assets, report };
+  } catch (error) {
+    throw attachDiagnosticReport(error, report);
+  }
+}
+
+function yesNo(value) {
+  return value == null ? "não verificado" : value ? "sim" : "não";
+}
+
+function valueOrPending(value) {
+  return value == null || value === "" ? "não verificado" : String(value);
+}
+
+function formatPrivateAssetStorageProbeReport(report) {
+  const lines = [
+    "Diagnóstico temporário — armazenamento HTTPS",
+    `início: ${valueOrPending(report?.startedAt)}`,
+    `fim: ${valueOrPending(report?.completedAt)}`,
+    `gateway hostname: ${valueOrPending(report?.gatewayHostname)}`,
+    `resultado geral: ${report?.success ? "sucesso" : report?.error ? "falha" : "incompleto"}`,
+  ];
+
+  for (const asset of report?.assets || []) {
+    lines.push(
+      "",
+      `Asset ${asset.kind}`,
+      `assetId: ${valueOrPending(asset.assetId)}`,
+      `blobSha256: ${valueOrPending(asset.blobSha256)}`,
+      `mime: ${valueOrPending(asset.mime)}`,
+      `width: ${valueOrPending(asset.width)}`,
+      `height: ${valueOrPending(asset.height)}`,
+      `originalByteLength: ${valueOrPending(asset.originalByteLength)}`,
+      `já existia no storage: ${yesNo(asset.alreadyExisted)}`,
+      `upload realizado: ${yesNo(asset.uploadPerformed)}`,
+      `upload concluído: ${yesNo(asset.uploadCompleted)}`,
+      `URL resolvida: ${yesNo(asset.urlResolved)}`,
+      `hostname da URL: ${valueOrPending(asset.urlHostname)}`,
+      `URL GET (capability de acesso ao asset): ${valueOrPending(asset.getUrl)}`,
+      `CORS: ${valueOrPending(asset.cors)}`,
+      `HTTP GET: ${valueOrPending(asset.httpGetStatus)}`,
+      `Content-Type recebido: ${valueOrPending(asset.receivedContentType)}`,
+      `Content-Length recebido: ${valueOrPending(asset.receivedContentLength)}`,
+      `addItems: ${valueOrPending(asset.addItems)}`,
+      `itemId: ${valueOrPending(asset.itemId)}`,
+    );
+  }
+
+  lines.push(
+    "",
+    "Carta dupla de diagnóstico",
+    `addItems: ${valueOrPending(report?.doubleSidedCard?.addItems)}`,
+    `itemId: ${valueOrPending(report?.doubleSidedCard?.itemId)}`,
+  );
+  if (report?.error) {
+    lines.push(
+      "",
+      `erro: ${valueOrPending(report.error.name)}: ${valueOrPending(report.error.message)}`,
+    );
+  }
+  lines.push(
+    "",
+    "O relatório não contém a capability de upload nem credenciais Cloudflare/R2.",
+    "A URL GET contém uma capability de leitura necessária para os jogadores carregarem o asset.",
+  );
+  return lines.join("\n");
+}
+
 const elements = {
   presetDeckSelect: document.querySelector("#presetDeckSelect"),
   presetDeckGridWidth: document.querySelector("#presetDeckGridWidth"),
@@ -5719,6 +6269,13 @@ const elements = {
   dataUrlProbeStatus: document.querySelector("#dataUrlProbeStatus"),
   dataUrlProbeResult: document.querySelector("#dataUrlProbeResult"),
   dataUrlProbeOutput: document.querySelector("#dataUrlProbeOutput"),
+  httpsStorageGatewayUrl: document.querySelector("#httpsStorageGatewayUrl"),
+  httpsStorageUploadToken: document.querySelector("#httpsStorageUploadToken"),
+  httpsStorageProbeTestButton: document.querySelector("#httpsStorageProbeTestButton"),
+  httpsStorageProbeCopyButton: document.querySelector("#httpsStorageProbeCopyButton"),
+  httpsStorageProbeStatus: document.querySelector("#httpsStorageProbeStatus"),
+  httpsStorageProbeResult: document.querySelector("#httpsStorageProbeResult"),
+  httpsStorageProbeOutput: document.querySelector("#httpsStorageProbeOutput"),
   developmentSaveSceneButtons: [...document.querySelectorAll("[data-save-scene-preset]")],
   createScenePresetButtons: [...document.querySelectorAll("[data-create-scene-preset]")],
   defaultBoardInfo: document.querySelector("#defaultBoardInfo"),
@@ -5744,6 +6301,8 @@ let uploadProbeRunning = false;
 let uploadProbeReportText = "";
 let dataUrlProbeRunning = false;
 let dataUrlProbeReportText = "";
+let httpsStorageProbeRunning = false;
+let httpsStorageProbeReportText = "";
 const customSelects = new Map();
 
 window.addEventListener("error", (event) => {
@@ -5980,6 +6539,185 @@ async function copyDataUrlProbeReport() {
   }
 }
 
+function setHttpsStorageProbeStatus(text, tone = "neutral") {
+  elements.httpsStorageProbeStatus.textContent = text;
+  elements.httpsStorageProbeStatus.dataset.tone = tone;
+}
+
+function updateHttpsStorageProbeControls(isConnected = Boolean(obr)) {
+  const hasGateway = Boolean(elements.httpsStorageGatewayUrl.value.trim());
+  const hasUploadToken = elements.httpsStorageUploadToken.value.length >= 32;
+  const hasSelectedPack = Boolean(selectedPrivatePack?.assetFiles?.size);
+  elements.httpsStorageProbeTestButton.disabled =
+    httpsStorageProbeRunning ||
+    privatePackRunning ||
+    !isConnected ||
+    !hasSelectedPack ||
+    !hasGateway ||
+    !hasUploadToken;
+  elements.httpsStorageProbeCopyButton.disabled =
+    httpsStorageProbeRunning || !httpsStorageProbeReportText;
+}
+
+function showHttpsStorageProbeReport(report) {
+  httpsStorageProbeReportText = formatPrivateAssetStorageProbeReport(report);
+  elements.httpsStorageProbeOutput.textContent = httpsStorageProbeReportText;
+  elements.httpsStorageProbeResult.hidden = false;
+  elements.httpsStorageProbeResult.open = true;
+}
+
+function setHttpsStorageProgress(event) {
+  const messages = {
+    selecting: "Escolhendo automaticamente o menor WebP e o menor JPEG e validando SHA-256…",
+    checking: "Consultando no gateway quais blobs já existem…",
+    uploading: `Enviando somente o ${event.kind || "asset"} que está faltando…`,
+    confirming: "Confirmando no gateway os dois objetos armazenados…",
+    "verifying-get": `Verificando HTTPS, CORS, MIME, tamanho e SHA-256 do ${event.kind || "asset"}…`,
+  };
+  setHttpsStorageProbeStatus(messages[event.stage] || "Executando a sonda HTTPS…", "neutral");
+}
+
+async function getHttpsStorageProbePositions() {
+  const [width, height] = await Promise.all([
+    obr.viewport.getWidth(),
+    obr.viewport.getHeight(),
+  ]);
+  return Promise.all([
+    obr.viewport.inverseTransformPoint({ x: width * 0.28, y: height * 0.4 }),
+    obr.viewport.inverseTransformPoint({ x: width * 0.72, y: height * 0.4 }),
+    obr.viewport.inverseTransformPoint({ x: width * 0.5, y: height * 0.72 }),
+  ]);
+}
+
+async function addHttpsStorageProbeItems(result) {
+  const [webpPosition, jpegPosition, cardPosition] =
+    await getHttpsStorageProbePositions();
+  const positions = [webpPosition, jpegPosition];
+  const names = ["[Sonda HTTPS] WebP", "[Sonda HTTPS] JPEG"];
+
+  for (let index = 0; index < result.assets.length; index += 1) {
+    const asset = result.assets[index];
+    const assetReport = result.report.assets[index];
+    try {
+      const item = buildImage(
+        createImageData(asset.imageContent),
+        createGridData(asset.imageContent, 3),
+      )
+        .name(names[index])
+        .description("Sonda temporária de armazenamento HTTPS")
+        .layer("PROP")
+        .position(positions[index])
+        .build();
+      await obr.scene.items.addItems([item]);
+      assetReport.addItems = "sucesso";
+      assetReport.itemId = item.id || null;
+    } catch (error) {
+      assetReport.addItems = `falha: ${getErrorMessage(error)}`;
+      throw error;
+    }
+  }
+
+  try {
+    const card = await addCardToScene({
+      name: "[Sonda HTTPS] Carta dupla",
+      front: result.assets[0].imageContent,
+      back: result.assets[1].imageContent,
+      gridWidth: 3,
+      layer: "PROP",
+      position: cardPosition,
+    });
+    result.report.doubleSidedCard.addItems = "sucesso";
+    result.report.doubleSidedCard.itemId = card.id || null;
+  } catch (error) {
+    result.report.doubleSidedCard.addItems = `falha: ${getErrorMessage(error)}`;
+    throw error;
+  }
+}
+
+async function runHttpsStorageProbeFromPanel() {
+  if (!obr || !buildImage) {
+    setHttpsStorageProbeStatus(
+      "Sonda indisponível: o painel não está conectado ao Owlbear.",
+      "error",
+    );
+    return;
+  }
+  if (!selectedPrivatePack?.assetFiles?.size) {
+    setHttpsStorageProbeStatus(
+      "Selecione novamente o Runtime Private Asset Pack antes do teste.",
+      "warning",
+    );
+    return;
+  }
+
+  const gatewayUrl = elements.httpsStorageGatewayUrl.value.trim();
+  const uploadToken = elements.httpsStorageUploadToken.value;
+  elements.httpsStorageUploadToken.value = "";
+  httpsStorageProbeRunning = true;
+  httpsStorageProbeReportText = "";
+  elements.httpsStorageProbeOutput.textContent = "";
+  elements.httpsStorageProbeResult.hidden = true;
+  updateHttpsStorageProbeControls(true);
+  updatePrivatePackControls(true);
+
+  let result = null;
+  try {
+    result = await runPrivateAssetStorageProbe({
+      selection: selectedPrivatePack,
+      gatewayUrl,
+      uploadToken,
+      onProgress: setHttpsStorageProgress,
+    });
+    setHttpsStorageProbeStatus(
+      "Armazenamento confirmado. Criando dois itens IMAGE e uma carta dupla na cena…",
+      "neutral",
+    );
+    await addHttpsStorageProbeItems(result);
+    result.report.success = true;
+    result.report.completedAt = new Date().toISOString();
+    showHttpsStorageProbeReport(result.report);
+    setHttpsStorageProbeStatus(
+      "Sonda concluída: dois itens e uma carta dupla foram criados. Copie o relatório.",
+      "success",
+    );
+  } catch (error) {
+    const report = error?.diagnosticReport || result?.report;
+    if (report) {
+      report.success = false;
+      report.completedAt = new Date().toISOString();
+      report.error ||= {
+        name: error?.name || "Error",
+        message: getErrorMessage(error),
+      };
+      showHttpsStorageProbeReport(report);
+    }
+    setHttpsStorageProbeStatus(`Falha na sonda HTTPS: ${getErrorMessage(error)}`, "error");
+  } finally {
+    httpsStorageProbeRunning = false;
+    updatePrivatePackControls(Boolean(obr));
+    updateHttpsStorageProbeControls(Boolean(obr));
+  }
+}
+
+async function copyHttpsStorageProbeReport() {
+  if (!httpsStorageProbeReportText) {
+    setHttpsStorageProbeStatus("Execute a sonda HTTPS antes de copiar o relatório.", "warning");
+    return;
+  }
+  try {
+    await writeTextToClipboard(httpsStorageProbeReportText);
+    setHttpsStorageProbeStatus(
+      "Relatório de armazenamento HTTPS copiado para a área de transferência.",
+      "success",
+    );
+  } catch (error) {
+    setHttpsStorageProbeStatus(
+      `Não foi possível copiar o relatório: ${getErrorMessage(error)}`,
+      "error",
+    );
+  }
+}
+
 function setConnectionStatus(text, isConnected) {
   elements.connectionStatus.textContent = text;
   elements.connectionStatus.dataset.connected = String(isConnected);
@@ -5999,16 +6737,19 @@ function setConnectionStatus(text, isConnected) {
   updateMissionDeckControls(isConnected);
   updateUploadProbeControls(isConnected);
   updateDataUrlProbeControls(isConnected);
+  updateHttpsStorageProbeControls(isConnected);
 }
 
 function updatePrivatePackControls(isConnected = Boolean(obr)) {
   const status = getPrivateAssetPackStatus();
-  elements.privatePackChooseButton.disabled = privatePackRunning;
+  const assetTaskRunning = privatePackRunning || httpsStorageProbeRunning;
+  elements.privatePackChooseButton.disabled = assetTaskRunning;
   elements.privatePackUploadButton.disabled =
-    privatePackRunning || !isConnected || !selectedPrivatePack?.assetFiles?.size;
+    assetTaskRunning || !isConnected || !selectedPrivatePack?.assetFiles?.size;
   elements.privatePackLinkButton.disabled =
-    privatePackRunning || !isConnected || !status.configured;
-  elements.privatePackClearButton.disabled = privatePackRunning || !status.configured;
+    assetTaskRunning || !isConnected || !status.configured;
+  elements.privatePackClearButton.disabled = assetTaskRunning || !status.configured;
+  updateHttpsStorageProbeControls(isConnected);
 
   if (!status.configured) {
     elements.privatePackInfo.textContent =
@@ -7428,6 +8169,29 @@ async function init() {
     });
   });
   updateDataUrlProbeControls(false);
+  elements.httpsStorageGatewayUrl.addEventListener("input", () =>
+    updateHttpsStorageProbeControls(Boolean(obr)),
+  );
+  elements.httpsStorageUploadToken.addEventListener("input", () =>
+    updateHttpsStorageProbeControls(Boolean(obr)),
+  );
+  elements.httpsStorageProbeTestButton.addEventListener("click", () => {
+    runHttpsStorageProbeFromPanel().catch((error) => {
+      setHttpsStorageProbeStatus(
+        `Falha na sonda HTTPS: ${getErrorMessage(error)}`,
+        "error",
+      );
+    });
+  });
+  elements.httpsStorageProbeCopyButton.addEventListener("click", () => {
+    copyHttpsStorageProbeReport().catch((error) => {
+      setHttpsStorageProbeStatus(
+        `Não foi possível copiar o relatório: ${getErrorMessage(error)}`,
+        "error",
+      );
+    });
+  });
+  updateHttpsStorageProbeControls(false);
   elements.panelFlipButton.addEventListener("click", () =>
     runPanelAction(elements.panelFlipButton, async () => {
       const fallbackSelection = lastFlipSelection.length
@@ -7552,6 +8316,10 @@ async function init() {
     );
     setUploadProbeStatus("Sonda indisponível: o painel não conectou ao Owlbear.", "error");
     setDataUrlProbeStatus("Sonda indisponível: o painel não conectou ao Owlbear.", "error");
+    setHttpsStorageProbeStatus(
+      "Sonda indisponível: o painel não conectou ao Owlbear.",
+      "error",
+    );
     return;
   }
 
@@ -7574,6 +8342,11 @@ async function init() {
     "neutral",
   );
   updateDataUrlProbeControls(true);
+  setHttpsStorageProbeStatus(
+    "Pronto. Selecione o Runtime Pack e informe a URL e a capability do gateway da POC.",
+    "neutral",
+  );
+  updateHttpsStorageProbeControls(true);
   obr.broadcast
     .sendMessage(COMMANDS_CHANNEL, { type: "register-commands" }, { destination: "LOCAL" })
     .catch((error) => {

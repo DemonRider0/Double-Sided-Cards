@@ -1,0 +1,17 @@
+{
+  "name": "double-sided-cards-private-asset-gateway-poc",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "configure": "node scripts/configure-poc-secrets.mjs",
+    "rotate:upload": "node scripts/configure-poc-secrets.mjs --upload-only",
+    "secret:upload": "wrangler secret put POC_UPLOAD_TOKEN",
+    "secret:read": "wrangler secret put POC_READ_CAPABILITY"
+  },
+  "devDependencies": {
+    "wrangler": "4.125.0"
+  }
+}

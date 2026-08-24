@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 const port = Number.parseInt(process.argv[2] ?? "5173", 10);
 const host = "127.0.0.1";
+const publicMountPath = "/Double-Sided-Cards";
 const trustedHostnames = new Set(["localhost", "127.0.0.1"]);
 const localAssetsDir = path.join(root, ".local-assets");
 const scenePresetDir = path.join(root, ".private-asset-source", "scene-presets");
@@ -71,7 +72,13 @@ function isTrustedInternalRequest(request) {
 }
 
 function resolveRequestPath(rawPathname) {
-  const pathname = rawPathname === "/" ? "/index.html" : rawPathname;
+  const mountedPathname =
+    rawPathname === publicMountPath
+      ? "/"
+      : rawPathname.startsWith(`${publicMountPath}/`)
+        ? rawPathname.slice(publicMountPath.length)
+        : rawPathname;
+  const pathname = mountedPathname === "/" ? "/index.html" : mountedPathname;
   const safePath = decodeURIComponent(pathname).replace(/^[/\\]+/, "");
   const filePath = path.resolve(root, safePath);
 

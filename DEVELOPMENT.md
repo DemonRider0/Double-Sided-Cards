@@ -2,6 +2,13 @@
 
 Este documento reúne as instruções operacionais do projeto Cartas Duplas. A documentação pública de uso fica em [README.md](README.md); regras permanentes e contratos de compatibilidade ficam em [PROJECT_RULES.md](PROJECT_RULES.md).
 
+## POC de armazenamento HTTPS
+
+A prova isolada Cloudflare Worker + R2 está documentada em
+[`private-asset-gateway/README.md`](private-asset-gateway/README.md). Ela não substitui o resolver
+nem o fluxo de bindings de produção e processa somente um WebP e um JPEG escolhidos automaticamente
+do Runtime Private Asset Pack.
+
 ## Estado e identidade do projeto
 
 - Nome público: **Cartas Duplas**.

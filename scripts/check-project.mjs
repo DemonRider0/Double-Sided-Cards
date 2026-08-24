@@ -97,6 +97,9 @@ const codeFiles = [
   ...(await collectFiles(path.join(root, "src"), codeExtensions)),
   ...(await collectFiles(path.join(root, "dist"), codeExtensions)),
   ...(await collectFiles(path.join(root, "vendor"), codeExtensions)),
+  ...(await collectFiles(path.join(root, "private-asset-gateway", "src"), codeExtensions)),
+  ...(await collectFiles(path.join(root, "private-asset-gateway", "scripts"), codeExtensions)),
+  ...(await collectFiles(path.join(root, "private-asset-gateway", "test"), codeExtensions)),
 ];
 codeFiles.forEach(checkSyntax);
 
@@ -139,9 +142,27 @@ for (const id of [
   "privatePackUploadButton",
   "privatePackLinkButton",
   "privatePackClearButton",
+  "httpsStorageGatewayUrl",
+  "httpsStorageUploadToken",
+  "httpsStorageProbeTestButton",
+  "httpsStorageProbeCopyButton",
 ]) {
   if (!html.includes(`id="${id}"`)) {
     throw new Error(`Controle do Private Asset Pack ausente: ${id}`);
+  }
+}
+
+const publicBundle = await readFile(path.join(root, "dist", "app.js"), "utf8");
+for (const secretName of [
+  "CLOUDFLARE_API_TOKEN",
+  "CLOUDFLARE_API_KEY",
+  "R2_ACCESS_KEY_ID",
+  "R2_SECRET_ACCESS_KEY",
+  "POC_READ_CAPABILITY",
+  "POC_UPLOAD_TOKEN",
+]) {
+  if (publicBundle.includes(secretName)) {
+    throw new Error(`O bundle público contém o identificador administrativo ${secretName}.`);
   }
 }
 

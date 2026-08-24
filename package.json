@@ -13,7 +13,7 @@
     "optimize:private-asset-pack": "node scripts/optimize-private-asset-pack.mjs",
     "check:private-asset-pack": "node scripts/check-private-asset-pack.mjs",
     "check": "node scripts/check-project.mjs",
-    "test:regressions": "node scripts/test-regressions.mjs"
+    "test:regressions": "node scripts/test-regressions.mjs && node scripts/test-private-asset-storage.mjs && node --test private-asset-gateway/test/worker.test.mjs"
   },
   "dependencies": {
     "@owlbear-rodeo/sdk": "3.1.0"

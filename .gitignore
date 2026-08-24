@@ -5,3 +5,9 @@ node_modules/
 private-asset-pack*/
 *.log
 *.bak
+.env
+.env.*
+.dev.vars
+.dev.vars.*
+.wrangler/
+private-asset-gateway/.poc-*

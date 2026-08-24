@@ -68,6 +68,10 @@ import {
   formatDataUrlImageProbeReport,
   runDataUrlImageProbe,
 } from "./data-url-image-probe.js";
+import {
+  formatPrivateAssetStorageProbeReport,
+  runPrivateAssetStorageProbe,
+} from "./private-asset-storage.js";
 
 const elements = {
   presetDeckSelect: document.querySelector("#presetDeckSelect"),
@@ -106,6 +110,13 @@ const elements = {
   dataUrlProbeStatus: document.querySelector("#dataUrlProbeStatus"),
   dataUrlProbeResult: document.querySelector("#dataUrlProbeResult"),
   dataUrlProbeOutput: document.querySelector("#dataUrlProbeOutput"),
+  httpsStorageGatewayUrl: document.querySelector("#httpsStorageGatewayUrl"),
+  httpsStorageUploadToken: document.querySelector("#httpsStorageUploadToken"),
+  httpsStorageProbeTestButton: document.querySelector("#httpsStorageProbeTestButton"),
+  httpsStorageProbeCopyButton: document.querySelector("#httpsStorageProbeCopyButton"),
+  httpsStorageProbeStatus: document.querySelector("#httpsStorageProbeStatus"),
+  httpsStorageProbeResult: document.querySelector("#httpsStorageProbeResult"),
+  httpsStorageProbeOutput: document.querySelector("#httpsStorageProbeOutput"),
   developmentSaveSceneButtons: [...document.querySelectorAll("[data-save-scene-preset]")],
   createScenePresetButtons: [...document.querySelectorAll("[data-create-scene-preset]")],
   defaultBoardInfo: document.querySelector("#defaultBoardInfo"),
@@ -131,6 +142,8 @@ let uploadProbeRunning = false;
 let uploadProbeReportText = "";
 let dataUrlProbeRunning = false;
 let dataUrlProbeReportText = "";
+let httpsStorageProbeRunning = false;
+let httpsStorageProbeReportText = "";
 const customSelects = new Map();
 
 window.addEventListener("error", (event) => {
@@ -367,6 +380,185 @@ async function copyDataUrlProbeReport() {
   }
 }
 
+function setHttpsStorageProbeStatus(text, tone = "neutral") {
+  elements.httpsStorageProbeStatus.textContent = text;
+  elements.httpsStorageProbeStatus.dataset.tone = tone;
+}
+
+function updateHttpsStorageProbeControls(isConnected = Boolean(obr)) {
+  const hasGateway = Boolean(elements.httpsStorageGatewayUrl.value.trim());
+  const hasUploadToken = elements.httpsStorageUploadToken.value.length >= 32;
+  const hasSelectedPack = Boolean(selectedPrivatePack?.assetFiles?.size);
+  elements.httpsStorageProbeTestButton.disabled =
+    httpsStorageProbeRunning ||
+    privatePackRunning ||
+    !isConnected ||
+    !hasSelectedPack ||
+    !hasGateway ||
+    !hasUploadToken;
+  elements.httpsStorageProbeCopyButton.disabled =
+    httpsStorageProbeRunning || !httpsStorageProbeReportText;
+}
+
+function showHttpsStorageProbeReport(report) {
+  httpsStorageProbeReportText = formatPrivateAssetStorageProbeReport(report);
+  elements.httpsStorageProbeOutput.textContent = httpsStorageProbeReportText;
+  elements.httpsStorageProbeResult.hidden = false;
+  elements.httpsStorageProbeResult.open = true;
+}
+
+function setHttpsStorageProgress(event) {
+  const messages = {
+    selecting: "Escolhendo automaticamente o menor WebP e o menor JPEG e validando SHA-256…",
+    checking: "Consultando no gateway quais blobs já existem…",
+    uploading: `Enviando somente o ${event.kind || "asset"} que está faltando…`,
+    confirming: "Confirmando no gateway os dois objetos armazenados…",
+    "verifying-get": `Verificando HTTPS, CORS, MIME, tamanho e SHA-256 do ${event.kind || "asset"}…`,
+  };
+  setHttpsStorageProbeStatus(messages[event.stage] || "Executando a sonda HTTPS…", "neutral");
+}
+
+async function getHttpsStorageProbePositions() {
+  const [width, height] = await Promise.all([
+    obr.viewport.getWidth(),
+    obr.viewport.getHeight(),
+  ]);
+  return Promise.all([
+    obr.viewport.inverseTransformPoint({ x: width * 0.28, y: height * 0.4 }),
+    obr.viewport.inverseTransformPoint({ x: width * 0.72, y: height * 0.4 }),
+    obr.viewport.inverseTransformPoint({ x: width * 0.5, y: height * 0.72 }),
+  ]);
+}
+
+async function addHttpsStorageProbeItems(result) {
+  const [webpPosition, jpegPosition, cardPosition] =
+    await getHttpsStorageProbePositions();
+  const positions = [webpPosition, jpegPosition];
+  const names = ["[Sonda HTTPS] WebP", "[Sonda HTTPS] JPEG"];
+
+  for (let index = 0; index < result.assets.length; index += 1) {
+    const asset = result.assets[index];
+    const assetReport = result.report.assets[index];
+    try {
+      const item = buildImage(
+        createImageData(asset.imageContent),
+        createGridData(asset.imageContent, 3),
+      )
+        .name(names[index])
+        .description("Sonda temporária de armazenamento HTTPS")
+        .layer("PROP")
+        .position(positions[index])
+        .build();
+      await obr.scene.items.addItems([item]);
+      assetReport.addItems = "sucesso";
+      assetReport.itemId = item.id || null;
+    } catch (error) {
+      assetReport.addItems = `falha: ${getErrorMessage(error)}`;
+      throw error;
+    }
+  }
+
+  try {
+    const card = await addCardToScene({
+      name: "[Sonda HTTPS] Carta dupla",
+      front: result.assets[0].imageContent,
+      back: result.assets[1].imageContent,
+      gridWidth: 3,
+      layer: "PROP",
+      position: cardPosition,
+    });
+    result.report.doubleSidedCard.addItems = "sucesso";
+    result.report.doubleSidedCard.itemId = card.id || null;
+  } catch (error) {
+    result.report.doubleSidedCard.addItems = `falha: ${getErrorMessage(error)}`;
+    throw error;
+  }
+}
+
+async function runHttpsStorageProbeFromPanel() {
+  if (!obr || !buildImage) {
+    setHttpsStorageProbeStatus(
+      "Sonda indisponível: o painel não está conectado ao Owlbear.",
+      "error",
+    );
+    return;
+  }
+  if (!selectedPrivatePack?.assetFiles?.size) {
+    setHttpsStorageProbeStatus(
+      "Selecione novamente o Runtime Private Asset Pack antes do teste.",
+      "warning",
+    );
+    return;
+  }
+
+  const gatewayUrl = elements.httpsStorageGatewayUrl.value.trim();
+  const uploadToken = elements.httpsStorageUploadToken.value;
+  elements.httpsStorageUploadToken.value = "";
+  httpsStorageProbeRunning = true;
+  httpsStorageProbeReportText = "";
+  elements.httpsStorageProbeOutput.textContent = "";
+  elements.httpsStorageProbeResult.hidden = true;
+  updateHttpsStorageProbeControls(true);
+  updatePrivatePackControls(true);
+
+  let result = null;
+  try {
+    result = await runPrivateAssetStorageProbe({
+      selection: selectedPrivatePack,
+      gatewayUrl,
+      uploadToken,
+      onProgress: setHttpsStorageProgress,
+    });
+    setHttpsStorageProbeStatus(
+      "Armazenamento confirmado. Criando dois itens IMAGE e uma carta dupla na cena…",
+      "neutral",
+    );
+    await addHttpsStorageProbeItems(result);
+    result.report.success = true;
+    result.report.completedAt = new Date().toISOString();
+    showHttpsStorageProbeReport(result.report);
+    setHttpsStorageProbeStatus(
+      "Sonda concluída: dois itens e uma carta dupla foram criados. Copie o relatório.",
+      "success",
+    );
+  } catch (error) {
+    const report = error?.diagnosticReport || result?.report;
+    if (report) {
+      report.success = false;
+      report.completedAt = new Date().toISOString();
+      report.error ||= {
+        name: error?.name || "Error",
+        message: getErrorMessage(error),
+      };
+      showHttpsStorageProbeReport(report);
+    }
+    setHttpsStorageProbeStatus(`Falha na sonda HTTPS: ${getErrorMessage(error)}`, "error");
+  } finally {
+    httpsStorageProbeRunning = false;
+    updatePrivatePackControls(Boolean(obr));
+    updateHttpsStorageProbeControls(Boolean(obr));
+  }
+}
+
+async function copyHttpsStorageProbeReport() {
+  if (!httpsStorageProbeReportText) {
+    setHttpsStorageProbeStatus("Execute a sonda HTTPS antes de copiar o relatório.", "warning");
+    return;
+  }
+  try {
+    await writeTextToClipboard(httpsStorageProbeReportText);
+    setHttpsStorageProbeStatus(
+      "Relatório de armazenamento HTTPS copiado para a área de transferência.",
+      "success",
+    );
+  } catch (error) {
+    setHttpsStorageProbeStatus(
+      `Não foi possível copiar o relatório: ${getErrorMessage(error)}`,
+      "error",
+    );
+  }
+}
+
 function setConnectionStatus(text, isConnected) {
   elements.connectionStatus.textContent = text;
   elements.connectionStatus.dataset.connected = String(isConnected);
@@ -386,16 +578,19 @@ function setConnectionStatus(text, isConnected) {
   updateMissionDeckControls(isConnected);
   updateUploadProbeControls(isConnected);
   updateDataUrlProbeControls(isConnected);
+  updateHttpsStorageProbeControls(isConnected);
 }
 
 function updatePrivatePackControls(isConnected = Boolean(obr)) {
   const status = getPrivateAssetPackStatus();
-  elements.privatePackChooseButton.disabled = privatePackRunning;
+  const assetTaskRunning = privatePackRunning || httpsStorageProbeRunning;
+  elements.privatePackChooseButton.disabled = assetTaskRunning;
   elements.privatePackUploadButton.disabled =
-    privatePackRunning || !isConnected || !selectedPrivatePack?.assetFiles?.size;
+    assetTaskRunning || !isConnected || !selectedPrivatePack?.assetFiles?.size;
   elements.privatePackLinkButton.disabled =
-    privatePackRunning || !isConnected || !status.configured;
-  elements.privatePackClearButton.disabled = privatePackRunning || !status.configured;
+    assetTaskRunning || !isConnected || !status.configured;
+  elements.privatePackClearButton.disabled = assetTaskRunning || !status.configured;
+  updateHttpsStorageProbeControls(isConnected);
 
   if (!status.configured) {
     elements.privatePackInfo.textContent =
@@ -1825,6 +2020,29 @@ async function init() {
     });
   });
   updateDataUrlProbeControls(false);
+  elements.httpsStorageGatewayUrl.addEventListener("input", () =>
+    updateHttpsStorageProbeControls(Boolean(obr)),
+  );
+  elements.httpsStorageUploadToken.addEventListener("input", () =>
+    updateHttpsStorageProbeControls(Boolean(obr)),
+  );
+  elements.httpsStorageProbeTestButton.addEventListener("click", () => {
+    runHttpsStorageProbeFromPanel().catch((error) => {
+      setHttpsStorageProbeStatus(
+        `Falha na sonda HTTPS: ${getErrorMessage(error)}`,
+        "error",
+      );
+    });
+  });
+  elements.httpsStorageProbeCopyButton.addEventListener("click", () => {
+    copyHttpsStorageProbeReport().catch((error) => {
+      setHttpsStorageProbeStatus(
+        `Não foi possível copiar o relatório: ${getErrorMessage(error)}`,
+        "error",
+      );
+    });
+  });
+  updateHttpsStorageProbeControls(false);
   elements.panelFlipButton.addEventListener("click", () =>
     runPanelAction(elements.panelFlipButton, async () => {
       const fallbackSelection = lastFlipSelection.length
@@ -1949,6 +2167,10 @@ async function init() {
     );
     setUploadProbeStatus("Sonda indisponível: o painel não conectou ao Owlbear.", "error");
     setDataUrlProbeStatus("Sonda indisponível: o painel não conectou ao Owlbear.", "error");
+    setHttpsStorageProbeStatus(
+      "Sonda indisponível: o painel não conectou ao Owlbear.",
+      "error",
+    );
     return;
   }
 
@@ -1971,6 +2193,11 @@ async function init() {
     "neutral",
   );
   updateDataUrlProbeControls(true);
+  setHttpsStorageProbeStatus(
+    "Pronto. Selecione o Runtime Pack e informe a URL e a capability do gateway da POC.",
+    "neutral",
+  );
+  updateHttpsStorageProbeControls(true);
   obr.broadcast
     .sendMessage(COMMANDS_CHANNEL, { type: "register-commands" }, { destination: "LOCAL" })
     .catch((error) => {

@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "double-sided-cards-private-assets-poc",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-08-24",
+  "workers_dev": true,
+  "r2_buckets": [
+    {
+      "binding": "PRIVATE_ASSETS",
+      "bucket_name": "double-sided-cards-private-assets-poc"
+    }
+  ]
+}
+
