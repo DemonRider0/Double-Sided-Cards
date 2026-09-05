@@ -16,10 +16,10 @@ do Runtime Private Asset Pack.
 - Plataforma: Owlbear Rodeo.
 - Hospedagem pública: GitHub Pages.
 - Autoria: DemonRider.
-- Manifesto público da versão 1.0.0: `https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=103`.
-- Versão pública atual no manifesto: `1.0.0`.
+- Manifesto público da versão 1.0.1: `https://demonrider0.github.io/Double-Sided-Cards/manifest.json?v=104`.
+- Versão pública atual no manifesto: `1.0.1`.
 
-`package.json`, `package-lock.json` e `manifest.json` usam `1.0.0`. A unificação foi adotada para a primeira versão pública estável; versões históricas permanecem registradas no changelog e no histórico de auditorias.
+`package.json`, `package-lock.json` e `manifest.json` usam `1.0.1`. A unificação foi adotada para a primeira versão pública estável; versões históricas permanecem registradas no changelog e no histórico de auditorias.
 
 A descrição de `manifest.json` resume o escopo funcional. Bibliotecas e mapas pessoais são opcionais e não fazem parte do conteúdo hospedado pelo Core.
 
